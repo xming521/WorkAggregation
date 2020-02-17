@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" type="text/css" href="../static/css/c1.css"/>
+    <link rel="stylesheet" type="text/css" href="../static/css/mdui.min.css"/>
+    <script src="../static/webjs/mdui.min.js"></script>
+</head>
+
+<body>
+
+{% block content %}
+    <h1>不好意思发生了错误</h1>
+    <h1>请返回首页，点击右下角的QQ,将项目目录下的log文件发送给开发者</h1>
+    <p><a href="{{ url_for('index') }}">Back</a></p>
+{% endblock %}
+
+</body>
+</html>
