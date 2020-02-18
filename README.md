@@ -23,3 +23,6 @@
 系统大致结构如下图，spider目录存放爬虫代码，analysis目录承担了导入、分析、渲染图表、交互等功能，data目录存放原始数据，conf目录存放图表、mysql配置文件。导入处理分析入口统一由analysis_main控制，由server调用，其他功能直接由server调用，所有功能在主页就可以启动。
 ![](https://github.com/xming521/picture/blob/master/job2.png)
 ![](https://github.com/xming521/picture/blob/master/job1.jpg)
+
+### 鸣谢
+鸣谢 server酱、 pyechart 、腾讯云等的产品或技术支持
