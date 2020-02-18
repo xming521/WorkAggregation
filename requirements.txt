@@ -6,7 +6,7 @@ pyecharts==0.5.9
 beautifulsoup4==4.6.3
 jieba==0.39
 pandas==0.23.4
-Requests==2.19.1
+Requests==2.20.0
 csvtotable==2.1.1
 echarts-themes-pypkg==0.0.3
 echarts-countries-pypkg==0.1.4
