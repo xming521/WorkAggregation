@@ -24,7 +24,7 @@
 ![](https://github.com/xming521/picture/blob/master/job1.jpg)
 
 ## 截图
-
+http://job.xmzj.xyz
 
 ## 鸣谢
 鸣谢 server酱、 pyechart 、腾讯云等的产品或技术支持
