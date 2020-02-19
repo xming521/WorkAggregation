@@ -81,7 +81,7 @@ class Job51Spider(BaseSpider, metaclass=SpiderMeta):
               "=&specialarea=00&from=&welfare=".format(citycode, self.job, page)
         a = self.request(url=url, method='get', encoding='GBK')
         html = etree.HTML(a)
-        maxpage = html.xpath('//*[@id="resultList"]/div[2]/div[5]/text()')[1].replace(' / ', '')
+        maxpage = html.xpath('//*[@id="resultList"]/div[2]/div[5]/text()')[2].replace('/', '').strip()
         maxpage = eval(maxpage)
         # 解析页数
         while True:
@@ -352,8 +352,8 @@ def main(dict_parameter):
         writer.writerow(
             ['provider', 'keyword', 'title', 'place', 'salary', 'experience', 'education', 'companytype',
              'industry', 'description'])
-    total = eval(dict_parameter.get('total')[0])
-    number = eval(dict_parameter.get('number')[0])
+    total = eval(dict_parameter.get('total'))
+    number = eval(dict_parameter.get('number'))
     if dict_parameter.get('threads'):
         threads = True
     else:
