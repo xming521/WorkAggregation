@@ -5,6 +5,16 @@
 
 # 部分网站爬虫可能已无法使用 注意使用时的爬虫选项
 
+## 截图
+<img  src="https://github.com/xming521/picture/blob/master/QQ截图20200220123347.png"/>  
+<img  src="https://github.com/xming521/picture/blob/master/QQ截图20200220123917.png"/>  
+<img  src="https://github.com/xming521/picture/blob/master/QQ截图20200220123715.png"/>  
+<img  src="https://github.com/xming521/picture/blob/master/QQ截图20200220123555.png"/>  
+<img  src="https://github.com/xming521/picture/blob/master/QQ截图20200220124101.png"/>  
+<img  src="https://github.com/xming521/picture/blob/master/QQ截图20200220123731.png"/>  
+
+
+
 ## 环境
 - Windows \ Linux (未测试)
 - Python 3.6 : **numpy , pandas , Requests , pyecharts , lxml , PyMySQL**
@@ -24,8 +34,8 @@
 ![](https://github.com/xming521/picture/blob/master/job2.png)
 ![](https://github.com/xming521/picture/blob/master/job1.jpg)
 
-## 截图
-http://job.xmzj.xyz
+
+
 
 ## 鸣谢
 鸣谢 server酱、 pyechart 、腾讯云等的产品或技术支持
