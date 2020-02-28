@@ -10,9 +10,12 @@ class Analyze():
     chart_fn_list=[]
 
     conf = configparser.ConfigParser()
-
-    user = "root"
-    password = "zym233521"
+    
+    以下配置请修改
+    user = ""
+    password = ""
+    
+    
     db = pymysql.connect(host="localhost", user=user, password=password, charset="utf8")
     cursor = db.cursor()
     # cursor.execute("CREATE DATABASE `ujn_a` CHARACTER SET 'utf8';")
