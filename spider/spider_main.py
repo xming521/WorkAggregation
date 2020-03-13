@@ -347,7 +347,7 @@ def main(dict_parameter):
     if os.path.exists('./data/test.csv'):
         os.remove('./data/test.csv')
         os.remove('./templates/data.html')
-    with open('data/test.csv', 'a', encoding='utf-8', newline='') as f:
+    with open('data/test.csv', 'a+', encoding='utf-8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(
             ['provider', 'keyword', 'title', 'place', 'salary', 'experience', 'education', 'companytype',
