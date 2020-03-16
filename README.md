@@ -3,7 +3,8 @@
 本系统以Python为核心，依托web展示，所有功能在网页就可以完成操作，爬虫、分析、可视化、互动独立成模块，互通有无。具体依托python的丰富库实现，爬虫使用Requests爬取，使用lxml、beautifulsoup4解析。使用numpy、pandas分析数据，使用pyecharts做可视化，使用Flask进行web后台建设。数据通过csv、MySQL、配置文件来进行存储互通。  
 为了拓展功能编写了定时器，微信推送，为了适应团队合作编写了函数注册器，参数迭代器。爬虫数据来自前程无忧、齐鲁人才网、猎聘网、拉勾网等等网站，需要的基本数据一应俱全。
 
-# 有问题请提issue或者加群<a target="_blank" href="//shang.qq.com/wpa/qunwpa?idkey=27e25dff61966a838fa5f96d4e398f7c96566dad85c2b7f9da942d496f5202d6">精英码农批发</a>
+# 有问题请提issue或者加群<a target="_blank" href="//shang.qq.com/wpa/qunwpa?idkey=27e25dff61966a838fa5f96d4e398f7c96566dad85c2b7f9da942d496f5202d6">精英码农批发</a>   
+# 觉得不错欢迎给star⭐哦
 
 
 
