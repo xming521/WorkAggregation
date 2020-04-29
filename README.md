@@ -27,12 +27,14 @@
 
 ## 安装
 1. 运行 install_package.bat（出错管理员权限下尝试）   
-2. 修改mysql配置 位于/analysis/analysis_main.py   如果需要导入数据库数据还需修改input_data.py内容 
-### 数据库字段
-<img  src="https://github.com/xming521/picture/blob/master/db.png"/>  
+2. 修改mysql配置 位于/analysis/analysis_main.py   
+系统本身有一个可视化的配置文件，即您不需要再导入数据进行分析，如果想重新分析，需要导入数据库数据还需按照数据库字段修改input_data.py内容 
 3. 将js.7z 解压放在/static 目录下
 4. 运行 server.py 来运行web服务器  
 5. 使用Chrome访问 http://127.0.0.1  
+
+### 数据库字段
+<img  src="https://github.com/xming521/picture/blob/master/db.png"/>  
 
 ## 架构
 系统大致结构如下图，spider目录存放爬虫代码，analysis目录承担了导入、分析、渲染图表、交互等功能，data目录存放原始数据，conf目录存放图表、mysql配置文件。导入处理分析入口统一由analysis_main控制，由server调用，其他功能直接由server调用，所有功能在主页就可以启动。
