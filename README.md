@@ -27,7 +27,9 @@
 
 ## 安装
 1. 运行 install_package.bat（出错管理员权限下尝试）   
-2. 修改mysql配置 位于/analysis/analysis_main.py 
+2. 修改mysql配置 位于/analysis/analysis_main.py   如果需要导入数据库数据还需修改input_data.py内容 
+### 数据库字段
+<img  src="https://github.com/xming521/picture/blob/master/db.png"/>  
 3. 将js.7z 解压放在/static 目录下
 4. 运行 server.py 来运行web服务器  
 5. 使用Chrome访问 http://127.0.0.1  
