@@ -368,8 +368,8 @@ def main(dict_parameter):
         writer.writerow(
             ['provider', 'keyword', 'title', 'place', 'salary', 'experience', 'education', 'companytype',
              'industry', 'description'])
-    total = eval(dict_parameter.get('total')[0])
-    number = eval(dict_parameter.get('number')[0])
+    total = eval(dict_parameter.get('total')[0])  #todo 不知道为什么服务器上不需要【0】
+    number = eval(dict_parameter.get('number')[0])   #todo 不知道为什么服务器上不需要【0】
     if dict_parameter.get('threads'):
         threads = True
     else:
