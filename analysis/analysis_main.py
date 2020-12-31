@@ -11,9 +11,9 @@ class Analyze():
 
     conf = configparser.ConfigParser()
     
-    以下配置请修改
-    user = ""
-    password = ""
+    # 以下配置请修改
+    user = "root"
+    password = "zym233521"
     
     
     db = pymysql.connect(host="localhost", user=user, password=password, charset="utf8")

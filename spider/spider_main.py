@@ -6,6 +6,7 @@ import os
 import random
 import threading
 import time
+import traceback
 from multiprocessing import Process, Queue
 from threading import Thread
 
@@ -17,7 +18,6 @@ from .tool import log, timer
 
 
 class SpiderMeta(type):
-
     spiders = []
 
     def __new__(cls, name, bases, attrs):
@@ -26,7 +26,6 @@ class SpiderMeta(type):
 
 
 class BaseSpider(object):
-
     headers = {
         'Accept': 'text/html,application/xhtml+xml,application/xml;'
                   'q=0.9,image/webp,image/apng,*/*;q=0.8',
@@ -80,9 +79,13 @@ class Job51Spider(BaseSpider, metaclass=SpiderMeta):
               "&providesalary=99&lonlat=0%2C0&radius=-1&ord_field=0&confirmdate=9&fromType=&dibiaoid=0&address=&line" \
               "=&specialarea=00&from=&welfare=".format(citycode, self.job, page)
         a = self.request(url=url, method='get', encoding='GBK')
-        html = etree.HTML(a)
-        maxpage = html.xpath('//*[@id="resultList"]/div[2]/div[5]/text()')[2].replace('/', '').strip()
-        maxpage = eval(maxpage)
+
+        js = etree.HTML(a).xpath('/html/body/script[2]/text()')[0]  # 注意解析变成html里的js变量了
+        jsonCode = js.partition('=')[2].strip()
+        json_res = json.loads(jsonCode)
+
+        maxpage = eval(json_res['total_page'])
+
         # 解析页数
         while True:
             url = "https://search.51job.com/list/{},000000,0100%252C2400%252C2700%252C2500,00,9,99,{},2," \
@@ -100,20 +103,23 @@ class Job51Spider(BaseSpider, metaclass=SpiderMeta):
     def get_urls(self, url):
         try:
             a = self.request(url=url, method='get', encoding='GBK')
-            html = etree.HTML(a)
-            urls = html.xpath('//*[@id="resultList"]/div[@class="el"]/p/span/a')
+            js = etree.HTML(a).xpath('/html/body/script[2]/text()')[0]  # 注意解析变成html里的js变量了
+            jsonCode = js.partition('=')[2].strip()
+            json_res = json.loads(jsonCode)
+            urls = [i['job_href'] for i in json_res['engine_search_result']]
             if threading.activeCount() > 10:
                 log.printlog(str(threading.activeCount()) + '线程存在，请注意检查程序外部阻塞原因')
                 time.sleep(3)
             if self.threads:
                 for i in urls:
-                    t = threading.Thread(target=self.get_job_detail, args=(i.get('href'),))
+                    t = threading.Thread(target=self.get_job_detail, args=(i,))
                     t.start()
                     time.sleep(0.03)
             else:
                 for i in urls:
-                    self.get_job_detail(i.get('href'))
-        except:
+                    self.get_job_detail(i)
+        except Exception as e:
+            traceback.print_exc()
             time.sleep(2)
             self.get_urls(url)
 
@@ -224,7 +230,11 @@ class BaiduSpider(BaseSpider, metaclass=SpiderMeta):
 
     def get_job_detail(self, url):
         html = self.request(url=url, method='get')
-        dict1 = json.loads(html)
+        try:
+            dict1 = json.loads(html)
+        except Exception as e:
+            return
+
         dict2 = dict1['data']['disp_data']
 
         for i in dict2:
@@ -255,7 +265,7 @@ class SpiderProcess(Process):
 
         self.threads = threads
 
-    def iter_spider(self, spider):
+    def iter_spider(self, spider, spider_count):
         setattr(spider, 'job', self.job)
         setattr(spider, 'city', self.city)
         setattr(spider, 'threads', self.threads)
@@ -263,8 +273,8 @@ class SpiderProcess(Process):
         error = 0
         result = spider.run()
         if result == 'over':
-            error = error + 1
-            print('爬虫可能已结束')
+            self.data_queue.put('over')
+            error += 1
         if error == 10:
             log.printlog('%s-%s-%s- 爬虫已结束' % (spider.__class__.__name__, self.city, self.job))
             return
@@ -282,7 +292,7 @@ class SpiderProcess(Process):
         spider_count = len(spiders)
         threads = []
         for i in range(spider_count):
-            t = Thread(target=self.iter_spider, args=(spiders[i],))
+            t = Thread(target=self.iter_spider, args=(spiders[i], spider_count,))
             t.setDaemon(True)
             t.start()
             threads.append(t)
@@ -298,24 +308,29 @@ class SpiderProcess(Process):
 class WriterProcess(Process):
     """写数据进程"""
 
-    def __init__(self, data_queue, number, type=None):
+    def __init__(self, data_queue, number, type=None, spider_process=None, spider_count=None):
         Process.__init__(self)
         self.data_queue = data_queue
         self.type = type
         self.number = number
+        self.spider_process = spider_process
+        self.spider_count = spider_count
 
     def run(self):
-
-        id = 1
-        with open('data/test.csv', 'a', encoding='utf-8', newline='') as f:
+        id, over = 1, 0
+        with open('data/test.csv', 'a+', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
             while True:
                 if id == self.number + 1:
                     f.close()
                     return
-
                 result = self.data_queue.get()
-                if result:
+                if result == 'over':
+                    over = over + 1
+                    if over == self.spider_count:
+                        f.close()
+                        return
+                elif result:
                     row = [
                         result.get('provider'), result.get('keyword'), result.get('title'), result.get('place'),
                         result.get('salary'), result.get('experience'), result.get('education'),
@@ -327,7 +342,6 @@ class WriterProcess(Process):
 
 def main(dict_parameter):
     queue = Queue()
-
 
     jobs = ['软件', '图像', '自然语言处理', '人工智能', '学习', '前端', '后端', '数据', '算法', '测试', '网络安全', '运维', 'UI', '区块链', '网络', '全栈',
             '硬件', 'Java', 'C++', 'PHP', 'C#', '.NET', 'Hadoop', 'Python', 'Perl', 'Ruby', 'Nodejs', 'Go', 'Javascript',
@@ -343,17 +357,19 @@ def main(dict_parameter):
              '阜阳', '拉萨', '清远', '宿州', '丽水', '铜陵', '湛江', '沧州', '黄山', '阿克苏', '舟山', '安庆', '临沂', '衢州', '南阳', '肇庆', '随州',
              '吉安', '兴安盟', '萍乡', '攀枝花', '承德', '上海']
 
-
     if os.path.exists('./data/test.csv'):
-        os.remove('./data/test.csv')
-        os.remove('./templates/data.html')
+        try:
+            os.remove('./data/test.csv')
+            os.remove('./static/html/data.html')
+        except:
+            pass
     with open('data/test.csv', 'a+', encoding='utf-8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(
             ['provider', 'keyword', 'title', 'place', 'salary', 'experience', 'education', 'companytype',
              'industry', 'description'])
-    total = eval(dict_parameter.get('total'))
-    number = eval(dict_parameter.get('number'))
+    total = eval(dict_parameter.get('total')[0])
+    number = eval(dict_parameter.get('number')[0])
     if dict_parameter.get('threads'):
         threads = True
     else:
@@ -364,16 +380,16 @@ def main(dict_parameter):
             if dict_parameter.get('time'):
                 timer.main(beginhour=eval(dict_parameter.get('hour')[0]),
                            beginminute=eval(dict_parameter.get('minute')[0]))
-            p1 = SpiderProcess(queue, job, city, type=dict_parameter.get('type'), threads=threads)
-            p2 = WriterProcess(queue, number=number)
+            spider_type = dict_parameter.get('type')
+            p1 = SpiderProcess(queue, job, city, type=spider_type, threads=threads)
+            p2 = WriterProcess(queue, number=number, spider_process=p1, spider_count=len(spider_type))
             p1.start()
             p2.start()
             p2.join()
             log.printlog(string=city + job + '爬取完成')
             p1.terminate()
             if no * number >= total:
-                log.easypush(string=str(total) + '条数据爬取完成')
-                os.system('csvtotable ./data/test.csv ./templates/data.html')
+                os.system('csvtotable ./data/test.csv ./static/html/data.html')
                 p2.terminate()
                 return
             p1.join()

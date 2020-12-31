@@ -1,6 +1,6 @@
 import logging
 from datetime import timedelta
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request,send_file,send_from_directory
 from analysis import analysis_main, create_chart, interaction
 from spider import spider_main, tool
 
@@ -18,10 +18,10 @@ handler.setLevel(logging.ERROR)
 app.logger.addHandler(handler)
 
 
-@app.errorhandler(500)
-def internal_error(exception):
-    app.logger.error(exception)
-    return render_template('500.html'), 500
+# @app.errorhandler(500)
+# def internal_error(exception):
+#     app.logger.error(exception)
+#     return render_template('500.html'), 500
 
 
 @app.route("/")
@@ -38,7 +38,7 @@ def ready_spider():
 def get_spider():
     dict_parameter = dict(request.form)
     spider_main.main(dict_parameter)
-    return ready_spider()
+    return app.send_static_file('./html/data.html')
 
 
 @app.route("/爬虫结果")

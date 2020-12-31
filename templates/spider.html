@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -14,7 +14,7 @@
 <body class="mdui-theme-primary-light-blue mdui-theme-accent-blue">
 
 
-<div class="loader"></div>
+<div class="loader"> <h2 style="transform: rotate(0deg); !important">等待数分钟后将自动下载爬取的数据</h2></div>
 
 <div class="container2 mdui-card">
     <form action="/爬虫完成" method="post">
@@ -28,7 +28,7 @@
 
                     <label class="mdui-list-item mdui-ripple">
                         <div class="mdui-checkbox">
-                            <input type="checkbox" name="type" value="51" checked/>
+                            <input type="checkbox" name="type" value="51" checked="" >
                             <i class="mdui-checkbox-icon"></i>
                         </div>
                         <div class="mdui-list-item-content">前程无忧网</div>
@@ -36,15 +36,15 @@
 
                     <label class="mdui-list-item mdui-ripple">
                         <div class="mdui-checkbox">
-                            <input type="checkbox" name="type" value="qilu"/>
+                            <input type="checkbox" name="type" value="qilu"  disabled="">
                             <i class="mdui-checkbox-icon"></i>
                         </div>
-                        <div class="mdui-list-item-content">齐鲁人才网</div>
+                        <div class="mdui-list-item-content">齐鲁人才网（暂不可用）</div>
                     </label>
 
                     <label class="mdui-list-item mdui-ripple">
                         <div class="mdui-checkbox">
-                            <input type="checkbox" name="type" value="baidu"/>
+                            <input type="checkbox" name="type" value="baidu" checked="" />
                             <i class="mdui-checkbox-icon"></i>
                         </div>
                         <div class="mdui-list-item-content" mdui-tooltip="{content: '在百度百聘平台抓取'}">
@@ -70,19 +70,19 @@
                             <i class="mdui-switch-icon"></i>
                         </label>
                     </li>
-                    <div class="mdui-textfield mdui-textfield-floating-label" mdui-tooltip="{content: '建议在200~500'}">
+                    <div class="mdui-textfield mdui-textfield-floating-label" >
                         <label class="mdui-textfield-label">必填 每个关键字和城市的爬取量</label>
-                        <input class="mdui-textfield-input" name="number"/>
+                        <input class="mdui-textfield-input" name="number" value="100" >
                     </div>
-                    <div class="mdui-textfield mdui-textfield-floating-label" mdui-tooltip="{content: '建议在1000左右'}">
+                    <div class="mdui-textfield mdui-textfield-floating-label" >
                         <label class="mdui-textfield-label">必填 爬取总数</label>
-                        <input class="mdui-textfield-input" name="total"/>
+                        <input class="mdui-textfield-input" name="total" value="500" >
                     </div>
 
                 </div>
             </td>
 
-            <td><p>&nbsp;&nbsp;</p></td>
+            <td><p></p></td>
 
             <td>
 
@@ -91,34 +91,28 @@
                         定时爬取
                     </div>
                     <label class="mdui-switch">
-                        <input type="checkbox" name="time" value="1"/>
+                        <input type="checkbox" name="time" value="1" disabled>
                         <i class="mdui-switch-icon"></i>
                     </label>
                 </li>
 
                 <div class="mdui-textfield mdui-textfield-floating-label" mdui-tooltip="{content: '24小时制'}">
                     <label class="mdui-textfield-label">小时</label>
-                    <input class="mdui-textfield-input" name="hour" type="number"/>
+                    <input class="mdui-textfield-input" name="hour" type="number" disabled>
                 </div>
                 <div class="mdui-textfield mdui-textfield-floating-label">
                     <label class="mdui-textfield-label">分钟</label>
-                    <input class="mdui-textfield-input" name="minute" type="number"/>
+                    <input class="mdui-textfield-input" name="minute" type="number" disabled>
                 </div>
             </td>
             <td>
-                <p>&nbsp;</p>
+                <h2>&nbsp;服务器性能有限，<br>可能需要等待3-5分钟<br>抓取的数据将自动下载</h2>
             </td>
-            <td style="text-align: center;">
-                <label class="mdui-list-item ">
-                    <div class="mdui-list-item-content">微信扫描二维码<br>爬虫完成后将以微信方式通知您</div>
-                </label>
-                <img src="../static/icon/QR.jpg" width="200" height="200" id="qr">
-            </td>
+
         </table>
         <div class="mdui-dialog-actions">
-            <a href="/爬虫结果" class="mdui-btn mdui-ripple">微信收到消息后查看结果</a>
             <button type="submit" class="mdui-btn mdui-ripple"
-                    onclick="document.getElementsByClassName('loader')[0].style.display='block'">开始爬取
+                   >开始爬取
             </button>
         </div>
     </form>
