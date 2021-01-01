@@ -77,6 +77,11 @@
 </body>
 
 <script>
+      window.onload = function(){
+　　get([0,16,17,1],"#example1-tab2");
+console.log(222)
+}
+
     function get(url,tab) {
         for (var i in url){
             let j=0
@@ -92,12 +97,11 @@
                 console.log(e)
             },
         });
-
-
         }
-
-
     }
+
+
+
 </script>
 
 
