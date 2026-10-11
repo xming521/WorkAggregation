@@ -22,7 +22,7 @@ async function installation(t, overrides) {
 test('installed ASAR audit verifies the exact production entrypoint and complete unoccupied module closure', async t => {
   const root = await installation(t);
   assert.deepEqual(await auditInstalledResponseObserver(root), {
-    auditedProductCommit: 'ae98002d73f3477b5d72de4f8ca2dc841856ecd5', verifiedModuleCount: 12,
+    auditedProductCommit: '3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8', verifiedModuleCount: 12,
     mainEntryMatched: true, responseStartedUnused: true,
   });
 });

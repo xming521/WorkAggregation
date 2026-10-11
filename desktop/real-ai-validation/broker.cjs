@@ -25,8 +25,8 @@ function equalToken(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-const PROVENANCE = Object.freeze({ productCommit: 'ae98002d73f3477b5d72de4f8ca2dc841856ecd5', buildRunId: '38084680213',
-  artifactId: '11681692412', installerSha256: '8a1dcda9939499d5dd030b9f7a48398703d3eae8d459c1eb6f912bcd460e9d1a',
+const PROVENANCE = Object.freeze({ productCommit: '3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8', buildRunId: '38126232510',
+  artifactId: '11697823484', installerSha256: '7038977acd92c9778cc83db77e3084509aea7d18d5ea678cb1ca41864c882158',
   ...PRICE_REVIEW, mode: 'FIXED_EXE_UI_BUDGET_BROKER' });
 
 function currentPriceWindow(timeoutMs = 0) {

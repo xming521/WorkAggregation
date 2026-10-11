@@ -9,6 +9,7 @@ import { createPackageWithOptions, createPackageFromStreams } from '@electron/as
 import { Readable } from 'node:stream';
 import { auditInstalledDependencies, readPinnedDependencySource, nodeModuleCandidates } from '../installed-dependencies.mjs';
 import { unlinkedFile, assertDirectoryIdentity, safeRelativePath } from '../filesystem-safety.mjs';
+const { Filesystem } = await import(new URL('./filesystem.js', import.meta.resolve('@electron/asar')));
 
 const UPDATER = 'node_modules/electron-updater';
 const RUNTIME = 'node_modules/builder-util-runtime';
@@ -79,6 +80,32 @@ test('expectations derive from the exact selected PIN, never from newer helper s
   assert.equal(result.builderUtilRuntime.version, '9.3.1');
   assert.equal(result.axios.expectedVersion, '1.15.0');
   assert.notEqual(result.electronUpdater.version, '6.8.9');
+});
+
+test('Windows ASAR lookup reads nested metadata and preserves dependency rejection causes', async t => {
+  const good = await fixture(t);
+  const missing = await fixture(t, { change: ({ app }) => fs.rm(path.join(app, RUNTIME, 'package.json')) });
+  const stale = await fixture(t, { change: async ({ app }) => {
+    await write(app, `${UPDATER}/${RUNTIME}/package.json`, {
+      name: 'builder-util-runtime', version: '9.3.1', main: 'index.js',
+    });
+    await write(app, `${UPDATER}/${RUNTIME}/index.js`, '');
+  } });
+  // Exercise the real pinned ASAR implementation with Windows lookup semantics
+  // on every host; fixture creation and disk I/O still use the host filesystem.
+  const getFile = Filesystem.prototype.getFile;
+  t.mock.method(Filesystem.prototype, 'getFile', function (...args) {
+    const saved = { dirname: path.dirname, basename: path.basename, sep: path.sep };
+    Object.assign(path, { dirname: path.win32.dirname, basename: path.win32.basename, sep: path.win32.sep });
+    try { return getFile.apply(this, args); }
+    finally { Object.assign(path, saved); }
+  });
+  const separator = path.sep;
+  path.sep = path.win32.sep;
+  t.after(() => { path.sep = separator; });
+  assert.equal((await auditInstalledDependencies(good)).builderUtilRuntime.version, '9.7.0');
+  await assert.rejects(auditInstalledDependencies(missing), /required installed dependency file missing/);
+  await assert.rejects(auditInstalledDependencies(stale), /resolved installed runtime version differs from PIN/);
 });
 for (const [name, change] of [
   ['old nested runtime despite a correct root', async ({ app }) => {

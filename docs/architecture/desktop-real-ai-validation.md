@@ -2,18 +2,18 @@
 
 ## 状态与边界
 
-本工具的当前目标是 `ae98002d` 普通构建安装器。`fullRegressionRunId: 38084680213` 标识同一产品提交的完整门禁；准备时仍待完成，编号或打包成功不能当作完整门禁成功。本地 helper 候选只有在负责人确认该完整门禁成功后才可发布。新包非 AI 与 Windows MOCK 尚待实跑，runner 不修改或重建该 EXE，普通 helper 发布不注入 AI secret。既有精确 helper、同 helper MOCK、完整历史和人工审批约束不变。
+本工具的当前目标是 `3edd7976` 普通构建安装器。`fullRegressionRunId: 38126232510` 标识同一产品提交的完整门禁；准备时仍待完成，编号或打包成功不能当作完整门禁成功。本地 helper 候选只有在负责人确认该完整门禁成功后才可发布。新包非 AI 与 Windows MOCK 尚待实跑，runner 不修改或重建该 EXE，普通 helper 发布不注入 AI secret。既有精确 helper、同 helper MOCK、完整历史和人工审批约束不变。
 
 最终验收固定下述同一份 EXE，分别完成免费非 AI 与全 MOCK；唯一 live 也绑定该 EXE。旧 `590291ce` / `c040a5d2` / `16f31e47` 的局部结果均不能转作当前安装器认证。
 
 固定对象见 `desktop/real-ai-validation/product.json`：
 
-- 产品/构建提交：`ae98002d73f3477b5d72de4f8ca2dc841856ecd5`
-- 构建 run：`38084680213`；artifact：`11681692412`；完整回归来源：`38084680213`（普通同提交门禁，结果独立核验）
-- artifact digest：`sha256:d03965e0edbafe2564099d41ada4f3185d9155622c119f24c7bf0fc31470a939`
-- installer SHA-256：`8a1dcda9939499d5dd030b9f7a48398703d3eae8d459c1eb6f912bcd460e9d1a`
+- 产品/构建提交：`3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8`
+- 构建 run：`38126232510`；artifact：`11697823484`；完整回归来源：`38126232510`（普通同提交门禁，结果独立核验）
+- artifact digest：`sha256:a87339f0e1550f016cb9b0796745761f1c78ef1a96c134dc7544e53a9cef94b8`
+- installer SHA-256：`7038977acd92c9778cc83db77e3084509aea7d18d5ea678cb1ca41864c882158`
 
-最后一项是安装器哈希，不是安装后的主程序哈希。安装器 `178123220` 字节；artifact ZIP `177801819` 字节。安装后逐文件比对固定安装器内 payload，另记录主程序哈希供启动前复查。来源比较统一使用共享 manifest 的原 6 个桌面模块和新增 6 个 updater 模块；broker snapshot 的产品提交、build run、artifact 与安装器哈希必须全部与 PIN 一致，任何旧/新混配拒绝写成有效证据。完整回归是独立门禁；PIN 仅绑定完整回归来源，本 helper 不认证、不重跑、不取消任何既有完整门禁。Playwright 使用现有 inspect fuse 和临时 loopback CDP；不修改 fuse。GitHub hosted Windows 是管理员/UAC受平台管理环境，不证明普通用户 UAC/SmartScreen、无开发工具的正常启动体验。
+最后一项是安装器哈希，不是安装后的主程序哈希。安装器 `178123391` 字节；artifact ZIP `177801886` 字节。安装后逐文件比对固定安装器内 payload，另记录主程序哈希供启动前复查。来源比较统一使用共享 manifest 的原 6 个桌面模块和新增 6 个 updater 模块；broker snapshot 的产品提交、build run、artifact 与安装器哈希必须全部与 PIN 一致，任何旧/新混配拒绝写成有效证据。完整回归是独立门禁；PIN 仅绑定完整回归来源，本 helper 不认证、不重跑、不取消任何既有完整门禁。Playwright 使用现有 inspect fuse 和临时 loopback CDP；不修改 fuse。GitHub hosted Windows 是管理员/UAC受平台管理环境，不证明普通用户 UAC/SmartScreen、无开发工具的正常启动体验。
 
 ## 真实流量与费用边界
 
