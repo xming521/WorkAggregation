@@ -1,201 +1,76 @@
 {
   "repository": "offercontext/offerPilot",
   "branch": "feat/20261005-windows-desktop-validation",
+  "parentCommit": "44d3b8a2d3fa8a68d0ddaf414f1ed80668b6a603",
   "productBaseline": {
-    "commit": "5e0ab198954460ecb267ee47489cf564bd52d841",
-    "tree": "f772df16b0b086c1fd4257289b58ab4f3420459a"
+    "commit": "ae98002d73f3477b5d72de4f8ca2dc841856ecd5",
+    "tree": "087b0b3a9c6b8e3538153394006bc1e71f84c62e"
   },
-  "candidateSource": {
-    "files": [
-      {
-        "path": "web/src/components/ChatPanel/model.test.ts",
-        "reviewedCommit": "7aa9ecba9dd44064e8900921d255005a5cd78025",
-        "blob": "64284557bdeb206796fe1c4033893d83689e2ea0",
-        "sha256": "06706731372b052458b04023ed048e1f8d7fc42dff38556876bf3ea2c68e1f6c"
-      },
-      {
-        "path": "web/src/features/reviewReadiness/reviewReadinessNegativeFixtures.test.ts",
-        "reviewedCommit": "97f9d220f4a769d5424ee2bd135e36468aefced3",
-        "blob": "2dd72eb7a17c07a9804a7cc49f628269998bd7aa",
-        "sha256": "4c0cf79690fe73ac7f5d9cbae34b7566f4288aee95ef2b6e2683268bbbf44848"
-      }
-    ],
-    "scope": "最终请求提交基于上述5e0ab198快照，仅修改两份已审测试文件及本JSON。下一轮manifest、artifact及EXE必须绑定最终提交的实际github.sha；不合入仅用于前端预检的新工作流，也不混用预检提交、源码修复提交或旧包身份。"
-  },
-  "waitForRunTerminal": 38058328369,
+  "reason": "同一已通过完整Windows门禁的EXE在免费MOCK验收中暴露面试准备首次打开时岗位资料迟到竞态。本次仅合入已审JD来源补全修复及15项前端回归，随后重新执行普通完整门禁并生成新EXE。旧完整门禁通过不替代新提交或同包UI验收。",
   "previousFullGate": {
-    "run": 38058328369,
-    "attempt": 1,
-    "url": "https://github.com/offercontext/offerPilot/actions/runs/38058328369",
-    "commit": "5e0ab198954460ecb267ee47489cf564bd52d841",
-    "outcome": "failed",
-    "allJobsTerminal": true,
-    "terminalAt": "2026-10-10T19:57:37Z",
+    "run": 38084680213,
+    "attempt": 2,
+    "url": "https://github.com/offercontext/offerPilot/actions/runs/38084680213",
+    "commit": "ae98002d73f3477b5d72de4f8ca2dc841856ecd5",
+    "outcome": "success",
     "pytest": {
-      "terminalShards": 12,
-      "successfulShards": 12,
       "nodes": 6771,
       "passed": 6758,
       "skipped": 13,
-      "failed": 0,
-      "missingNodes": 0,
-      "duplicateNodes": 0,
-      "watchedNodesPassed": 30,
-      "evidence": "官方manifest、12份shard证据及aggregate均已逐项核验。aggregate artifact 11680777108通过ZIP CRC及run/commit身份检查；包内manifest和12份shard JSON与单组artifacts逐字节一致。本地aggregate复算与远端相同；全部旧节点及13个skip节点/理由保留，skip不计为通过。"
+      "failed": 0
     },
-    "postGate": {
-      "fullRegressionJob": "failed",
-      "releaseGateExecuted": true,
-      "ruff": "passed",
-      "mypy": {
-        "result": "passed",
-        "sourceFiles": 205
-      },
-      "frontend": {
-        "tests": 2614,
-        "passed": 2612,
-        "failed": 2,
-        "files": 268,
-        "failedCases": [
-          {
-            "file": "web/src/components/ChatPanel/model.test.ts",
-            "line": 104,
-            "column": 71,
-            "suite": "evidence selection",
-            "test": "formats embedded valid timestamps without changing invalid metadata",
-            "actual": "scheduled 2026-07-10 01:05",
-            "expected": "scheduled 2026-07-10 09:05"
-          },
-          {
-            "file": "web/src/features/reviewReadiness/reviewReadinessNegativeFixtures.test.ts",
-            "line": 8812,
-            "column": 46,
-            "suite": "review readiness negative fixture gate",
-            "test": "keeps the production audit within its bounded performance baseline",
-            "actual_duration_ms": 44440.3649,
-            "required_duration_ms_less_than": 30000
-          }
-        ]
-      },
-      "notRun": [
-        "frontend build",
-        "real CLI/HTTP smoke",
-        "local verify",
-        "install gate"
-      ],
-      "reason": "release-gate.ps1已执行严格pytest aggregate、ruff及完整mypy，随后前端两项断言失败。其后的前端build、真实CLI/HTTP smoke、local verify和install gate未执行。独立package成功不替代完整验收。"
-    },
-    "knownLimit": "此前180秒Chromium清理超时未再出现且根因仍未知；相关节点本轮通过不能宣称该历史根因已修复。"
+    "postGate": "ruff、完整mypy（205源文件）、前端2616项、build、真实CLI/HTTP smoke、local verify、install gate全部通过；package及validation-status成功。"
   },
-  "reason": "修复上一轮普通Windows完整门禁的两项前端测试失败后重新请求完整验收：时间断言按既有本地时区展示契约计算，审计夹具消除重复语法树扫描并保留30秒性能上限。全部原测试保留，只新增两项审计回归；产品代码、生产预算、默认配置、锁文件、现有工作流、验收helper及BUGS均未改变。",
-  "repairedTests": {
+  "previousSameExeMock": {
+    "run": 38123852919,
+    "url": "https://github.com/offercontext/offerPilot/actions/runs/38123852919",
+    "helperCommit": "44d3b8a2d3fa8a68d0ddaf414f1ed80668b6a603",
+    "passed": 3,
+    "failed": 1,
+    "blocked": 3,
+    "finding": "面试准备抽屉先于current-JD查询完成挂载，首次状态未吸收迟到的JD。该真实产品竞态尚须在修复后的新EXE上重验；失败与blocked不算通过。"
+  },
+  "change": {
+    "reviewedCommit": "e69eba21b35b39ea0cd5db6ca1fd8378d1c658ca",
     "files": [
-      "web/src/components/ChatPanel/model.test.ts",
-      "web/src/features/reviewReadiness/reviewReadinessNegativeFixtures.test.ts"
+      "web/src/components/InterviewPreparationProposalDrawer.tsx",
+      "web/src/components/InterviewPreparationProposalDrawer.interaction.test.tsx",
+      "web/src/components/ApplicationDetail.interviewHydration.test.tsx"
     ],
-    "repairs": [
-      {
-        "name": "证据时间本地展示断言",
-        "sourceCommit": "7aa9ecba9dd44064e8900921d255005a5cd78025",
-        "change": "以原生Date本地日历字段及显式UTC时刻构造独立预期，覆盖正负偏移跨日、毫秒与无偏移时间；保留无效元数据断言，不复用生产Day.js格式器。",
-        "evidence": "旧断言在UTC重现01:05与09:05偏差，在Asia/Shanghai通过；修复后的model/layout在两时区各143项通过，build通过，6类错误格式化变异被拒绝。"
-      },
-      {
-        "name": "审计语法树索引复用",
-        "sourceCommit": "97f9d220f4a769d5424ee2bd135e36468aefced3",
-        "change": "按不可变SourceFile对象建立WeakMap成员路径索引，一次保留全部查询根和缺失根；7种运行时函数类型保持完全相同的SyntaxKind判定。新增重复扫描/同路径不同AST隔离及类型签名排除回归。",
-        "evidence": "原134项测试正文、30秒阈值、计时范围、生产扫描范围及检测器均保持；533次旧审计输入与输出逐项一致，生产AST访问减少36.73%。三套相关测试178项及build通过，3项负控均被拒绝。",
-        "limit": "本地CPU剖析支持重复扫描开销，但不宣称还原旧Windows runner具体CPU/I/O分布。"
-      }
-    ]
+    "behavior": "JD文本与版本成对保存；仅在抽屉打开、非busy、结果已知且来源完全为空时吸收迟到的current JD。保留已选版本、简历选择、用户断言、证据和未知结果尝试；草稿持久化实际result_unknown状态。",
+    "scope": "除上述三个文件及本请求JSON外，所有跟踪文件与实际parent相同。后端、依赖锁、BUGS、工作流及验收helper不变；保留parent全部祖先产品修复。",
+    "localEvidence": "三个文件逐字节复用已审e69修复：73项相关测试、前端build及独立审查已通过。引用既有相同源码证据，不冒充本候选新执行或Windows完整通过。"
   },
-  "windowsFrontendPreflight": {
-    "run": 38083682483,
-    "attempt": 1,
-    "url": "https://github.com/offercontext/offerPilot/actions/runs/38083682483",
-    "commit": "5b5aeee880939205a8aa292efb4c849b868313df",
-    "tree": "f7e78ff175b76c9d4d9627999d82358cc016e464",
-    "branch": "feat/20261010-windows-frontend-preflight",
-    "outcome": "passed",
-    "artifact": 11681318724,
-    "artifactSha256": "1493fec72f26b0a80d93a5bd48abc0e1a2d92852850d6ad95111667d4e15b042",
-    "purpose": "在普通完整门禁重跑前，以相同两份测试修复源码检验Windows全前端并发下的时区与审计性能；预检专用工作流不进入本次候选。",
-    "environment": {
-      "runner": "windows-2022",
-      "node": "22.23.3",
-      "npm": "10.9.9",
-      "timezone": "UTC",
-      "workers": "原配置min 1/max 4未改"
-    },
-    "frontend": {
-      "files": 268,
-      "tests": 2616,
-      "passed": 2616,
-      "failed": 0,
-      "skipped": 0,
-      "todo": 0,
-      "durationSeconds": 337.86,
-      "identityEvidence": "Windows JSON和JUnit按文件、完整case名称及重复计数逐项相等；与本地收集2616项身份集合相等，无缺项或新增未知case。"
-    },
-    "performance": {
-      "case": "keeps the production audit within its bounded performance baseline",
-      "reportedCaseDurationMs": 18013.438400000003,
-      "unchangedInnerThresholdMs": 30000,
-      "result": "passed",
-      "measurementNote": "18013.4384ms为Vitest报告的整个case时长，包含断言开销；内部生产audit仍受原30000ms断言约束，不把case时长冒充单独内层计时。"
-    },
-    "build": {
-      "command": "npm run build",
-      "includes": "tsc -b && vite build",
-      "exitCode": 0,
-      "viteBuildSeconds": 12.39
-    },
-    "lockEvidence": "Windows工作区锁文件SHA256 421854268d4a11a44f0b7f343d60d44670f157fed2384553d6d6e4a49eeab2a0，Git LF源文件SHA256 8e2dcf1e00c78214b5ce60967a2d929a4b0bef6944cf9104d1d72aa5666ac5cf；逐字节证明差异仅为LF转CRLF，依赖内容未改。",
-    "limit": "此结果是不同提交上的前端预检证据，不是跨提交完整门禁等价认证；未执行Python完整门禁、打包或最终同包UI验收。最终请求提交仍须重新通过全部普通Windows阶段并生成新EXE。"
-  },
-  "localEvidence": {
-    "sourceIntegration": "两份测试文件逐字节等于各已审提交；除此及本JSON外，所有跟踪文件与5e0ab198相同。保留既有后端三项夹具修复及其隔离审查。",
-    "reuse": "引用两项修复的已完成局部回归、负控和独审，以及本轮Windows全前端2616项/build证据；不把继承验证称为本候选新执行。",
-    "recordOnlyValidation": "核验JSON、diff、两修复blob、未改源码与锁文件、实际YAML普通完整路由及纯函数AI分类；后端源码/配置/收集入口逐字节未改，不重复本地完整Python收集或长回归。最终提交的普通Windows完整验收仍必需。"
+  "windowsPlatformPreflight": {
+    "outcome": "success",
+    "run": 38125386099,
+    "url": "https://github.com/offercontext/offerPilot/actions/runs/38125386099",
+    "job": 114428555778,
+    "commit": "2251b3473ec82c2bc1cefa8c20f201df91cc3bc7",
+    "tree": "eb391ba7247733aa8d6896f9ea1e685abdde999a",
+    "artifact": 11696852440,
+    "artifactSha256": "b5b9154a14cb602070c85b6c72f766930811cbea0711b85dd89bb7f7c828227b",
+    "environment": "windows-2022；Node 22.23.3；npm 10.9.9；web和helper锁文件与原锁的Windows CRLF字节精确一致。",
+    "frontend": "2631项全部通过，无failed/pending/todo。按文件和fullName多重集合核验原2616项全部保留，新增15项JD回归。",
+    "helper": "672项中670通过、2项原Windows平台skip，无失败；原671项名称全部保留，新增1项ASAR回归。skip不算pass。",
+    "performance": "原30000ms审计断言通过；Vitest整case时长25803.799ms，不冒充内层纯审计时长。",
+    "build": "tsc -b && vite build退出0，Vite构建16.01秒；helper/frontend/build阶段实际退出码均0。",
+    "scope": "此结果是独立提交的Windows平台预检，不是本候选完整门禁、安装包或provider验收。预检专用工作流和ASAR helper修复不合入此产品候选；新EXE生成后再统一helper PIN并完成同包验收。"
   },
   "testCollection": {
-    "expectedNodes": 6771,
-    "previousNodes": 6771,
-    "removedNodes": 0,
-    "addedNodes": 0,
-    "preservation": "Python源码、测试、conftest、收集入口和依赖均与已执行6771节点的5e0ab198逐字节相同；预期保留全部6771节点，最终仍以新run实际manifest逐项核验，不将旧run直接计为新run通过。",
-    "frontend": {
-      "previousTests": 2614,
-      "expectedTests": 2616,
-      "files": 268,
-      "removedTests": 0,
-      "addedTests": 2,
-      "addedCases": [
-        "review readiness negative fixture gate > classifies runtime functions without treating type signatures as executable",
-        "review readiness negative fixture gate > isolates member paths by syntax tree while retaining every queried root"
-      ],
-      "preservation": "本地基线/整合收集逐项核对：保留全部旧2614项，Windows预检实际执行2616项；原审计134项正文逐字节保留。"
-    },
-    "skipPolicy": "前一轮13个skip节点及理由分别披露；新run继续按实际证据核验，skip不算pass。当前YAML未传--allowed-skips，本记录不声称已执行固定skip allowlist。"
-  },
-  "isolationReview": {
-    "reviewedSources": [
-      "tests/test_chat_api.py",
-      "tests/conftest.py",
-      "tests/_agent_timeout.py"
-    ],
-    "changedAudit": "tests/test_complete_pytest_shards.py",
-    "normalizedSha256": {
-      "tests/test_chat_api.py": "dc0d709b149ff3ea8a6918bfd0e087d8c2400a3e183bf4cef1475209a4910d54",
-      "tests/conftest.py": "3e37887773fd017242ddc6ecc514218c381da2bbb66f2379e97c3f2153e8c675",
-      "tests/_agent_timeout.py": "5bb1054018aeb6153bd6f0a0bb8e5fe3ace2203df1e8fa375c43d3dac9edd735"
-    },
-    "finding": "全模块全局变量、fixture、线程及恢复路径独审完成；177个旧chat函数签名及参数化保留，新增1个函数；391个实际chat节点fixture closure通过。仅pytest内建tmp_path_factory为session scope；自定义可变状态在函数内，保留动态fixture与scope运行时门禁。canary仍按整个文件分片，不扩大node-split范围。"
+    "backendExpectedNodes": 6771,
+    "backendAddedNodes": 0,
+    "backendRemovedNodes": 0,
+    "frontendPreviousTests": 2616,
+    "frontendExpectedTests": 2631,
+    "frontendAddedTests": 15,
+    "frontendRemovedTests": 0,
+    "verification": "最终按新run实际manifest和前端结果核对；13个旧skip及理由单列，skip不算pass。后端夹具与既有隔离审查源字节不变，不改review hash。"
   },
   "workflowRouting": {
     "workflow": ".github/workflows/desktop-windows.yml",
     "mode": "ordinary-full",
-    "activation": "push仅由上述validation分支触发，这三份文件均不在paths-ignore中；本JSON是请求记录，不是工作流输入。最终test提交不带build: AI [windows-package-only]前缀，必须走ordinary-full。仅本地提交不会启动CI。",
+    "activation": "最终提交推送到validation分支后，四个改动路径均不在paths-ignore内；提交标题不使用windows-package-only或real-AI请求前缀。本JSON是可读请求记录，不是工作流输入。",
     "shards": 12,
     "maxParallel": 2,
     "failFast": false,
@@ -207,13 +82,14 @@
       "validation-package",
       "validation-status"
     ],
-    "postGate": "manifest和全部shards成功后，执行release-gate.ps1 -Install -PytestEvidence pytest-evidence，先严格核完整pytest证据，再执行ruff/mypy、前端测试构建、CLI/HTTP smoke、local verify和install gate；最终状态要求package及full-regression均成功。",
-    "paidModelCalls": "本次工作流不传-RealAi；本请求、提交和普通完整CI均不启动或扩大付费模型验收。",
-    "aiRouting": "相对于5e0ab198的精确三文件范围不触及real-ai helper/workflow/docs，纯classifyPush返回offline=false；最终提交标题不匹配受保护real-AI请求前缀。预期只运行secret-free route，offline、preflight及paid jobs均跳过；推送后仍核验真实jobs，不读取provider凭据。"
+    "postGate": "全部manifest/shards成功后执行release-gate.ps1 -Install -PytestEvidence pytest-evidence：严格聚合、ruff、完整mypy、全部前端测试/build、真实CLI/HTTP smoke、local verify和install gate。package与full-regression均须成功。",
+    "aiOffline": false,
+    "paid": false,
+    "aiRouting": "精确四文件不触及real-ai helper/workflow/docs，classifyPush应返回offline=false；提交标题不匹配real-AI请求前缀。预期只运行secret-free route，MOCK/offline、preflight和paid jobs均跳过；推送后核实际jobs。"
   },
   "requiredAcceptance": [
-    "最终请求提交必须通过新一轮普通manifest、全部12 shards、完整后置release gate、独立package和validation-status；失败、超时、取消、跳过或仅安装包产物均不构成完整通过。",
-    "按最终请求提交、完整门禁run/attempt、artifact及EXE SHA256固定新包，再对同一EXE完成免费non-AI及全部7项MOCK；不得用旧run或旧包结果替代。",
-    "同包免费验收全部通过后，任何后续受限live仍须按实际执行日重新核验官方价格（跨UTC日期必须重查）、既有累计费用、专用凭据及原有独立人工审批条件；累计10元预算不重置。本记录不启动付费调用，也不授权额外付费或其它验收动作。"
+    "最终请求提交的新普通Windows完整门禁全部通过并生成新EXE；失败、取消、超时、跳过或仅有安装包不算完整通过。",
+    "按最终提交、run/attempt、artifact及EXE SHA256重新固定新包，统一helper PIN后对同一EXE完成免费non-AI及全部7项MOCK；不得提前触发旧包UI或借用旧包结果。",
+    "本次不启动付费模型。后续受限live仍需当日官方价格、既有累计费用、专用凭据和独立人工审批；累计10元预算不重置，跨UTC日期重新核价。"
   ]
 }
