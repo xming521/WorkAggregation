@@ -96,7 +96,9 @@ function archiveReader(archive) {
   visit(header);
   const read = name => {
     safeRelativePath(name); assert.ok(files.has(name), 'required installed dependency file missing');
-    return extractFile(archive, name, false);
+    // ASAR's lookup splits native separators; keep audit keys POSIX and adapt
+    // only this validated, exact header member at the library boundary.
+    return extractFile(archive, name.split('/').join(path.sep), false);
   };
   return { files, directories, read };
 }

@@ -1,0 +1,170 @@
+name: Bounded Windows frontend and helper preflight
+
+# Full frontend contention check only. This does not certify the release gate.
+# A separate branch prevents the existing package, Python and AI workflows firing.
+on:
+  push:
+    branches: [test/20261011-windows-platform-preflight]
+    paths: ['.github/workflows/windows-platform-preflight.yml']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
+jobs:
+  platform:
+    name: Full frontend and installed-UI helper tests on Windows
+    if: ${{ github.repository == 'offercontext/offerPilot' && github.ref == 'refs/heads/test/20261011-windows-platform-preflight' && github.run_attempt == 1 }}
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          # Existing frontend source gates require historical Git ranges.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            desktop/installed-ui/package-lock.json
+      - name: Record source, runtime and clock evidence
+        run: |
+          New-Item -ItemType Directory -Force platform-preflight-evidence | Out-Null
+          $source = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $source -ne $env:GITHUB_SHA) { throw 'Unexpected source checkout' }
+          $nodeVersion = node --version
+          if ($LASTEXITCODE -ne 0) { throw 'Node version unavailable' }
+          $npmVersion = npm.cmd --version
+          if ($LASTEXITCODE -ne 0) { throw 'npm version unavailable' }
+          @{
+            scope = 'Windows frontend and installed-UI helper tests only; backend/full release gate/EXE build/installer/provider validation NOT RUN'
+            sourceSha = $source
+            workflowSha = $env:GITHUB_SHA
+            integrationBaseSha = '44d3b8a2d3fa8a68d0ddaf414f1ed80668b6a603'
+            runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            startedUtc = [DateTime]::UtcNow.ToString('o')
+            localClock = [DateTimeOffset]::Now.ToString('o')
+            windowsTimeZone = (Get-TimeZone).Id
+            processTZ = $env:TZ
+            nodeVersion = $nodeVersion
+            npmVersion = $npmVersion
+            os = [Environment]::OSVersion.VersionString
+            lockSha256 = (Get-FileHash web/package-lock.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            helperLockSha256 = (Get-FileHash desktop/installed-ui/package-lock.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            workers = 'Unchanged web/vitest.config.ts: min 1, max 4'
+            network = 'Existing test mocks; no provider credentials or provider validation'
+          } | ConvertTo-Json | Set-Content -Encoding utf8 platform-preflight-evidence/runtime.json
+          node -e "console.log(JSON.stringify({now:new Date().toISOString(),local:new Date().toString(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,offsetMinutes:new Date().getTimezoneOffset(),versions:process.versions},null,2))" > platform-preflight-evidence/node-clock.json
+          if ($LASTEXITCODE -ne 0) { throw 'Node clock capture failed' }
+      - name: Install frozen frontend dependencies
+        run: |
+          npm.cmd ci --prefix web 2>&1 | Tee-Object -FilePath platform-preflight-evidence/install.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) { exit $code }
+      - name: Install locked isolated helper dependencies
+        run: |
+          npm.cmd ci --prefix desktop/installed-ui --ignore-scripts 2>&1 | Tee-Object -FilePath platform-preflight-evidence/helper-install.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) { exit $code }
+      - name: Run all installed-UI helper tests on actual Windows
+        working-directory: desktop/installed-ui
+        run: |
+          # The same complete test glob as npm test; only explicit reporting added.
+          node --test --test-reporter=tap --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=../../platform-preflight-evidence/helper-junit.xml test/*.test.mjs 2>&1 | Tee-Object -FilePath ../../platform-preflight-evidence/helper-tests.log
+          $code = $LASTEXITCODE
+          $code | Set-Content ../../platform-preflight-evidence/helper-test-exit-code.txt
+          if ($code -ne 0) { exit $code }
+      - name: Run the complete release-gate frontend suite
+        working-directory: web
+        run: |
+          # Same npm test and four-worker configuration as release-gate.ps1.
+          # Only reporting is added: no file/name filters, shards, bail or timeouts.
+          npm.cmd test -- --reporter=default --reporter=junit --reporter=json --outputFile.junit=../platform-preflight-evidence/junit.xml --outputFile.json=../platform-preflight-evidence/tests.json 2>&1 | Tee-Object -FilePath ../platform-preflight-evidence/tests.log
+          $code = $LASTEXITCODE
+          $code | Set-Content ../platform-preflight-evidence/test-exit-code.txt
+          if ($code -ne 0) { exit $code }
+      - name: Build the frontend as in the release gate
+        working-directory: web
+        run: |
+          npm.cmd run build 2>&1 | Tee-Object -FilePath ../platform-preflight-evidence/build.log
+          $code = $LASTEXITCODE
+          $code | Set-Content ../platform-preflight-evidence/build-exit-code.txt
+          if ($code -ne 0) { exit $code }
+      - name: Retain performance outcome and verify complete test execution
+        if: ${{ always() }}
+        run: |
+          New-Item -ItemType Directory -Force platform-preflight-evidence | Out-Null
+          [DateTime]::UtcNow.ToString('o') | Set-Content platform-preflight-evidence/finished-utc.txt
+          if (-not (Test-Path platform-preflight-evidence/tests.json)) {
+            'Test JSON unavailable; frontend preflight did not complete.' | Set-Content platform-preflight-evidence/incomplete.txt
+            throw 'Full frontend test evidence missing'
+          }
+          $report = Get-Content -Raw platform-preflight-evidence/tests.json | ConvertFrom-Json
+          $audit = @($report.testResults | ForEach-Object { $_.assertionResults } | Where-Object {
+            $_.title -eq 'keeps the production audit within its bounded performance baseline'
+          })
+          @{
+            sourceSha = $env:GITHUB_SHA
+            thresholdMs = 30000
+            timingNote = 'Vitest test duration includes the unchanged audit assertion; the inner audit threshold remains 30000 ms.'
+            performanceTests = $audit
+            totalTests = $report.numTotalTests
+            passedTests = $report.numPassedTests
+            failedTests = $report.numFailedTests
+            pendingTests = $report.numPendingTests
+            todoTests = $report.numTodoTests
+          } | ConvertTo-Json -Depth 15 | Set-Content -Encoding utf8 platform-preflight-evidence/performance.json
+          # The reviewed baseline has 2616 tests; JD hydration adds 15 regression cases.
+          if ($report.numTotalTests -ne 2631 -or $report.numPassedTests -ne 2631 -or
+              $report.numFailedTests -ne 0 -or $report.numPendingTests -ne 0 -or $report.numTodoTests -ne 0 -or
+              $audit.Count -ne 1 -or $audit[0].status -ne 'passed') {
+            throw 'Expected all 2631 frontend tests and the unchanged performance assertion to pass'
+          }
+      - name: Verify complete helper execution and only the two existing Windows skips
+        if: ${{ always() }}
+        run: |
+          $log = Get-Content -Raw platform-preflight-evidence/helper-tests.log
+          $counts = @{}
+          foreach ($key in @('tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo')) {
+            $matches = [regex]::Matches($log, "(?m)^# $key ([0-9]+)\r?$")
+            if ($matches.Count -ne 1) { throw "Missing or ambiguous helper summary: $key" }
+            $counts[$key] = [int]$matches[0].Groups[1].Value
+          }
+          $skips = @([regex]::Matches($log, '(?m)^ok [0-9]+ - (.+?) # SKIP\r?$') | ForEach-Object { $_.Groups[1].Value } | Sort-Object)
+          $expectedSkips = @(
+            'case-distinct POSIX directories never become the same installed resource identity',
+            'payload traversal rejects symbolic links instead of reading outside payload'
+          ) | Sort-Object
+          @{
+            sourceSha = $env:GITHUB_SHA
+            counts = $counts
+            skippedTests = $skips
+            expectedWindowsSkips = $expectedSkips
+          } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 platform-preflight-evidence/helper-tests.json
+          if ($counts.tests -ne 672 -or $counts.pass -ne 670 -or $counts.fail -ne 0 -or
+              $counts.cancelled -ne 0 -or $counts.skipped -ne 2 -or $counts.todo -ne 0 -or
+              ($skips -join "`n") -cne ($expectedSkips -join "`n")) {
+            throw 'Expected all 672 helper cases, 670 passes and only the two unchanged Windows skips'
+          }
+          foreach ($file in @('helper-test-exit-code.txt', 'test-exit-code.txt', 'build-exit-code.txt')) {
+            if ((Get-Content -Raw "platform-preflight-evidence/$file").Trim() -cne '0') { throw "Nonzero or missing phase exit: $file" }
+          }
+      - name: Upload raw frontend and helper evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-platform-preflight-${{ github.sha }}-${{ github.run_attempt }}
+          path: platform-preflight-evidence/
+          if-no-files-found: error
+          retention-days: 7
