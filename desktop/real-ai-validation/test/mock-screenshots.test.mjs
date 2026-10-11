@@ -280,6 +280,7 @@ test('a credential or token appearing during screenshot discards bytes before di
   const { directory, screenshots } = await setup(t);
   for (const edit of [page => { page.document.body.text = TOKEN; }, page => page.document.add('input[type="password"]')]) {
     const page = fakePage(); page.setAfterScreenshot(() => edit(page));
+    page.surface.style.filter = 'blur(0px)';
     assert.equal((await screenshots.capture('pilot-stream', page, { stage: 'pilot-stream' })).code, 'SCREEN_GUARD_REJECTED');
     assert.equal(countCaptures(page), 1);
   }
@@ -427,6 +428,34 @@ test('Pilot waits for its naturally finishing ancestor blur and opacity without 
   assert.equal(page.calls.filter(call => call.method === 'scroll').length, 1);
 });
 
+for (const stage of ['pilot-stream', 'pilot-hitl-reject']) {
+  test(`${stage} captures the naturally finished zero blur frame without changing animations`, async t => {
+    const { screenshots } = await setup(t);
+    const page = fakePage(stage); const bubble = page.surface.querySelector('[class*="bubbleAssistant"]');
+    const row = new Node(); row.parentElement = page.surface; bubble.parentElement = row;
+    row.style.filter = 'blur(3px)'; row.style.opacity = '0.4';
+    const animation = { playState: 'running', pending: false,
+      finish() { assert.fail('must not finish animation'); }, cancel() { assert.fail('must not cancel animation'); } };
+    row.animations = [animation];
+    let waits = 0;
+    page.setAfterEvaluate(({ visual }, reason) => {
+      if (visual === 'stable' && reason === 'VISUAL_UNSETTLED' && ++waits === 2) {
+        // Actual Windows Edge opRise end state: computed zero blur remains
+        // after the animation finishes, while its rendered frame is clear.
+        row.style.filter = 'blur(0px)'; row.style.opacity = '1'; animation.playState = 'finished';
+      }
+    });
+    assert.equal((await screenshots.capture(stage, page, { stage })).status, 'captured');
+    assert.equal(waits, 2);
+    assert.equal(animation.playState, 'finished');
+    assert.equal(row.style.filter, 'blur(0px)');
+    assert.equal(countCaptures(page), 1);
+    assert.deepEqual(page.calls.find(call => call.method === 'screenshot').options,
+      { type: 'png', animations: 'allow', fullPage: false, timeout: 15000 });
+    assert.equal(page.calls.at(-1).visual, 'instant');
+  });
+}
+
 test('permanent blur, opacity, or animation fail closed within the visual deadline and remain valid safe evidence', async t => {
   const { directory, screenshots } = await setup(t);
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
@@ -445,6 +474,29 @@ test('permanent blur, opacity, or animation fail closed within the visual deadli
   assert.deepEqual(safeScreenshotEvidence(screenshots.snapshot(), true), {
     captured: [], skipped: [{ id: 'pilot-stream', code: 'SCREEN_VISUAL_UNSETTLED' }],
   });
+  await absent(directory);
+});
+
+test('only the exact zero blur filter is accepted and active zero blur animations still fail closed', async t => {
+  const { directory, screenshots } = await setup(t);
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+  const edits = [
+    ...['blur(0.01px)', 'blur(0px) blur(0px)', 'blur(0px) contrast(1)', 'blur(0)', 'none blur(0px)', '', 'unknown']
+      .map(filter => page => { page.surface.style.filter = filter; }),
+    ...[{ playState: 'running', pending: false }, { playState: 'paused', pending: true }]
+      .flatMap(animation => [true, false].map(ancestor => page => {
+        page.surface.style.filter = 'blur(0px)';
+        const node = ancestor ? page.surface : page.surface.querySelector('[class*="bubbleAssistant"]');
+        node.animations = [animation];
+      })),
+  ];
+  for (const edit of edits) {
+    const page = fakePage(); edit(page);
+    assert.deepEqual(await advanceVisualDeadline(t, screenshots.capture('pilot-stream', page, { stage: 'pilot-stream' })),
+      { status: 'skipped', code: 'SCREEN_VISUAL_UNSETTLED' });
+    assert.equal(countCaptures(page), 0);
+  }
+  t.mock.timers.reset();
   await absent(directory);
 });
 
@@ -475,6 +527,7 @@ test('credential, token and stage changes between stability frames are rechecked
     [page => { page.state.snapshot.loading = true; }, 'STATE_UNSETTLED'],
   ]) {
     const page = fakePage(); page.setOnFrame(frame => { if (frame === 1) edit(page); });
+    page.surface.style.filter = 'blur(0px)';
     assert.equal((await screenshots.capture('pilot-stream', page, { stage: 'pilot-stream' })).code, 'SCREEN_GUARD_REJECTED');
     assert.equal(screenshots.snapshot().skipped[0].reason, reason);
     assert.equal(countCaptures(page), 0);
@@ -561,6 +614,7 @@ test('scroll exceptions are fixed codes and never disclose page errors or create
 
 test('visual instability starting during screenshot discards the in-memory image without waiting it clear', async t => {
   const { directory, screenshots } = await setup(t); const page = fakePage();
+  page.surface.style.filter = 'blur(0px)';
   page.setAfterScreenshot(() => { page.surface.style.filter = 'blur(3px)'; });
   assert.equal((await screenshots.capture('pilot-stream', page, { stage: 'pilot-stream' })).code, 'SCREEN_GUARD_REJECTED');
   assert.equal(screenshots.snapshot().skipped[0].reason, 'VISUAL_UNSETTLED');

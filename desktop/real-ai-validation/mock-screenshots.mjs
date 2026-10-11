@@ -47,8 +47,10 @@ async function safeScreen({ screenId, stage, tokens, visual = false }) {
         for (let node = target; node; node = node.parentElement) {
           chain.push(node);
           const style = getComputedStyle(node);
+          // Chromium can retain blur(0px) after opRise naturally finishes.
+          // It applies no blur; active animations still fail the next check.
           if (style.visibility !== 'visible' || style.display === 'none' || Number(style.opacity) < 0.999 ||
-            (style.filter && style.filter !== 'none')) return { reason: 'VISUAL_UNSETTLED' };
+            (style.filter !== 'none' && style.filter !== 'blur(0px)')) return { reason: 'VISUAL_UNSETTLED' };
           if (node.getAnimations().some(animation => animation.pending || animation.playState === 'running')) return { reason: 'VISUAL_UNSETTLED' };
           if (node !== target) {
             const clip = node.getBoundingClientRect();
