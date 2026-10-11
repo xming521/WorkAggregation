@@ -38,6 +38,8 @@ test('cold shallow helper requires its independent verified PIN checkout', async
   for (const file of ['live-pilot-completion.test.mjs', 'pinned-source.mjs']) {
     await fs.copyFile(new URL(file, import.meta.url), path.join(helper, 'desktop/real-ai-validation/test', file));
   }
+  await fs.copyFile(new URL('../../installed-ui/filesystem-safety.mjs', import.meta.url),
+    path.join(helper, 'desktop/installed-ui/filesystem-safety.mjs'));
   await fs.mkdir(product);
   git(product, 'init');
   git(product, 'fetch', '--depth=1', '--no-tags', pathToFileURL(selected).href, PIN.commit);
@@ -154,7 +156,8 @@ test('cold shallow helper requires its independent verified PIN checkout', async
     // No source override is supplied and the process cwd is a different repo.
     await fs.copyFile(new URL('pinned-source.mjs', import.meta.url),
       path.join(product, 'desktop/real-ai-validation/test/pinned-source.mjs'));
-    for (const file of ['desktop/real-ai-validation/contract.mjs', 'desktop/installed-ui/contract.mjs']) {
+    for (const file of ['desktop/real-ai-validation/contract.mjs', 'desktop/installed-ui/contract.mjs',
+      'desktop/installed-ui/filesystem-safety.mjs']) {
       await fs.copyFile(path.join(root, file), path.join(product, file));
     }
     const moduleUrl = pathToFileURL(path.join(product, 'desktop/real-ai-validation/test/pinned-source.mjs')).href;

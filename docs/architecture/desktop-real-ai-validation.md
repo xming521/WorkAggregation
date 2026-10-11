@@ -2,28 +2,30 @@
 
 ## 状态与边界
 
-本工具的当前目标是 `590291ce` PACKAGE-ONLY 安装器，仅用于免费预验 DB trigger 原子初始化、运行恢复增量投影和真实 Stop HTTP 取消。`fullRegressionRunId: null` 明确表示完整门禁未运行；manifest/shards/full-release 全部 SKIPPED，汇总 FAILURE 不能洗成通过。新包非 AI 与 Windows MOCK 尚待实跑，runner 不修改或重建该 EXE，普通 helper 发布不注入 AI secret。live preflight、prepare 和执行 runner 各自拒绝该空来源，人工审批或 MOCK 成功不能放行当前包。
+本工具的当前目标是 `ae98002d` 普通构建安装器。`fullRegressionRunId: 38084680213` 标识同一产品提交的完整门禁；准备时仍待完成，编号或打包成功不能当作完整门禁成功。本地 helper 候选只有在负责人确认该完整门禁成功后才可发布。新包非 AI 与 Windows MOCK 尚待实跑，runner 不修改或重建该 EXE，普通 helper 发布不注入 AI secret。既有精确 helper、同 helper MOCK、完整历史和人工审批约束不变。
 
-最终普通 full-gate 新提交产生新安装器后，必须固定那份 EXE 再做免费非 AI 与全 MOCK，唯一 live 也固定最终同一份；本次预验、旧 `c040a5d2` / `16f31e47` 的局部结果均不能当作未来安装器认证。
+最终验收固定下述同一份 EXE，分别完成免费非 AI 与全 MOCK；唯一 live 也绑定该 EXE。旧 `590291ce` / `c040a5d2` / `16f31e47` 的局部结果均不能转作当前安装器认证。
 
 固定对象见 `desktop/real-ai-validation/product.json`：
 
-- 产品/构建提交：`590291ce4e33407eb4f13f092298e7398aed394c`
-- 构建 run：`37828103435`；artifact：`11573930091`；完整回归来源：`null`（PACKAGE-ONLY）
-- artifact digest：`sha256:ad5c3f7e2858f1b1c5339a2e95af16d7c0785b268382d170cd2b9ef7efd6debd`
-- installer SHA-256：`abaa504cef5a51ba7f3b4f1dddc1d24f889f350231a4dcb5b523e4f91b76f316`
+- 产品/构建提交：`ae98002d73f3477b5d72de4f8ca2dc841856ecd5`
+- 构建 run：`38084680213`；artifact：`11681692412`；完整回归来源：`38084680213`（普通同提交门禁，结果独立核验）
+- artifact digest：`sha256:d03965e0edbafe2564099d41ada4f3185d9155622c119f24c7bf0fc31470a939`
+- installer SHA-256：`8a1dcda9939499d5dd030b9f7a48398703d3eae8d459c1eb6f912bcd460e9d1a`
 
-最后一项是安装器哈希，不是安装后的主程序哈希。安装器 `178105893` 字节；artifact ZIP `177784764` 字节。安装后逐文件比对固定安装器内 payload，另记录主程序哈希供启动前复查。来源比较统一使用共享 manifest 的原 6 个桌面模块和新增 6 个 updater 模块；broker snapshot 的产品提交、build run、artifact 与安装器哈希必须全部与 PIN 一致，任何旧/新混配拒绝写成有效证据。完整回归是独立门禁；当前包无完整回归来源，本任务不认证、不重跑、不取消任何既有完整门禁。Playwright 使用现有 inspect fuse 和临时 loopback CDP；不修改 fuse。GitHub hosted Windows 是管理员/UAC受平台管理环境，不证明普通用户 UAC/SmartScreen、无开发工具的正常启动体验。
+最后一项是安装器哈希，不是安装后的主程序哈希。安装器 `178123220` 字节；artifact ZIP `177801819` 字节。安装后逐文件比对固定安装器内 payload，另记录主程序哈希供启动前复查。来源比较统一使用共享 manifest 的原 6 个桌面模块和新增 6 个 updater 模块；broker snapshot 的产品提交、build run、artifact 与安装器哈希必须全部与 PIN 一致，任何旧/新混配拒绝写成有效证据。完整回归是独立门禁；PIN 仅绑定完整回归来源，本 helper 不认证、不重跑、不取消任何既有完整门禁。Playwright 使用现有 inspect fuse 和临时 loopback CDP；不修改 fuse。GitHub hosted Windows 是管理员/UAC受平台管理环境，不证明普通用户 UAC/SmartScreen、无开发工具的正常启动体验。
 
 ## 真实流量与费用边界
 
 真实安装版 UI → 本机 loopback 预算代理 → 固定 `https://api.deepseek.com/chat/completions`，模型只允许 `deepseek-flash`。这是经代理的真实 provider 验证，不是直连。正常 HTTPS/TLS 校验保持开启；不修改防火墙、证书、OS 安全或产品代码。
 
-换固定产品包不会重置 session、历史闩锁、累计预算或价格期限。已运行的 Windows helper 仅有 MOCK，没有 live provider 验证；该范围不包括较早未加离线 guard 的 Python 测试尝试，其实际出站与费用仍无法确认，不能被后续通过记录消除。当前 package-only 包的 live 始终拒绝；最终普通 full-gate 安装器仍须同一审阅 helper SHA 的新 Windows MOCK 成功，再满足既有人工配置与审批条件。
+换固定产品包不会重置 session、历史闩锁、累计预算或价格期限。已运行的 Windows helper 仅有 MOCK，没有 live provider 验证；该范围不包括较早未加离线 guard 的 Python 测试尝试，其实际出站与费用仍无法确认，不能被后续通过记录消除。空 full-gate 来源仍会被 live 拒绝；当前安装器还须独立完整门禁成功、同一审阅 helper SHA 的新 Windows MOCK 成功，再满足既有人工配置与审批条件。
 
 整轮 session `offerpilot-fixed-exe-real-ai-20261008` 总上限为 **10 CNY、8 次 HTTP 出站请求、600 秒、0 自动重试**。并非每个 workflow run 各有 10 元。七个场景分别最多一请求；取消场景最后执行。broker 先以保守峰值费用为每请求预留 3 元，再发送。可信 usage 才安全结算；缺失/矛盾 usage、协议或账本异常封闭 session，未知费用保留预留额。余额不足后续场景 BLOCKED。
 
-代理固定 endpoint/model、限制请求体和输出 token、拒绝未知参数/重定向/重试/fallback、在任何 HTTP 出站前同步持久化 reservation。每场景独立临时令牌，旧场景 SDK 迟到重试不能占用后续预算。运行时业务 repair/fallback 即使仍存在，也没有额外获准请求。报价依据和整数计价见 `broker-core.cjs`，日期固定为 2026-10-08；代码只允许该 UTC 日期且剩余有效期覆盖整个请求超时窗口，超期自动 BLOCKED，须先复核价格并审查更新代码才能另行批准。人工批准前须复核 [DeepSeek 官方价格](https://api-docs.deepseek.com/quick_start/pricing)，涨价或模型契约变化先停，不直接运行旧账本上限。
+代理固定 endpoint/model、限制请求体和输出 token、拒绝未知参数/重定向/重试/fallback、在任何 HTTP 出站前同步持久化 reservation。每场景独立临时令牌，旧场景 SDK 迟到重试不能占用后续预算。运行时业务 repair/fallback 即使仍存在，也没有额外获准请求。报价依据和整数计价见 `broker-core.cjs`：2026-10-11 00:01 UTC 重新读取 [DeepSeek 中文官方价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)及[英文价格](https://api-docs.deepseek.com/quick_start/pricing/)（中文 canonical 超时，实际读取同一官方页面的搜索结果原有 query 版本，工具标注当日抓取），`deepseek-flash` 对应 DeepSeek-V4.1-Flash，峰值 CNY/百万 tokens 仍为缓存命中输入 0.04、未命中输入 2、输出 8；闲时半价，峰时为 UTC 周一至周五 01:00–04:00、06:00–10:00（中国法定节假日除外），本代理始终按中文 CNY 峰价计费，英文 USD 价格不用于换汇核算。定价页仍列出 1M 上下文、384K 输出；00:01 UTC 直接读取的官方 [模型元数据](https://api-docs.deepseek.com/zh-cn/api/list-models/) 与 [API 契约](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/) 明确为 1048576 / 393216 tokens。本地输出 cap 仍最多 8192，宽松费用上界 2.162688 CNY 小于每请求 3 CNY 预留。`PRICE_REVIEW` 的本地审阅窗口仅为 2026-10-11 UTC、截止 `2026-10-11T23:59:59.999Z`；供应商保留改价权，这不是供应商承诺的价格有效期。代码要求剩余窗口覆盖整个请求超时，跨日自动 BLOCKED；正式运行前仍须再次核验官方来源，涨价、模型契约变化、来源无法确认或窗口已过期时保持阻断，不能只延长日期。
+
+broker、MOCK 的独立 VM 时钟和数值证据导出共用该审阅快照。导出必须逐项匹配 snapshot 的价格日期、截止、峰值依据、原 session 和 broker mode；旧窗口、混合窗口或缺失出处均拒绝，不能给旧账本贴新日期。价格复核不更新产品 pin、不刷新 10 元累计预算、不释放任何未知费用预留，也不更改 `20261008` 的 request/session/concurrency/secret 身份。新 helper 仍须独立审查和同 helper 的 Windows MOCK；本地伪 transport 测试不等于同包 live 验收。
 
 工作流全局串行且不取消已开始工作。运行历史必须完整、run_number 连续。任何既往“Approved bounded real AI”job 非明确 skipped，即永久关闭本轮入口；换 request SHA、重新运行、前次结果未知、删除历史、读历史失败都不能重获 10 元。当前实现不支持续跑或自动恢复余额。确需修复后再次运行，必须先由负责人核验已花费及未知预留，计算本轮剩余额度，再单独取得新批准并审查新实现；不能简单换变量、marker、workflow 名或 session ID 重新给满额预算。
 

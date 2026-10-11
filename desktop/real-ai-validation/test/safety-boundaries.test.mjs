@@ -5,10 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { CASES, PIN } from '../contract.mjs';
+import { Ledger } from '../broker-core.cjs';
 import { validateSyntheticRoute } from '../synthetic-api.mjs';
 import { safeResults, numericLedger, saveEvidence } from '../safe-evidence.mjs';
 import { githubReader } from '../github-read.mjs';
 const here = new URL('../', import.meta.url);
+const priceProvenance = { priceCheckedAt: '2026-10-11', validUntilUtc: '2026-10-11T23:59:59.999Z',
+  priceBasis: 'PEAK_CNY', sessionId: 'offerpilot-fixed-exe-real-ai-20261008', mode: 'FIXED_EXE_UI_BUDGET_BROKER' };
 const workflow = parse(await fs.readFile(new URL('../../.github/workflows/desktop-real-ai.yml', here), 'utf8'));
 test('only original branch push route; no dispatch/PR/schedule triggers', () => {
   assert.deepEqual(Object.keys(workflow.on), ['push']);
@@ -89,11 +92,25 @@ test('numeric ledger does not serialize arbitrary fields or credential-shaped st
   const snapshot = { model: 'deepseek-flash', budgetMicroCny: 10000000, reserveMicroCny: 3000000, sentRequests: 1, settledMicroCny: 20,
     retainedMicroCny: 0, active: false, closed: true, journalFailed: false,
     denied: Object.fromEntries(reasons.map(key => [key, 0])), privateName123: 111,
-    apiKey: 'fake-secret', provenance: { productCommit: PIN.commit, buildRunId: String(PIN.runId), artifactId: String(PIN.artifactId), installerSha256: PIN.installerSha256, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40), runId: '1', runAttempt: 1 }, requests: [{ caseId: 'connection', status: 'SETTLED', envelope: 'UNCHANGED', cap: 64,
+    apiKey: 'fake-secret', provenance: { ...priceProvenance, productCommit: PIN.commit, buildRunId: String(PIN.runId), artifactId: String(PIN.artifactId), installerSha256: PIN.installerSha256, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40), runId: '1', runAttempt: 1 }, requests: [{ caseId: 'connection', status: 'SETTLED', envelope: 'UNCHANGED', cap: 64,
       micro: 20, outboundStarted: true, upstreamResponded: true, clientDisconnectObserved: false, promptTokens: 2, completionTokens: 2, cacheHitTokens: 0, cacheMissTokens: 2, raw: 'fake-secret' }] };
   const text = JSON.stringify(numericLedger(snapshot));
   assert.equal(text.includes('fake-secret'), false); assert.equal(text.includes('privateName123'), false);
   assert.equal(numericLedger(snapshot).requests[0].cap, 64);
+  for (const [field, other] of Object.entries({ priceCheckedAt: '2026-10-08',
+    validUntilUtc: '2026-10-08T23:59:59.999Z', priceBasis: 'OFF_PEAK_CNY',
+    sessionId: 'offerpilot-fixed-exe-real-ai-20261009', mode: 'OTHER_BROKER' })) {
+    for (const value of [other, undefined, null]) {
+      assert.throws(() => numericLedger({ ...snapshot, provenance: { ...snapshot.provenance, [field]: value } }),
+        { safeCode: 'LEDGER_SHAPE_INVALID' }, `mixed or missing price/session provenance: ${field}`);
+    }
+  }
+  assert.throws(() => numericLedger({ ...snapshot, provenance: { ...snapshot.provenance,
+    priceCheckedAt: '2026-10-09', validUntilUtc: '2026-10-09T23:59:59.999Z' } }),
+  { safeCode: 'LEDGER_SHAPE_INVALID' }, 'an old price snapshot cannot be relabelled with the new review date');
+  assert.equal(numericLedger(snapshot).priceCheckedAt, snapshot.provenance.priceCheckedAt);
+  assert.equal(numericLedger(snapshot).priceValidUntilUtc, snapshot.provenance.validUntilUtc);
+  assert.equal(numericLedger(snapshot).sessionId, snapshot.provenance.sessionId);
   for (const [field, other] of Object.entries({ productCommit: 'f'.repeat(40), buildRunId: String(PIN.runId + 1),
     artifactId: String(PIN.artifactId + 1), installerSha256: 'f'.repeat(64) })) {
     const mixed = { ...snapshot, provenance: { ...snapshot.provenance, [field]: other } };
@@ -114,6 +131,42 @@ test('numeric ledger does not serialize arbitrary fields or credential-shaped st
 });
 test('unavailable ledger means entire remaining budget unavailable', () => {
   assert.equal(numericLedger({}).budgetUnavailableMicroCny, 10000000);
+});
+test('stale price evidence writes nothing and cannot release an uncertain reservation', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'offerpilot-price-evidence-'));
+  const book = new Ledger(); book.armCase('connection'); const ticket = book.claim();
+  book.reserve(ticket, 64, 'INSERTED'); book.finish(ticket, 'TIMEOUT'); book.close();
+  const snapshot = { ...book.snapshot(), journalFailed: false, provenance: { ...priceProvenance,
+    productCommit: PIN.commit, buildRunId: String(PIN.runId), artifactId: String(PIN.artifactId),
+    installerSha256: PIN.installerSha256, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40),
+    runId: '1', runAttempt: 1 } };
+  const before = structuredClone(snapshot);
+  const report = { status: 'BLOCKED', code: 'NOT_STARTED', scenarios: rows() };
+  try {
+    for (const changes of [
+      { priceCheckedAt: '2026-10-08', validUntilUtc: '2026-10-08T23:59:59.999Z' },
+      { priceCheckedAt: '2026-10-09', validUntilUtc: '2026-10-09T23:59:59.999Z' },
+      { priceCheckedAt: '2026-10-10', validUntilUtc: '2026-10-10T23:59:59.999Z' },
+      { priceCheckedAt: '2026-10-10' },
+      { validUntilUtc: '2026-10-10T23:59:59.999Z' },
+      { priceCheckedAt: '2026-10-12', validUntilUtc: '2026-10-12T23:59:59.999Z' },
+      { priceCheckedAt: '2026-10-09' },
+      { validUntilUtc: '2026-10-09T23:59:59.999Z' },
+      { validUntilUtc: '2026-10-12T23:59:59.999Z' },
+      { sessionId: 'offerpilot-fixed-exe-real-ai-20261009' },
+    ]) {
+      await assert.rejects(saveEvidence(directory, report, { ...snapshot,
+        provenance: { ...snapshot.provenance, ...changes } }), { safeCode: 'LEDGER_SHAPE_INVALID' });
+      assert.deepEqual(await fs.readdir(directory), []);
+    }
+    await saveEvidence(directory, report, snapshot);
+    const output = JSON.parse(await fs.readFile(path.join(directory, 'ledger.json'), 'utf8'));
+    assert.equal(output.priceCheckedAt, '2026-10-11');
+    assert.equal(output.sessionId, 'offerpilot-fixed-exe-real-ai-20261008');
+    assert.equal(output.retainedMicroCny, 3000000); assert.equal(output.settledMicroCny, 0);
+    assert.equal(output.requests[0].micro, 3000000); assert.equal(output.requests[0].status, 'TIMEOUT');
+    assert.deepEqual(snapshot, before, 'export does not rewrite the original ledger');
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });
 test('evidence writer never outputs supplied credential', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'offerpilot-evidence-test-'));
@@ -151,7 +204,7 @@ test('ledger write failure cannot replace the existing result with PASS', async 
   const reasons = 'AUTH ROUTE CLOSED DEADLINE UNARMED BUSY CASE BUDGET COUNT BODY MODEL PARAMETER CANCELLED DISCONNECT TIMEOUT LEDGER UPSTREAM REDIRECT PROTOCOL USAGE SETTLED EXPIRED UPSTREAM_DISCONNECT'.split(' ');
   const ledger = { model: 'deepseek-flash', budgetMicroCny: 10000000, reserveMicroCny: 3000000,
     sentRequests: 7, settledMicroCny: 120, retainedMicroCny: 3000000, active: false, closed: true, journalFailed: false,
-    provenance: { productCommit: PIN.commit, buildRunId: String(PIN.runId), artifactId: String(PIN.artifactId), installerSha256: PIN.installerSha256, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40), runId: '1', runAttempt: 1 },
+    provenance: { ...priceProvenance, productCommit: PIN.commit, buildRunId: String(PIN.runId), artifactId: String(PIN.artifactId), installerSha256: PIN.installerSha256, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40), runId: '1', runAttempt: 1 },
     denied: Object.fromEntries(reasons.map(key => [key, 0])),
     requests: CASES.map(caseId => ({ caseId, status: caseId === 'pilot-cancel' ? 'DISCONNECT' : 'SETTLED',
       envelope: 'UNCHANGED', cap: 64, micro: caseId === 'pilot-cancel' ? 3000000 : 20,

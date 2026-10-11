@@ -8,6 +8,7 @@ import { _electron } from 'playwright-core';
 import { getCurrentFuseWire, FuseState, FuseV1Options } from '@electron/fuses';
 import { extractFile } from '@electron/asar';
 import { hash, treeFiles, verifyPayload, normalizeSourceText } from './integrity.mjs';
+import { auditInstalledDependencies } from './installed-dependencies.mjs';
 import { safeFailure, commandFailure, recordSecurityBeforeValidation } from './diagnostics.mjs';
 import { observeDevToolsDisabled } from './devtools-probe.mjs';
 import { waitForDesktopSurfaces, readDesktopSecurity, validatePartitionIsolation } from './desktop-surfaces.mjs';
@@ -329,6 +330,9 @@ try {
   assert.equal(packageJson.name, 'offerpilot-desktop');
   assert.equal(packageJson.version, '0.1.0-desktop.1');
   assert.equal(packageJson.main, 'main.cjs');
+  stage = 'installed-production-dependencies';
+  const installedDependencies = await auditInstalledDependencies({ installDir, payload, source, pin: PIN });
+  await checkpoint(stage, { installedDependencies });
   const exeHashBefore = await hash(exe);
   stage = 'read-existing-inspect-fuse';
   const fuses = await getCurrentFuseWire(exe); // Read-only; never flip a fuse.

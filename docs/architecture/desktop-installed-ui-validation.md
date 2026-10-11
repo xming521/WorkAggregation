@@ -1,6 +1,6 @@
 # 固定 Windows 安装包的 UI 自验
 
-状态：限定分支上的实验验证辅助工具。2026-10-08 固定为产品 `590291ce`、PACKAGE-ONLY 构建 run `37828103435` 的实际安装包，仅用于免费非 AI / MOCK 预验。打包 job 已成功；artifact 元数据、本地 ZIP/CRC 和安装器/sidecar SHA256 已核验。该 run 的 manifest、pytest shards、完整 release gate 均 SKIPPED，汇总状态按设计 FAILURE，完整门禁未运行。新包安装后 UI 与 MOCK 尚未实跑，不能由打包成功或本地 helper 单测推导通过。
+状态：限定分支上的实验验证辅助工具。2026-10-10 固定为产品 `ae98002d`、普通构建 run `38084680213` 的实际安装包。打包 job 已成功；artifact 元数据、本地 ZIP/CRC 和安装器/sidecar SHA256 已核验。`fullRegressionRunId: 38084680213` 只标识同提交的独立完整门禁，准备时仍待完成，不表示成功。本地 helper 候选只有在负责人确认该完整门禁成功后才可发布。新包安装后 UI 与 MOCK 尚未实跑，不能由打包成功或本地 helper 单测推导通过。
 
 更早固定产品 `16f31e47` 的实装 [37794297987](https://github.com/offercontext/offerPilot/actions/runs/37794297987) 为 115 PASS、1 FAIL、20 BLOCKED、66 NOT RUN、4 N/A。唯一失败位于 ORT 模块导入：真实 MJS 响应为 `text/plain`，HTTP 200、无重定向、响应字节和 SHA 与安装资源一致，WASM 编译及生产 CSP 检查通过；factory、ORT 初始化和 ASR 均未执行成功。旧结果保持失败，不转写为新包证据。
 
@@ -8,23 +8,23 @@
 
 ## 固定输入与独立路由
 
-- 源提交：`590291ce4e33407eb4f13f092298e7398aed394c`。
-- 构建 run：[37828103435](https://github.com/offercontext/offerPilot/actions/runs/37828103435)，仅 PACKAGE-ONLY，无完整回归来源，`fullRegressionRunId: null`。旧 `c040a5d2` 的完整回归另行跟进，本流程不重跑、不取消，也不把它作为新产品的门禁证据。
-- 成功打包 job：[113486080181](https://github.com/offercontext/offerPilot/actions/runs/37828103435/job/113486080181)；其成功只证明打包范围。
-- Artifact：`11573930091`，名称 `offerpilot-windows-experimental-validation-590291ce4e33407eb4f13f092298e7398aed394c`。
-- Artifact 元数据摘要：`sha256:ad5c3f7e2858f1b1c5339a2e95af16d7c0785b268382d170cd2b9ef7efd6debd`。
+- 源提交：`ae98002d73f3477b5d72de4f8ca2dc841856ecd5`。
+- 构建 run：[38084680213](https://github.com/offercontext/offerPilot/actions/runs/38084680213)，普通同提交构建，`fullRegressionRunId: 38084680213`。该编号不是成功证明；本流程不重跑、不取消，也不把其他提交的完整回归作为本产品证据。
+- 成功打包 job：[114308621647](https://github.com/offercontext/offerPilot/actions/runs/38084680213/job/114308621647)；其成功只证明打包范围。
+- Artifact：`11681692412`，名称 `offerpilot-windows-experimental-validation-ae98002d73f3477b5d72de4f8ca2dc841856ecd5`。
+- Artifact 元数据摘要：`sha256:d03965e0edbafe2564099d41ada4f3185d9155622c119f24c7bf0fc31470a939`。
 - 安装包：`OfferPilot-Desktop-0.1.0-desktop.1-win-x64-setup.exe`。
-- 安装包 SHA256：`abaa504cef5a51ba7f3b4f1dddc1d24f889f350231a4dcb5b523e4f91b76f316`。
+- 安装包 SHA256：`8a1dcda9939499d5dd030b9f7a48398703d3eae8d459c1eb6f912bcd460e9d1a`。
 
-schema 2 区分产品源码 `commit`、安装包构建的 `buildCommit` / `buildWorkflow` / `runId`，以及独立完整回归 `fullRegressionRunId`。当前 source/build 都是 `590291ce4e33407eb4f13f092298e7398aed394c`，构建工作流为 `desktop-windows.yml`，run 为 `37828103435`；完整回归来源明确为空，仅授权免费预验。
+schema 2 区分产品源码 `commit`、安装包构建的 `buildCommit` / `buildWorkflow` / `runId`，以及独立完整回归 `fullRegressionRunId`。当前 source/build 都是 `ae98002d73f3477b5d72de4f8ca2dc841856ecd5`，构建工作流为 `desktop-windows.yml`，run 为 `38084680213`；完整回归来源为同一 run，须独立确认成功。
 
 正整数 `fullRegressionRunId` 保留原严格规则：普通构建要求 `buildCommit === commit` 且构建/完整回归 run 相同；限定 `.github/workflows/desktop-layout-retry.yml` 要求产品与激活 SHA 不同、构建/完整回归 run 不同。build run 和 artifact.workflow_run.head_sha 必须匹配 `buildCommit`，完整回归 run.head_sha 必须匹配 `commit`。只接受固定仓库/分支、push 和既有两个 workflow 路径，不接受任意 URL、run 或额外键。
 
 `fullRegressionRunId: null` 只接受普通构建、相同 source/build SHA、原始 attempt 1、GitHub run.head_commit.id 与产品 SHA 一致且 message 首行以明确 package-only 前缀开头，并与 run 标题一致；同 run/同 SHA 的 manifest、未展开 shard 和 full release gate 必须各唯一且全部 completed/skipped，缺失、重复、混入真实 shard 或任一非 skipped 均失败。metadata caller 不请求 `runs/null`，报告写 `not-run-package-only`，不伪装成完整回归身份或通过证明。live preflight、prepare 和执行 runner 各自拒绝空来源；MOCK 通过或人工审批都不能把该预验包放行成 live。
 
-`source.json`、`result.json` 与 `coverage.json` 均记录精确产品、构建、artifact 身份和未运行完整门禁的状态；源码 checkout 及已安装 12 个桌面模块/托盘资源对比始终使用产品 `commit`。安装器哈希、payload 字节比对、artifact 摘要及成功打包 job 检查不变。正整数路径的完整回归 metadata 仍仅核验来源，不认证结果。
+`source.json`、`result.json` 与 `coverage.json` 均记录精确产品、构建、artifact 身份和未认证完整门禁结果的状态；源码 checkout 及已安装 12 个桌面模块/托盘资源对比始终使用产品 `commit`。安装器哈希、payload 字节比对、artifact 摘要及成功打包 job 检查不变。正整数路径的完整回归 metadata 仍仅核验来源，不认证结果。
 
-最终验收采用普通 full-gate 新提交及其自身安装器，再对那份固定 EXE 运行免费非 AI 与全 MOCK；唯一 live 也只能绑定最终同一份 EXE。本次 `590291ce` 的通过记录不可转移给未来安装器，不引入跨提交源码等价认证。
+最终验收采用上述 `ae98002d` 提交及其自身安装器，再对这份固定 EXE 运行免费非 AI 与全 MOCK；唯一 live 也只能绑定最终同一份 EXE。helper 提交可以更新，但源码 checkout 始终使用 PIN 产品提交；旧包通过记录不可转移，不引入跨提交源码等价认证。
 
 下载由官方 `actions/download-artifact@v4` 使用固定仓库、run 与名称完成。验证 metadata digest 并不伪装成本地重算 ZIP：下载 action 解压 artifact，执行前另对安装包字节计算硬编码 SHA256，任一不符都不执行。没有应用重建步骤。
 
@@ -152,3 +152,13 @@ node --check desktop/installed-ui/coverage-recorder.mjs
 这些命令可在 Linux 检验 pin、错误传播、证据字段、进程归属/监听约束及 YAML 路由。PowerShell、NSIS、CIM 和真实 Electron UI 必须以 Windows run 结果验证，不用 Linux 结果替代。
 
 官方行为依据：[Playwright Electron](https://playwright.dev/docs/api/class-electron)、[ElectronApplication](https://playwright.dev/docs/api/class-electronapplication)、[Electron fuse 只读 API](https://packages.electronjs.org/fuses/v2.1.1/functions/getCurrentFuseWire.html)、[NSIS 命令行](https://nsis.sourceforge.io/Docs/Chapter3.html)、[GitHub artifact 下载](https://github.com/actions/download-artifact)、[hosted runner 权限](https://docs.github.com/en/actions/reference/runners/github-hosted-runners#administrative-privileges)、[跳过 push CI](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)。
+
+### 已安装生产依赖证据
+
+`installed-production-dependencies` 在首次启动之前读取安装后的 `resources/app.asar`。预期版本取自精确产品 `PIN.commit` 的 `desktop/package.json` / `package-lock.json` Git 对象，要求 source checkout 的根目录身份、HEAD 和工作区输入一致。helper 的新源码或当前 lock 不能替换旧 PIN 的预期；最终 repin 之后必须重新验收同一安装器，旧包结果不转写成新依赖通过。
+
+检查实际 ASAR 内的 `electron-updater/package.json`，并从该包所有已安装 `out/**/*.[cm]js` / `out/**/*.js` 文件位置（直接 require 位置的保守超集，排除第三方 node_modules）按 Node 向上查找 `node_modules` 的顺序读取实际 metadata 和入口。不靠正则判断 require 语法或注释；这是每个文件位置的静态解析，不表示这些调用实际发生。根目录新版本不能覆盖嵌套旧版本；额外旧 runtime、缺失包或入口、文件遮蔽、越界 main、exports 等未支持解析、ASAR 链接/unpacked 和大小写冲突均拒绝。此处证明已安装 metadata 与静态解析结果，不调用更新器、不执行依赖代码，也不证明更新服务器或签名升级能力。记录的 npm integrity 是 PIN lock 的来源字段，未声称重新核验上游 tarball 内容。
+
+安装器固定 SHA256 → 已提取 payload → 已安装 ASAR SHA256 → 包 metadata SHA256 与 source lock SHA256 构成同一产物证据链；沿用已有完整 payload 字节比对。文件检查共享 native realpath、BigInt 文件身份及祖先 symlink/junction 拒绝逻辑，支持 Windows 8.3/长名/大小写与中文路径；不以路径字符串前缀代替身份验证。
+
+Axios 被 Vite 合并进 JS，不能由任意版本字符串或源码 lock 单独证明已安装运行版本。报告始终标记 `directInstalledVersionProven: false`，只提供精确 PIN 的 Axios lock 版本，以及安装后 `resources/web/index.html` 和 JS assets 与同一 payload 的 SHA256 一致性。它没有新增产品版本接口或改变构建。版本 metadata 与字节来源证据不能扩大解释为独立包内容认证或运行时执行证明。

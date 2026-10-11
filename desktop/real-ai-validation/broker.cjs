@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const tls = require('node:tls');
 const { randomBytes, timingSafeEqual } = require('node:crypto');
-const { POLICY, CASES, BudgetError, Ledger, envelope, UsageParser } = require('./broker-core.cjs');
+const { PRICE_REVIEW, POLICY, CASES, BudgetError, Ledger, envelope, UsageParser } = require('./broker-core.cjs');
 
 // No URL argument, fetch, SDK, proxy environment, redirect handler, or retry path.
 const UPSTREAM = Object.freeze({ protocol: 'https:', hostname: 'api.deepseek.com', port: 443,
@@ -25,9 +25,9 @@ function equalToken(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-const PROVENANCE = Object.freeze({ productCommit: '590291ce4e33407eb4f13f092298e7398aed394c', buildRunId: '37828103435',
-  artifactId: '11573930091', installerSha256: 'abaa504cef5a51ba7f3b4f1dddc1d24f889f350231a4dcb5b523e4f91b76f316',
-  priceCheckedAt: '2026-10-08', validUntilUtc: '2026-10-08T23:59:59.999Z', priceBasis: 'PEAK_CNY', mode: 'FIXED_EXE_UI_BUDGET_BROKER' });
+const PROVENANCE = Object.freeze({ productCommit: 'ae98002d73f3477b5d72de4f8ca2dc841856ecd5', buildRunId: '38084680213',
+  artifactId: '11681692412', installerSha256: '8a1dcda9939499d5dd030b9f7a48398703d3eae8d459c1eb6f912bcd460e9d1a',
+  ...PRICE_REVIEW, mode: 'FIXED_EXE_UI_BUDGET_BROKER' });
 
 function currentPriceWindow(timeoutMs = 0) {
   const now = Date.now();

@@ -1,4 +1,4 @@
-import { usageCost } from './broker-core.cjs';
+import { PRICE_REVIEW, usageCost } from './broker-core.cjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { SCREEN_IDS, SKIP_CODES, GUARD_REASONS } from './mock-screenshots.mjs';
@@ -71,7 +71,7 @@ export function safeResults(results, isMock = false) {
 // No arbitrary strings, error messages, provider response bodies or nested objects can cross this boundary.
 export function numericLedger(snapshot) {
   const output = { schema: 1, kind: 'bounded-real-provider-cost-counters', currency: 'CNY',
-    priceCheckedAt: '2026-10-08', priceValidUntilUtc: '2026-10-08T23:59:59.999Z',
+    priceCheckedAt: PRICE_REVIEW.priceCheckedAt, priceValidUntilUtc: PRICE_REVIEW.validUntilUtc,
     sessionId: 'offerpilot-fixed-exe-real-ai-20261008', model: 'deepseek-flash',
     productCommit: PIN.commit, buildRunId: PIN.runId, artifactId: PIN.artifactId };
   if (!snapshot || Object.keys(snapshot).length === 0) return { ...output, unavailable: true, budgetUnavailableMicroCny: 10000000 };
@@ -85,7 +85,12 @@ export function numericLedger(snapshot) {
   }
   const reasons = ['AUTH', 'ROUTE', 'CLOSED', 'DEADLINE', 'UNARMED', 'BUSY', 'CASE', 'BUDGET', 'COUNT',
     'BODY', 'MODEL', 'PARAMETER', 'CANCELLED', 'DISCONNECT', 'TIMEOUT', 'LEDGER', 'UPSTREAM', 'REDIRECT', 'PROTOCOL', 'USAGE', 'SETTLED', 'EXPIRED', 'UPSTREAM_DISCONNECT'];
-  demand(snapshot.provenance && typeof snapshot.provenance === 'object', 'LEDGER_SHAPE_INVALID');
+  demand(snapshot.provenance && typeof snapshot.provenance === 'object' && !Array.isArray(snapshot.provenance), 'LEDGER_SHAPE_INVALID');
+  // Reject stale/mixed review windows and session identities before exporting:
+  // current helper policy must never relabel an older snapshot or reset its budget.
+  demand(Object.entries(PRICE_REVIEW).every(([key, value]) => snapshot.provenance[key] === value)
+    && snapshot.provenance.sessionId === output.sessionId
+    && snapshot.provenance.mode === 'FIXED_EXE_UI_BUDGET_BROKER', 'LEDGER_SHAPE_INVALID');
   demand(snapshot.provenance.productCommit === PIN.commit && snapshot.provenance.buildRunId === String(PIN.runId)
     && snapshot.provenance.artifactId === String(PIN.artifactId)
     && snapshot.provenance.installerSha256 === PIN.installerSha256, 'LEDGER_SHAPE_INVALID');

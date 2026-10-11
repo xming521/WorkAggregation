@@ -12,8 +12,9 @@ const vm = require('node:vm');
 const { Writable, PassThrough } = require('node:stream');
 const { performance } = require('node:perf_hooks');
 const { fixtureFor, MODE, CASE_IDS } = require('./mock-fixtures.cjs');
+const { PRICE_REVIEW } = require('./broker-core.cjs');
 const FAKE_KEY = 'MOCK_ONLY_NOT_A_REAL_PROVIDER_CREDENTIAL';
-const MOCK_EPOCH = Date.UTC(2026, 9, 8, 12);
+const MOCK_EPOCH = Date.parse(`${PRICE_REVIEW.priceCheckedAt}T12:00:00.000Z`);
 let installed = false;
 let owner = null;
 let creating = false;
@@ -121,7 +122,7 @@ function installOfflineBoundary() {
 }
 
 // Evaluate byte-identical reviewed broker/core source in a separate clock realm.
-// Only this broker sees the old reviewed price window. The harness, real EXE,
+// Only this broker sees the fixed reviewed price window. The harness, real EXE,
 // synthetic event dates and UI timeouts keep the actual system date unchanged.
 // The immutable, allowlisted Node transports are shared with this offline
 // process; neither clock nor transport injection is added to the live API.
@@ -177,7 +178,7 @@ async function createOfflineBroker({ ledgerPath, sessionId, runId, runAttempt, h
       snapshot() {
         return { ...broker.snapshot(), mode: MODE,
           mock: { transport: 'IN_PROCESS_SYNTHETIC_HTTPS', externalNetwork: 'DENIED',
-            fakeRequests: state.fakeRequests, clockEpochUtc: '2026-10-08T12:00:00.000Z', clockScope: 'BROKER_VM_ONLY',
+            fakeRequests: state.fakeRequests, clockEpochUtc: new Date(MOCK_EPOCH).toISOString(), clockScope: 'BROKER_VM_ONLY',
             realProviderCalls: 0, usageIsSynthetic: true } };
       },
       close() {

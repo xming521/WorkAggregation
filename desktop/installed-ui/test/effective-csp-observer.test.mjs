@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import syncFs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import vm from 'node:vm';
@@ -21,7 +22,7 @@ async function installation(t, overrides) {
 test('installed ASAR audit verifies the exact production entrypoint and complete unoccupied module closure', async t => {
   const root = await installation(t);
   assert.deepEqual(await auditInstalledResponseObserver(root), {
-    auditedProductCommit: '590291ce4e33407eb4f13f092298e7398aed394c', verifiedModuleCount: 12,
+    auditedProductCommit: 'ae98002d73f3477b5d72de4f8ca2dc841856ecd5', verifiedModuleCount: 12,
     mainEntryMatched: true, responseStartedUnused: true,
   });
 });
@@ -36,18 +37,15 @@ for (const overrides of [{ 'main.cjs': '// changed' }, { 'haru.cjs': "session.we
 // Only the input spelling is mapped; realpath still reads the actual directory.
 function resourceAlias(t, root, canonicalResources) {
   const aliasRoot = path.join(path.dirname(root), `CSP~1-${path.basename(root)}`);
-  const aliasResources = path.join(aliasRoot, 'resources');
-  assert.notEqual(aliasResources, canonicalResources);
-  const original = fs.realpath;
+  assert.notEqual(path.join(aliasRoot, 'resources'), canonicalResources);
+  const original = { native: syncFs.realpathSync.native, lstat: syncFs.lstatSync };
   let observed = 0;
-  t.mock.method(fs, 'realpath', async (file, ...args) => {
-    if (file === aliasResources) {
-      observed++;
-      return original(path.join(root, 'resources'), ...args);
-    }
-    return original(file, ...args);
+  t.mock.method(syncFs.realpathSync, 'native', (file, ...args) => {
+    if (file === aliasRoot) { observed++; return original.native(root, ...args); }
+    return original.native(file, ...args);
   });
-  return { aliasRoot, assertObserved: () => assert.equal(observed, 1, 'raw resource alias must actually be resolved') };
+  t.mock.method(syncFs, 'lstatSync', (file, ...args) => original.lstat(file === aliasRoot ? root : file, ...args));
+  return { aliasRoot, assertObserved: () => assert.ok(observed > 0, 'raw alias must reach the native resolver') };
 }
 
 test('ASAR audit resolves a distinct raw alias before reading the real canonical archive', async t => {
@@ -71,9 +69,9 @@ for (const forceAlias of [false, true]) {
     await fs.rename(archive, target);
     // File symlinks require a Windows privilege that hosted runners do not grant.
     // The filesystem seam exercises exactly that lstat fact on every platform.
-    const original = fs.lstat;
+    const original = syncFs.lstatSync;
     let observed = 0;
-    t.mock.method(fs, 'lstat', async (file, ...args) => {
+    t.mock.method(syncFs, 'lstatSync', (file, ...args) => {
       if (file === archive) {
         observed++;
         return { isFile: () => true, isSymbolicLink: () => true };
@@ -81,7 +79,7 @@ for (const forceAlias of [false, true]) {
       return original(file, ...args);
     });
     await assert.rejects(auditInstalledResponseObserver(root), {
-      code: 'ERR_ASSERTION', message: 'installed application archive must not be a link',
+      code: 'ERR_ASSERTION', message: 'installed file must be regular and unlinked',
     });
     assert.equal(observed, 1, 'canonical archive lstat must observe the simulated symlink');
     alias?.assertObserved();

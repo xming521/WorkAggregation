@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { extractFile } from '@electron/asar';
+import { unlinkedFile } from './filesystem-safety.mjs';
 
 import { AUDITED_DESKTOP_PRODUCT, AUDITED_DESKTOP_MODULE_SHA256, DESKTOP_SOURCE_FILES } from './desktop-source-manifest.mjs';
 
@@ -11,12 +10,7 @@ import { AUDITED_DESKTOP_PRODUCT, AUDITED_DESKTOP_MODULE_SHA256, DESKTOP_SOURCE_
 export const AUDITED_RESPONSE_MODULES = AUDITED_DESKTOP_MODULE_SHA256;
 
 export async function auditInstalledResponseObserver(installDir) {
-  assert.ok(typeof installDir === 'string' && path.isAbsolute(installDir), 'absolute installation required for response observer audit');
-  const resources = await fs.realpath(path.join(installDir, 'resources'));
-  const archive = path.join(resources, 'app.asar');
-  const stat = await fs.lstat(archive);
-  assert.ok(stat.isFile() && !stat.isSymbolicLink(), 'installed application archive must not be a link');
-  assert.equal(await fs.realpath(archive), archive, 'application archive escaped audited resources');
+  const archive = unlinkedFile(installDir, 'resources/app.asar');
   const metadata = JSON.parse(extractFile(archive, 'package.json').toString('utf8'));
   assert.equal(metadata.name, 'offerpilot-desktop');
   assert.equal(metadata.main, 'main.cjs');

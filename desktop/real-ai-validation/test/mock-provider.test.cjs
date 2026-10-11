@@ -154,6 +154,9 @@ test('MOCK price clock is broker-only and no broker API can override transport, 
   const before = Date.now(); await new Promise((resolve) => setTimeout(resolve, 30));
   assert.ok(Date.now() >= before + 20); assert.equal(Date.now, actualDateNow);
   assert.equal(broker.snapshot().mock.clockScope, 'BROKER_VM_ONLY');
+  assert.equal(broker.snapshot().mock.clockEpochUtc, '2026-10-11T12:00:00.000Z');
+  assert.equal(broker.snapshot().provenance.priceCheckedAt, '2026-10-11');
+  assert.equal(broker.snapshot().provenance.validUntilUtc, '2026-10-11T23:59:59.999Z');
   assert.throws(() => broker.prepareCase('unknown-case'), /MOCK_NETWORK_DENIED/);
   assert.throws(() => broker.armCase('connection'), /MOCK_NETWORK_DENIED/);
   await assert.rejects(createOfflineBroker({}), /MOCK_NETWORK_DENIED/, 'only one process-global fake owner');
