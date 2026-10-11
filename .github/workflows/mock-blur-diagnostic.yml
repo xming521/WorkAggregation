@@ -1,0 +1,59 @@
+name: Bounded synthetic MOCK blur diagnosis
+
+# A dedicated branch isolates this diagnostic from every product/full/UI run.
+on:
+  push:
+    branches: [test/20261011-mock-blur-preflight]
+    paths:
+      - 'desktop/mock-blur-diagnostic/run.mjs'
+      - '.github/workflows/mock-blur-diagnostic.yml'
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: pwsh
+jobs:
+  diagnose:
+    name: Natural Edge opRise and static pixel controls
+    if: ${{ github.repository == 'offercontext/offerPilot' && github.ref == 'refs/heads/test/20261011-mock-blur-preflight' && github.run_attempt == 1 }}
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.3'
+      - name: Verify exact reviewed base and diagnostic-only changes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'c77bee0d2000a502b9190461a14d92b3d893248b'
+          $parents = @((git rev-list --parents -n 1 HEAD) -split ' ')
+          if ($LASTEXITCODE -ne 0 -or $parents.Count -ne 2 -or $parents[0] -cne $env:GITHUB_SHA -or $parents[1] -cne $base) { throw 'Expected one diagnostic commit on exact reviewed base' }
+          $changed = @((git diff --name-only $base HEAD) | Sort-Object)
+          $expected = @('.github/workflows/mock-blur-diagnostic.yml', 'desktop/mock-blur-diagnostic/run.mjs')
+          if ($LASTEXITCODE -ne 0 -or ($changed -join ',') -cne ($expected -join ',')) { throw 'Unexpected source changes' }
+          node desktop/mock-blur-diagnostic/run.mjs --verify-source-only
+          if ($LASTEXITCODE -ne 0) { throw 'Source hashes changed' }
+      - name: Install existing locked helper dependencies without scripts
+        working-directory: desktop/installed-ui
+        timeout-minutes: 2
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Locked helper install failed' }
+      - name: Inspect natural animation in preinstalled sandboxed Edge
+        timeout-minutes: 2
+        run: |
+          node desktop/mock-blur-diagnostic/run.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Browser diagnosis incomplete; inspect synthetic evidence' }
+      - name: Retain only synthetic browser diagnosis
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mock-blur-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: desktop/mock-blur-diagnostic/evidence/
+          if-no-files-found: warn
+          retention-days: 7
