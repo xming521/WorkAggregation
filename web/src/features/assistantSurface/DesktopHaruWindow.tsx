@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { CloseOutlined, CommentOutlined, HolderOutlined, RightOutlined, UnorderedListOutlined, UpOutlined, UserOutlined } from '@ant-design/icons';
+import { CloseOutlined, HolderOutlined, RightOutlined, UnorderedListOutlined, UpOutlined, UserOutlined } from '@ant-design/icons';
 import type { DesktopHaruRequest, DesktopHaruState } from './desktopHaru';
 import { live2dPilotMascotRuntime, type PilotMascotActivity } from '@/features/pilotMascot/live2dRuntime';
 import { useThemeMode } from '@/theme/ThemeContext';
@@ -86,6 +86,7 @@ export default function DesktopHaruWindow() {
   }, [bridge, state.expanded, state.visible]);
   const snapshot = state.snapshot;
   const theme = snapshot?.theme ?? mode;
+  const portraitSource = theme === 'dark' ? haruWindowDark : haruWindowLight;
   const active = state.visible && pageVisible;
   const activity: PilotMascotActivity = snapshot?.taskState === 'running' ? 'thinking' : snapshot?.hasPending ? 'waiting_confirmation' : snapshot?.taskState === 'failed' ? 'error' : 'idle';
   const windowAction = (action: 'show-main' | 'hide-haru' | 'toggle-top' | 'expand' | 'collapse') => { void bridge?.windowAction(action).catch(() => setNotice('窗口操作失败，请使用托盘菜单。')); };
@@ -155,7 +156,7 @@ export default function DesktopHaruWindow() {
         windowAction(state.expanded ? 'collapse' : 'expand');
       }}>
       {state.expanded ? <>
-      <img className="desktop-haru-static-portrait" src={theme === 'dark' ? haruWindowDark : haruWindowLight} alt="" aria-hidden="true" draggable={false} />
+      <img className="desktop-haru-static-portrait" src={portraitSource} alt="" aria-hidden="true" draggable={false} />
       <span className="desktop-haru-speech" aria-hidden="true">{state.connected && snapshot ? GREETING[snapshot.taskState] : '打开主窗，我们就能继续聊。'}</span>
       <span className="desktop-haru-presence" role="status"><i aria-hidden="true" data-activity={activity} />{state.connected && snapshot ? STATUS[snapshot.taskState] : '等待主窗口连接'}</span>
       <span className="desktop-haru-expand-hint" aria-hidden="true">收起对话 <UpOutlined /></span>
@@ -176,7 +177,7 @@ export default function DesktopHaruWindow() {
       <div className="desktop-haru-conversation-heading"><span>当前对话</span></div>
       <div className="desktop-haru-messages" aria-live="polite" aria-relevant="additions text">
         {!snapshot?.messages.length ? <div className="desktop-haru-empty"><span>今天想聊些什么？</span><p>一起理清思路，慢慢往前走。</p></div> : snapshot.messages.map((message, index) => <article key={index} data-role={message.role}>
-          <span className="desktop-haru-message-avatar" aria-hidden="true">{message.role === 'user' ? <UserOutlined /> : <CommentOutlined />}</span>
+          <span className="desktop-haru-message-avatar" aria-hidden={message.role === 'user' ? true : undefined}>{message.role === 'user' ? <UserOutlined /> : <img src={portraitSource} alt="Haru 头像" draggable={false} />}</span>
           <div className="desktop-haru-message-bubble"><b className="desktop-haru-label">{message.role === 'user' ? '你' : 'Haru'}</b><p>{message.content}</p></div>
         </article>)}
         {snapshot?.loading ? <p className="desktop-haru-loading" role="status">正在处理…</p> : null}<div ref={end} />

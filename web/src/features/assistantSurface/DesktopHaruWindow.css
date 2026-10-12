@@ -220,6 +220,8 @@ html.desktop-haru-root,
 .desktop-haru-messages { flex: 1; min-height: 32px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--haru-line) transparent; }
 .desktop-haru-messages article { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 13px; }
 .desktop-haru-message-avatar { display: grid; flex: 0 0 27px; place-items: center; width: 27px; height: 27px; margin-top: 2px; border: 1px solid var(--haru-line); border-radius: 50%; background: var(--haru-avatar); color: var(--haru-avatar-text); font-size: 16px; }
+.desktop-haru-messages article[data-role=assistant] .desktop-haru-message-avatar { overflow: hidden; }
+.desktop-haru-message-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 9% center; transform: scale(2.15); transform-origin: 50% 8%; }
 .desktop-haru-message-bubble { max-width: calc(100% - 57px); padding: 10px 12px; border: 1px solid var(--haru-line); border-radius: 14px; background: var(--haru-bubble); }
 .desktop-haru-messages article p { font-size: 13px; line-height: 1.75; }
 .desktop-haru-messages article[data-role=user] { flex-direction: row-reverse; }

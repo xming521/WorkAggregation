@@ -32,6 +32,25 @@ it('renders only mirrored state and forwards single sends with generation/versio
   expect(request).toHaveBeenCalledWith({ action: 'send', text: 'hello', version: 2, generation: 3 });
   expect(host.querySelector('textarea')!.value).toBe('');
 });
+it('uses the current Haru portrait for assistant message avatars in both themes while retaining the user icon', async () => {
+  state = { ...state, snapshot: { ...state.snapshot!, messages: [{ role: 'assistant', content: 'Current answer' }, { role: 'user', content: 'My message' }] } };
+  await mount();
+  for (const theme of ['light', 'dark'] as const) {
+    await act(async () => update({ ...state, snapshot: { ...state.snapshot!, theme } }));
+    const assistantAvatar = host.querySelector('[data-role="assistant"] .desktop-haru-message-avatar')!;
+    const userAvatar = host.querySelector('[data-role="user"] .desktop-haru-message-avatar')!;
+    const portrait = assistantAvatar.querySelector('img')!;
+    expect(portrait.getAttribute('src')).toBe(host.querySelector('.desktop-haru-static-portrait')!.getAttribute('src'));
+    expect(portrait.getAttribute('src')).toContain(`haru-window-${theme}.png`);
+    expect(portrait.alt).toBe('Haru 头像');
+    expect(assistantAvatar.getAttribute('aria-hidden')).not.toBe('true');
+    expect(assistantAvatar.querySelector('svg')).toBeNull();
+    expect(userAvatar.querySelector('img')).toBeNull();
+    expect(userAvatar.querySelector('svg')).not.toBeNull();
+  }
+  expect(request).not.toHaveBeenCalled();
+  expect(live2dPilotMascotRuntime.mount).not.toHaveBeenCalled();
+});
 it('retains stale submissions and never retries automatically', async () => {
   request.mockResolvedValue({ ok: false, reason: 'stale' }); await mount(); type('keep me');
   await act(async () => button('发送').click());

@@ -16,6 +16,10 @@ export function observeLayout() {
   const portrait = document.querySelector('.desktop-haru-portrait');
   const canvas = portrait?.querySelector('canvas');
   const staticImage = document.querySelector('.desktop-haru-static-portrait');
+  const assistantAvatars = [...document.querySelectorAll('[data-role=assistant] .desktop-haru-message-avatar')].map(node => {
+    const image = node.querySelector('img');
+    return { loaded: Boolean(image?.complete && image.naturalWidth > 0), alt: image?.alt || '', source: image?.getAttribute('src') || null, hidden: Boolean(image?.closest('[aria-hidden=true]')) };
+  });
   const ready = portrait?.getAttribute('data-runtime-state') === 'ready';
   let contextAvailable = false;
   let contextLost = true;
@@ -36,6 +40,8 @@ export function observeLayout() {
     staticImages: document.querySelectorAll('.desktop-haru-static-portrait').length,
     staticImageLoaded: Boolean(staticImage?.complete && staticImage.naturalWidth > 0 && visible(staticImage)),
     staticImageSource: staticImage?.getAttribute('src') || null,
+    assistantMessageCount: document.querySelectorAll('.desktop-haru-messages article[data-role=assistant]').length,
+    assistantAvatars,
     surfaceWithinViewport: within(rect(root)), avatarWithinViewport: within(avatarBox),
     canvasIntersectsAvatar: Boolean(canvasBox && avatarBox && Math.min(canvasBox.right, avatarBox.right) > Math.max(canvasBox.left, avatarBox.left)
       && Math.min(canvasBox.bottom, avatarBox.bottom) > Math.max(canvasBox.top, avatarBox.top)),
@@ -62,6 +68,11 @@ export function assertLayout(value, { expanded = true, theme } = {}) {
     assert.equal(value.runtimeState, 'absent');
     assert.equal(value.staticImageLoaded, true);
     assert.match(value.staticImageSource, /haru-window-(?:light|dark)(?:-[A-Za-z0-9_-]+)?\.png$/);
+    assert.equal(value.assistantAvatars.length, value.assistantMessageCount);
+    for (const avatar of value.assistantAvatars) {
+      assert.equal(avatar.loaded, true); assert.equal(avatar.alt, 'Haru 头像');
+      assert.equal(avatar.source, value.staticImageSource); assert.equal(avatar.hidden, false);
+    }
   } else {
     assert.equal(value.runtimeState, 'ready'); assert.equal(value.contextAvailable, true); assert.equal(value.contextLost, false); assert.equal(value.contextAlpha, true); assert.equal(value.canvasCssTransparent, true);
     assert.ok(value.backingWidth > 0 && value.backingHeight > 0); assert.equal(value.canvasIntersectsAvatar, true);
@@ -74,7 +85,8 @@ export function assertLayout(value, { expanded = true, theme } = {}) {
 export async function settleVisual(page, expanded) {
   if (expanded) await page.waitForFunction(() => {
     const image = document.querySelector('.desktop-haru-static-portrait');
-    return image?.complete && image.naturalWidth > 0 && !document.querySelector('.desktop-haru canvas');
+    const messageImages = [...document.querySelectorAll('[data-role=assistant] .desktop-haru-message-avatar img')];
+    return image?.complete && image.naturalWidth > 0 && messageImages.every(item => item.complete && item.naturalWidth > 0) && !document.querySelector('.desktop-haru canvas');
   }, undefined, { timeout: 25_000 });
   else await page.locator('.desktop-haru-portrait[data-runtime-state="ready"]').waitFor({ timeout: 25_000 });
   await page.evaluate(() => document.fonts.ready);
