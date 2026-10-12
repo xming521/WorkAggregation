@@ -35,7 +35,7 @@ jobs:
       - name: Backend safety and existing domain regression
         run: |
           uv run pytest -q tests/test_job_mail*.py tests/test_application_events_repository.py tests/test_events_api.py tests/test_calendar_api.py tests/test_auth_api.py tests/test_event_lifecycle_v1.py
-          uv run ruff check src/offerpilot/job_mail src/offerpilot/api.py src/offerpilot/cli.py src/offerpilot/db.py tests/test_job_mail*.py tests/fixtures/job_mail_app.py
+          uv run ruff check src/offerpilot/job_mail src/offerpilot/api.py src/offerpilot/cli.py src/offerpilot/db.py tests/test_job_mail*.py tests/fixtures/job_mail_app.py tests/fixtures/job_mail_scheduler_app.py
           uv run mypy src/offerpilot/job_mail src/offerpilot/api.py src/offerpilot/cli.py src/offerpilot/db.py --follow-imports=silent
       - name: Frontend regression and production build
         run: |
@@ -47,7 +47,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
           npm install --prefix "$RUNNER_TEMP/mail-browser" playwright-core@1.55.1
-      - name: Synthetic browser acceptance and screenshots
+      - name: Existing synthetic browser regression
         shell: bash
         run: |
           set -euo pipefail
@@ -56,14 +56,61 @@ jobs:
           export PLAYWRIGHT_MODULE="$RUNNER_TEMP/mail-browser/node_modules/playwright-core/index.mjs"
           export CHROMIUM_PATH="$(command -v google-chrome || command -v chromium)"
           export MAIL_EVIDENCE_DIR="$GITHUB_WORKSPACE/artifacts/job-mail-browser"
-          uv run python tests/fixtures/job_mail_app.py > artifacts/job-mail-browser/server.log 2>&1 &
+          .venv/bin/python tests/fixtures/job_mail_app.py > artifacts/job-mail-browser/server.log 2>&1 &
           server=$!
-          trap 'kill "$server" 2>/dev/null || true' EXIT
+          cleanup() {
+            result=$?
+            trap - EXIT
+            kill "$server" 2>/dev/null || true
+            for i in $(seq 1 20); do
+              if ! kill -0 "$server" 2>/dev/null; then
+                wait "$server" 2>/dev/null || true
+                exit "$result"
+              fi
+              sleep 1
+            done
+            echo "This fixture PID did not stop within 20 seconds" >&2
+            exit 1
+          }
+          trap cleanup EXIT
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:38091/api/job-mail/status >/dev/null; then break; fi
             sleep 1
           done
+          curl -fsS http://127.0.0.1:38091/api/job-mail/status >/dev/null
           node scripts/job-mail-browser-smoke.mjs
+      - name: Synthetic scheduler browser acceptance and screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/job-mail-scheduler
+          export OFFERPILOT_MAIL_FIXTURE_DATA="$RUNNER_TEMP/job-mail-scheduler-fixture"
+          export PLAYWRIGHT_MODULE="$RUNNER_TEMP/mail-browser/node_modules/playwright-core/index.mjs"
+          export CHROMIUM_PATH="$(command -v google-chrome || command -v chromium)"
+          export MAIL_EVIDENCE_DIR="$GITHUB_WORKSPACE/artifacts/job-mail-scheduler"
+          .venv/bin/python tests/fixtures/job_mail_scheduler_app.py > artifacts/job-mail-scheduler/server.log 2>&1 &
+          server=$!
+          cleanup() {
+            result=$?
+            trap - EXIT
+            kill "$server" 2>/dev/null || true
+            for i in $(seq 1 20); do
+              if ! kill -0 "$server" 2>/dev/null; then
+                wait "$server" 2>/dev/null || true
+                exit "$result"
+              fi
+              sleep 1
+            done
+            echo "This fixture PID did not stop within 20 seconds" >&2
+            exit 1
+          }
+          trap cleanup EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:38091/api/job-mail/status >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:38091/api/job-mail/status >/dev/null
+          node scripts/job-mail-scheduler-browser.mjs
       - name: Preserve synthetic evidence only
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,6 +119,8 @@ jobs:
           path: |
             artifacts/job-mail-browser/*.png
             artifacts/job-mail-browser/result.json
+            artifacts/job-mail-scheduler/*.png
+            artifacts/job-mail-scheduler/scheduler-result.json
           if-no-files-found: ignore
           retention-days: 7
   windows-native-lock:

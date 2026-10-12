@@ -10,7 +10,7 @@ const base = process.env.MAIL_FIXTURE_URL || 'http://127.0.0.1:38091';
 assert.equal(new URL(base).hostname, '127.0.0.1');
 const output = path.resolve(process.env.MAIL_EVIDENCE_DIR || 'artifacts/job-mail-browser');
 await fs.mkdir(output, { recursive: true });
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, chromiumSandbox: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, locale: 'zh-CN' });
 const blocked = [];
 await context.route('**/*', route => {
