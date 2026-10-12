@@ -1,28 +1,259 @@
-html.desktop-haru-root, .desktop-haru-root body, .desktop-haru-root #root { background: transparent !important; margin: 0; width: 100%; height: 100%; overflow: hidden; }
-.desktop-haru { box-sizing: border-box; height: 100dvh; display: flex; flex-direction: column; padding: 8px; color: var(--op-text, #242738); font-family: system-ui, sans-serif; font-size: 13px; }
-.desktop-haru button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--op-border, #d7d9e3); border-radius: 8px; padding: 5px 8px; background: var(--op-surface, #fff); -webkit-app-region: no-drag; }
-.desktop-haru button:disabled { opacity: .55; cursor: default; }
-.desktop-haru button:focus-visible, .desktop-haru textarea:focus-visible { outline: 3px solid #818cf8; outline-offset: 2px; }
-.desktop-haru button[aria-pressed=true] { background: #dfe3ff; color: #323987; }
-.desktop-haru-bar { -webkit-app-region: drag; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 38px; padding: 0 7px; border-radius: 12px; background: var(--op-surface, #fff); box-shadow: 0 2px 12px #17234220; user-select: none; }
-.desktop-haru-bar nav { display: flex; gap: 4px; }
-.desktop-haru .desktop-haru-avatar { background: transparent; border: 0; padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; }
-.desktop-haru-portrait { min-height: 0; width: 100%; flex: 1; position: relative; overflow: hidden; }
-.desktop-haru-portrait canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; }
-.desktop-haru-portrait > span { position: absolute; inset: 35% 20%; border-radius: 24px; background: #e7e8ff; display: grid; place-items: center; font-size: 28px; }
-.desktop-haru-avatar > span { border-radius: 12px; padding: 5px 12px; background: var(--op-surface, #fff); }
-.desktop-haru.expanded .desktop-haru-avatar { flex: 0 0 clamp(70px, 18vh, 130px); }
-.desktop-haru-chat { overflow: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 8px; background: var(--op-surface, #fff); border: 1px solid var(--op-border, #d7d9e3); border-radius: 16px; padding: 12px; box-shadow: 0 4px 16px #17234222; }
+html.desktop-haru-root,
+.desktop-haru-root body,
+.desktop-haru-root #root {
+  background: transparent !important;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.desktop-haru {
+  --haru-text: #eef0ff;
+  --haru-muted: #a3abc8;
+  --haru-line: #8991c12b;
+  box-sizing: border-box;
+  height: calc(100dvh - 12px);
+  margin: 6px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #65709980;
+  border-radius: 17px;
+  background: #191e30;
+  box-shadow: 0 0 0 1px #0b101dc9, inset 0 0 0 1px #bec5f20a, 0 3px 8px #080b1640;
+  color: var(--haru-text);
+  color-scheme: dark;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+}
+
+.desktop-haru *,
+.desktop-haru *::before,
+.desktop-haru *::after { box-sizing: border-box; }
+.desktop-haru button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--haru-line);
+  border-radius: 10px;
+  padding: 6px 10px;
+  background: #ffffff06;
+  -webkit-app-region: no-drag;
+}
+.desktop-haru button:hover:not(:disabled) { background-color: #ffffff0e; }
+.desktop-haru button:disabled { opacity: .48; cursor: default; }
+.desktop-haru button:focus-visible,
+.desktop-haru textarea:focus-visible { outline: 2px solid #bbacff; outline-offset: -3px; }
+.desktop-haru button[aria-pressed=true] { border-color: #a99afa9c; background: #8070c947; color: #e1d9ff; }
+
+.desktop-haru-bar {
+  -webkit-app-region: drag;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: 0 0 43px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 15px;
+  background: linear-gradient(110deg, #181d2df7, #1d2235f7);
+  user-select: none;
+}
+.desktop-haru-bar strong { font-size: 17px; font-weight: 650; letter-spacing: -.35px; }
+.desktop-haru-grip {
+  position: absolute;
+  left: 49%;
+  top: 14px;
+  width: 17px;
+  height: 10px;
+  color: #717999;
+  transform: rotate(90deg);
+  opacity: .5;
+}
+.desktop-haru-bar nav { display: flex; gap: 5px; }
+.desktop-haru-bar button { padding: 5px 10px; font-size: 12px; line-height: 18px; }
+.desktop-haru-bar button:last-child { padding: 5px 9px; font-size: 12px; }
+
+.desktop-haru .desktop-haru-avatar {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: radial-gradient(ellipse at 38% 77%, #7772ac70 0, #37385554 40%, transparent 70%), linear-gradient(125deg, #292d49, #2c3049 57%, #24293f);
+  text-align: left;
+}
+.desktop-haru .desktop-haru-avatar:hover:not(:disabled) { background-color: #2a2e48; }
+.desktop-haru-avatar::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: auto 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #b5a1fb8c 55%, transparent);
+  box-shadow: 0 -4px 20px #ae99ff42;
+}
+.desktop-haru.expanded .desktop-haru-avatar { flex: 0 0 clamp(190px, 35dvh, 260px); }
+/* Frame the existing full-body Live2D canvas as a portrait. Its full render
+   buffer stays intact; only this desktop stage crops the lower body. */
+.desktop-haru-portrait {
+  position: absolute;
+  z-index: -1;
+  left: -11%;
+  top: -3%;
+  width: 108%;
+  height: 218%;
+  pointer-events: none;
+}
+.desktop-haru-portrait canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.desktop-haru-portrait > span {
+  position: absolute;
+  left: 34%;
+  top: 10%;
+  width: 96px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #bca5ff4a;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 25%, #9a87db, #4b446c);
+  box-shadow: 0 0 40px #a697e323;
+  font-size: 24px;
+}
+.desktop-haru-speech {
+  position: absolute;
+  right: 12px;
+  top: 24%;
+  max-width: 143px;
+  padding: 10px 11px;
+  border: 1px solid #c1b1ff5e;
+  border-radius: 15px 15px 15px 4px;
+  background: linear-gradient(120deg, #b7a9fa29, #8377c52e);
+  box-shadow: inset 0 1px 8px #c3b6ff14, 0 3px 12px #15192d26;
+  color: #f1edff;
+  font-size: 12px;
+  line-height: 1.65;
+  text-shadow: 0 1px 4px #262139;
+  backdrop-filter: blur(8px);
+}
+.desktop-haru-presence,
+.desktop-haru-expand-hint {
+  position: absolute;
+  bottom: 11px;
+  padding: 5px 8px;
+  border: 1px solid #ffffff0e;
+  border-radius: 8px;
+  background: #171b2c94;
+  color: #d4d5e7;
+  font-size: 10px;
+  line-height: 14px;
+  backdrop-filter: blur(8px);
+}
+.desktop-haru-presence { left: 12px; display: flex; align-items: center; gap: 6px; }
+.desktop-haru-presence i { width: 5px; height: 5px; border-radius: 50%; background: #b8b0ed; }
+.desktop-haru-presence i[data-activity=thinking] { background: #a995ff; }
+.desktop-haru-presence i[data-activity=waiting_confirmation],
+.desktop-haru-presence i[data-activity=error] { background: #f2c78f; }
+.desktop-haru-expand-hint { right: 12px; }
+
+.desktop-haru-chat {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #64709466 transparent;
+  gap: 9px;
+  margin-top: -1px;
+  padding: 10px 12px 8px;
+  border-top: 1px solid #9796cc21;
+  border-radius: 19px 19px 0 0;
+  background: linear-gradient(140deg, #171d2e, #1a2031);
+  box-shadow: 0 -8px 24px #14192b18;
+}
 .desktop-haru-chat p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.desktop-haru-context { font-size: 12px; color: var(--op-muted, #687086); }
-.desktop-haru-messages { flex: 1; overflow: auto; min-height: 32px; }
-.desktop-haru-messages article { padding: 9px; border-radius: 10px; margin-bottom: 8px; background: var(--op-layout-bg, #f4f5fb); }
-.desktop-haru-messages article[data-role=user] { margin-left: 24px; }
-.desktop-haru-messages article p { line-height: 1.5; margin-top: 3px; }
-.desktop-haru-pending { padding: 8px; background: #fff3cd; color: #654a00; border-radius: 8px; }
-.desktop-haru-pending button { display: block; margin-top: 6px; }
-.desktop-haru-chat footer { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.desktop-haru-chat textarea { box-sizing: border-box; resize: none; min-width: 0; flex: 1; border: 1px solid var(--op-border, #d7d9e3); background: var(--op-surface, #fff); color: inherit; border-radius: 8px; padding: 8px; font: inherit; }
-.desktop-haru-chat small { flex-basis: 100%; color: var(--op-muted, #687086); font-size: 11px; }
+.desktop-haru-context { flex-shrink: 0; min-width: 0; }
+.desktop-haru .desktop-haru-context-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-color: #69749b32;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #252c42b3, #242b3f94);
+  color: #c7cce0;
+  text-align: left;
+}
+.desktop-haru-context-icon { flex-shrink: 0; color: #a6afd2; font-size: 16px; }
+.desktop-haru-context-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-haru-context-chevron { flex-shrink: 0; margin-left: auto; color: #acb4d0; font-size: 11px; line-height: 16px; }
+.desktop-haru-context-toggle[aria-expanded=true] .desktop-haru-context-chevron { transform: rotate(90deg); }
+.desktop-haru-context-detail { max-height: 122px; overflow: auto; padding: 10px 12px 0; color: var(--haru-muted); font-size: 11px; line-height: 1.6; }
+.desktop-haru-context-detail p { color: #e3e5f3; font-size: 12px; }
+.desktop-haru-context-detail > span { display: block; margin-top: 4px; }
+.desktop-haru-context-detail button { margin-top: 6px; padding: 4px 8px; }
+.desktop-haru-conversation-heading { display: flex; flex-shrink: 0; align-items: center; gap: 14px; margin: 3px 12px 0; color: #939dbc; font-size: 10px; line-height: 18px; }
+.desktop-haru-conversation-heading::before,
+.desktop-haru-conversation-heading::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, #65719545); }
+.desktop-haru-conversation-heading::after { transform: rotate(180deg); }
+.desktop-haru-messages { flex: 1; min-height: 32px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #64709466 transparent; }
+.desktop-haru-messages article { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 13px; }
+.desktop-haru-message-avatar { display: grid; flex: 0 0 27px; place-items: center; width: 27px; height: 27px; margin-top: 2px; border: 1px solid #b7addc29; border-radius: 50%; background: linear-gradient(135deg, #817999, #454968); color: #e0d9f7; font-size: 16px; }
+.desktop-haru-message-bubble { max-width: calc(100% - 57px); padding: 10px 12px; border: 1px solid #b7bfd606; border-radius: 14px; background: linear-gradient(135deg, #2b324c, #2b3249); box-shadow: 0 2px 5px #10152812; }
+.desktop-haru-messages article p { font-size: 13px; line-height: 1.75; }
+.desktop-haru-messages article[data-role=user] { flex-direction: row-reverse; }
+.desktop-haru-messages article[data-role=user] .desktop-haru-message-avatar { background: #414b68; border-color: transparent; }
+.desktop-haru-messages article[data-role=user] .desktop-haru-message-bubble { background: linear-gradient(120deg, #7467ce, #6b62bd); border-color: #ac9bef24; color: #fff; }
+.desktop-haru-empty { padding: 26px 14px; text-align: center; color: var(--haru-muted); }
+.desktop-haru-empty > span { display: block; margin-bottom: 7px; color: #d2d5e8; font-size: 14px; }
+.desktop-haru-empty p { font-size: 12px; }
+.desktop-haru-loading { padding: 0 0 6px 35px; color: var(--haru-muted); font-size: 11px; }
+.desktop-haru-pending { flex-shrink: 0; max-height: 105px; overflow: auto; padding: 9px 11px; border: 1px solid #d1aa643d; background: #6d553f3b; color: #edd1a2; border-radius: 10px; font-size: 12px; }
+.desktop-haru-pending button { display: block; margin-top: 6px; background: #8e754629; }
+.desktop-haru-chat footer { display: flex; flex-shrink: 0; flex-direction: column; gap: 6px; }
+.desktop-haru-composer { display: flex; align-items: center; gap: 8px; min-height: 54px; padding: 6px; border: 1px solid #727dba52; border-radius: 13px; background: linear-gradient(120deg, #272d42, #232a3c); box-shadow: inset 0 1px 0 #ffffff03; }
+.desktop-haru-composer:focus-within { border-color: #ab99e9a6; }
+.desktop-haru-chat textarea { resize: none; min-width: 0; flex: 1; height: 38px; border: 0; background: transparent; color: var(--haru-text); border-radius: 7px; padding: 8px 6px; font: inherit; line-height: 21px; scrollbar-width: thin; }
+.desktop-haru-chat textarea::placeholder { color: #a4acc7; }
+.desktop-haru .desktop-haru-submit { flex-shrink: 0; min-height: 38px; min-width: 52px; padding: 8px 13px; border: 1px solid #cebcff70; border-radius: 11px; background: linear-gradient(125deg, #c1a5ff, #b39afa); box-shadow: inset 0 1px 3px #f2e9ff50; color: #25203f; font-size: 13px; font-weight: 650; }
+.desktop-haru .desktop-haru-submit:hover:not(:disabled) { background: #ceb7ff; }
+.desktop-haru .desktop-haru-stop { background: #554978; color: #ece3ff; }
+.desktop-haru-chat small { color: #939db9; font-size: 9px; line-height: 13px; text-align: center; }
+.desktop-haru-chat footer > p { color: #bac1d9; font-size: 11px; }
 .desktop-haru-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.desktop-haru [role=alert] { max-height: 72px; overflow: auto; flex-shrink: 0; color: #b42318; font-size: 12px; }
+.desktop-haru [role=alert] { max-height: 66px; overflow: auto; flex-shrink: 0; color: #ffc1bf; font-size: 12px; line-height: 1.5; }
+.desktop-haru-reconcile { flex-shrink: 0; font-size: 12px !important; }
+
+.desktop-haru.collapsed .desktop-haru-bar { padding-left: 11px; }
+.desktop-haru.collapsed .desktop-haru-bar strong { font-size: 15px; }
+.desktop-haru.collapsed .desktop-haru-bar button { padding: 4px 7px; font-size: 11px; }
+.desktop-haru.collapsed .desktop-haru-bar button:last-child { font-size: 11px; }
+.desktop-haru.collapsed .desktop-haru-grip { display: none; }
+.desktop-haru.collapsed .desktop-haru-portrait { left: -20%; top: -2%; width: 130%; height: 168%; }
+.desktop-haru.collapsed .desktop-haru-speech { top: 27%; right: 8px; max-width: 105px; padding: 8px; font-size: 11px; }
+.desktop-haru.collapsed .desktop-haru-presence { left: 9px; }
+.desktop-haru.collapsed .desktop-haru-expand-hint { right: 9px; }
+
+/* Smaller display work areas can clamp the native 420×740 expanded window. */
+@media (max-height: 620px) {
+  .desktop-haru.expanded .desktop-haru-avatar { flex-basis: 27dvh; }
+  .desktop-haru-chat { gap: 6px; padding-top: 8px; }
+  .desktop-haru-conversation-heading { margin-top: 0; }
+  .desktop-haru-context-detail { max-height: 88px; }
+}
+@media (max-width: 340px) {
+  .desktop-haru.expanded .desktop-haru-grip { display: none; }
+  .desktop-haru.expanded .desktop-haru-speech { max-width: 116px; font-size: 11px; }
+  .desktop-haru-chat { padding-inline: 9px; }
+}

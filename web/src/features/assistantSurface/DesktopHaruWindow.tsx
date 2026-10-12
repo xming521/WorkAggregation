@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { CloseOutlined, CommentOutlined, DownOutlined, HolderOutlined, RightOutlined, UnorderedListOutlined, UpOutlined, UserOutlined } from '@ant-design/icons';
 import type { DesktopHaruRequest, DesktopHaruState } from './desktopHaru';
 import { live2dPilotMascotRuntime, type PilotMascotActivity } from '@/features/pilotMascot/live2dRuntime';
 import './DesktopHaruWindow.css';
 
 const STATUS = { idle: '随时待命', running: '正在处理', waiting_confirmation: '等待你确认', completed: '已完成', failed: '需要查看' };
+const GREETING = { idle: '慢慢来，我陪你捋清楚。', running: '我正在整理，稍等一下。', waiting_confirmation: '有一项修改，等你确认。', completed: '整理好了，一起看看吧。', failed: '遇到了一点问题，一起看看。' };
 const INITIAL: DesktopHaruState = { connected: false, generation: 0, snapshot: null, visible: false, expanded: false, alwaysOnTop: false };
 
 function HaruCanvas({ active, activity }: { active: boolean; activity: PilotMascotActivity }) {
@@ -45,9 +47,11 @@ export default function DesktopHaruWindow() {
   const requestLock = useRef(false);
   const [notice, setNotice] = useState('');
   const [uncertain, setUncertain] = useState(false);
+  const [contextExpanded, setContextExpanded] = useState(false);
   const [pageVisible, setPageVisible] = useState(document.visibilityState !== 'hidden');
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const contextToggle = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     document.documentElement.classList.add('desktop-haru-root');
     return () => document.documentElement.classList.remove('desktop-haru-root');
@@ -62,6 +66,7 @@ export default function DesktopHaruWindow() {
     return () => { alive = false; off?.(); document.removeEventListener('visibilitychange', visibility); };
   }, [bridge]);
   useEffect(() => { if (state.expanded && state.visible) input.current?.focus(); }, [state.expanded, state.visible]);
+  useEffect(() => { if (!state.expanded) setContextExpanded(false); }, [state.expanded]);
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'nearest' }); }, [state.snapshot?.messages]);
   const snapshot = state.snapshot;
   const active = state.visible && pageVisible;
@@ -86,34 +91,53 @@ export default function DesktopHaruWindow() {
       setNotice('连接中断，操作可能已经提交。请打开主窗口核对。');
     } finally { requestLock.current = false; setBusy(false); }
   };
-  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); windowAction(state.expanded ? 'collapse' : 'hide-haru'); } }}>
+  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (contextExpanded) { setContextExpanded(false); contextToggle.current?.focus(); } else windowAction(state.expanded ? 'collapse' : 'hide-haru'); } }}>
     <header className="desktop-haru-bar">
       <strong>Haru</strong>
+      <HolderOutlined className="desktop-haru-grip" aria-hidden="true" />
       <nav aria-label="窗口操作">
         <button type="button" aria-label="Haru 始终置顶" aria-pressed={state.alwaysOnTop} onClick={() => windowAction('toggle-top')}>置顶</button>
         <button type="button" aria-label="打开 OfferPilot 主窗口" onClick={() => windowAction('show-main')}>主窗</button>
-        <button type="button" aria-label="将 Haru 收到托盘" onClick={() => windowAction('hide-haru')}>×</button>
+        <button type="button" aria-label="将 Haru 收到托盘" onClick={() => windowAction('hide-haru')}><CloseOutlined aria-hidden="true" /></button>
       </nav>
     </header>
     <button type="button" className="desktop-haru-avatar" aria-label={state.expanded ? '收起 Haru 对话' : '展开 Haru 对话'} onClick={() => windowAction(state.expanded ? 'collapse' : 'expand')}>
       <HaruCanvas active={active} activity={activity} />
-      <span role="status">{state.connected && snapshot ? STATUS[snapshot.taskState] : '等待主窗口连接'}</span>
+      <span className="desktop-haru-speech" aria-hidden="true">{state.connected && snapshot ? GREETING[snapshot.taskState] : '打开主窗，我们就能继续聊。'}</span>
+      <span className="desktop-haru-presence" role="status"><i aria-hidden="true" data-activity={activity} />{state.connected && snapshot ? STATUS[snapshot.taskState] : '等待主窗口连接'}</span>
+      <span className="desktop-haru-expand-hint" aria-hidden="true">{state.expanded ? <>收起对话 <UpOutlined /></> : <>展开对话 <DownOutlined /></>}</span>
     </button>
     {state.expanded ? <section className="desktop-haru-chat" aria-label="Haru 对话">
-      <p className="desktop-haru-context">当前上下文：{snapshot?.contextLabel || '工作台'}</p>
+      <div className="desktop-haru-context">
+        <button type="button" className="desktop-haru-context-toggle" ref={contextToggle} aria-expanded={contextExpanded} aria-controls="desktop-haru-context-detail" onClick={() => setContextExpanded(value => !value)}>
+          <UnorderedListOutlined className="desktop-haru-context-icon" aria-hidden="true" />
+          <span className="desktop-haru-context-title">当前：{snapshot?.contextLabel || '工作台'}</span><RightOutlined className="desktop-haru-context-chevron" aria-hidden="true" />
+        </button>
+        {contextExpanded ? <div id="desktop-haru-context-detail" className="desktop-haru-context-detail">
+          <p>{snapshot?.contextLabel || '工作台'}</p>
+          <span>与主窗口共用对话，切换上下文请前往主窗。</span>
+          <button type="button" onClick={() => windowAction('show-main')}>在主窗查看</button>
+        </div> : null}
+      </div>
+      <div className="desktop-haru-conversation-heading"><span>当前对话</span></div>
       <div className="desktop-haru-messages" aria-live="polite" aria-relevant="additions text">
-        {!snapshot?.messages.length ? <p>和主窗口共用同一段对话。需要修改内容时，请到 Pilot 确认。</p> : snapshot.messages.map((message, index) => <article key={index} data-role={message.role}><b>{message.role === 'user' ? '你' : 'Haru'}</b><p>{message.content}</p></article>)}
-        {snapshot?.loading ? <p role="status">正在处理…</p> : null}<div ref={end} />
+        {!snapshot?.messages.length ? <div className="desktop-haru-empty"><span>今天想聊些什么？</span><p>一起理清思路，慢慢往前走。</p></div> : snapshot.messages.map((message, index) => <article key={index} data-role={message.role}>
+          <span className="desktop-haru-message-avatar" aria-hidden="true">{message.role === 'user' ? <UserOutlined /> : <CommentOutlined />}</span>
+          <div className="desktop-haru-message-bubble"><b className="desktop-haru-label">{message.role === 'user' ? '你' : 'Haru'}</b><p>{message.content}</p></div>
+        </article>)}
+        {snapshot?.loading ? <p className="desktop-haru-loading" role="status">正在处理…</p> : null}<div ref={end} />
       </div>
       {snapshot?.hasPending ? <div className="desktop-haru-pending" role="status">有一项修改等待确认。<button type="button" disabled={busy || !state.connected} onClick={() => void request('open-pending')}>到 Pilot 查看并确认</button></div> : null}
       {!state.connected ? <p role="alert">主窗口暂未连接。发送与停止已禁用；请打开主窗口恢复。</p> : null}
       {snapshot?.error ? <p role="alert">{snapshot.error}</p> : null}
       {notice ? <p role="alert">{notice}</p> : null}
-      {uncertain ? <button type="button" onClick={() => { setDraft(''); setUncertain(false); setNotice(''); }}>已在主窗口核对，清空此输入</button> : null}
+      {uncertain ? <button type="button" className="desktop-haru-reconcile" onClick={() => { setDraft(''); setUncertain(false); setNotice(''); }}>已在主窗口核对，清空此输入</button> : null}
       <footer>
-        <label className="desktop-haru-label" htmlFor="desktop-haru-input">给 Haru 发消息</label>
-        <textarea id="desktop-haru-input" ref={input} rows={2} maxLength={16000} value={draft} disabled={!state.connected || !snapshot?.canSend || busy || uncertain} placeholder={snapshot?.hasPending ? '请先到 Pilot 确认' : '问 Haru…'} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (draft.trim() && snapshot?.canSend) void request('send'); } }} />
-        {snapshot?.canStop || snapshot?.loading ? <button type="button" disabled={!state.connected || !snapshot?.canStop || snapshot.stopping || busy || uncertain} onClick={() => void request('stop')}>{snapshot?.stopping ? '正在停止…' : '停止'}</button> : <button type="button" disabled={!state.connected || !snapshot?.canSend || !draft.trim() || busy || uncertain} onClick={() => void request('send')}>发送</button>}
+        <div className="desktop-haru-composer">
+          <label className="desktop-haru-label" htmlFor="desktop-haru-input">给 Haru 发消息</label>
+          <textarea id="desktop-haru-input" ref={input} rows={2} maxLength={16000} value={draft} disabled={!state.connected || !snapshot?.canSend || busy || uncertain} placeholder={snapshot?.hasPending ? '请先到 Pilot 确认' : '和 Haru 说点什么…'} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (draft.trim() && snapshot?.canSend) void request('send'); } }} />
+          {snapshot?.canStop || snapshot?.loading ? <button type="button" className="desktop-haru-submit desktop-haru-stop" disabled={!state.connected || !snapshot?.canStop || snapshot.stopping || busy || uncertain} onClick={() => void request('stop')}>{snapshot?.stopping ? '正在停止…' : '停止'}</button> : <button type="button" className="desktop-haru-submit" disabled={!state.connected || !snapshot?.canSend || !draft.trim() || busy || uncertain} onClick={() => void request('send')}>发送</button>}
+        </div>
         {snapshot?.stopMessage ? <p role="status">{snapshot.stopMessage}</p> : null}
         <small>关闭小窗不会停止任务。退出并停止服务请使用托盘菜单。</small>
       </footer>
