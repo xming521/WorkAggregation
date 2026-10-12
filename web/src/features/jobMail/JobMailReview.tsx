@@ -1,3 +1,4 @@
+import { MAIL_MODAL_Z_INDEX } from './mailModalLayer';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Modal, Skeleton } from 'antd';
@@ -37,7 +38,7 @@ function FinalFields({ preview }: { preview: JobMailPreview }) {
 export default function JobMailReview(props: Props) {
   const [processing, setProcessing] = useState(false);
   const query = useQuery({ queryKey: [...JOB_MAIL_QUERY_KEY, 'suggestion', props.suggestionId], queryFn: () => getJobMailSuggestion(props.suggestionId), retry: false });
-  return <Modal open title="核对邮件建议" onCancel={props.onClose} footer={null} width={880} maskClosable={false} closable={!processing} keyboard={!processing}>
+  return <Modal zIndex={MAIL_MODAL_Z_INDEX} open title="核对邮件建议" onCancel={props.onClose} footer={null} width={880} maskClosable={false} closable={!processing} keyboard={!processing}>
     {query.isPending ? <Skeleton active /> : query.isError || !query.data ? <Alert type="error" message="建议读取失败" description="未执行任何写入。请重试读取。" action={<Button onClick={() => void query.refetch()}>重试</Button>} /> : <ReviewContent key={`${query.data.id}:${query.data.version}`} suggestion={query.data} onProcessing={setProcessing} {...props} />}
   </Modal>;
 }

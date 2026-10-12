@@ -1,3 +1,4 @@
+import { MAIL_MODAL_Z_INDEX } from './mailModalLayer';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Modal, Skeleton, Switch } from 'antd';
@@ -147,7 +148,7 @@ export default function JobMailSettings() {
     {notice && <Alert type="success" showIcon message={notice} />}{error && <Alert type="error" showIcon message={error} />}
     <details className={styles.muted}><summary>数据、安全与保留说明</summary><p>目录限制是产品读取范围，通常不是授权码的服务端权限隔离。授权码可能具备收发邮件能力，不能称为天然只读。授权码不得放进聊天、代码仓库、诊断或日志。</p><p>数据保存在后端所在主机。只处理你提交的文本或明确选定范围内的邮件，不发送给模型；未开放附件、图片 OCR 或外链读取。待确认片段最长保留 90 天，已处理片段 30 天后清理；清理后只保留结构化历史并标明原文不可用。</p></details>
     {connectionInfo && <JobMailSecureSetup onClose={() => setConnectionInfo(false)} />}
-    <Modal open={scopeOpen} title={connected ? '核对新的读取范围' : '连接合成测试邮箱'} onCancel={() => setScopeOpen(false)} footer={null} closable={!busy} maskClosable={!busy} keyboard={!busy}>
+    <Modal zIndex={MAIL_MODAL_Z_INDEX} open={scopeOpen} title={connected ? '核对新的读取范围' : '连接合成测试邮箱'} onCancel={() => setScopeOpen(false)} footer={null} closable={!busy} maskClosable={!busy} keyboard={!busy}>
       <div className={styles.form}>
         <Alert type="info" message={connected ? '仅保存明确选中的目录' : '仅限后端显式注入的合成测试环境，不访问真实 QQ 邮箱'} description="未选目录不读取，新目录不会自动纳入。保存连接不会读取正文。" />
         <div className={styles.form}>{(query.data?.available_folders ?? []).map((folder) => <label key={folder} className={styles.check}><input type="checkbox" checked={folders.includes(folder)} disabled={!!busy} onChange={(e) => setFolders((current) => e.target.checked ? [...current, folder] : current.filter((name) => name !== folder))} />{folder}</label>)}</div>
@@ -156,7 +157,7 @@ export default function JobMailSettings() {
         <div className={styles.actions}><Button type="primary" disabled={unavailable || !folders.length} loading={busy === 'scope' || busy === 'connect'} onClick={saveScope}>确认范围并保存</Button><Button disabled={!!busy} onClick={() => setScopeOpen(false)}>取消</Button></div>
       </div>
     </Modal>
-    <Modal open={disconnectOpen} title="断开求职邮箱？" onCancel={() => setDisconnectOpen(false)} footer={null} closable={!busy} maskClosable={!busy} keyboard={!busy}>
+    <Modal zIndex={MAIL_MODAL_Z_INDEX} open={disconnectOpen} title="断开求职邮箱？" onCancel={() => setDisconnectOpen(false)} footer={null} closable={!busy} maskClosable={!busy} keyboard={!busy}>
       <div className={styles.form}><p>断开将停止本次及未来检查，重连前不能手动或自动同步。已确认的业务记录保留。断开本地连接不等于在 QQ 撤销授权码；QQ 侧撤销需你自行操作。</p>{realCredential && <><label className={styles.check}><input type="checkbox" checked={deleteConsent} disabled={!!busy} onChange={(event) => setDeleteConsent(event.target.checked)} />我明确同意停止邮箱检查并删除本机系统凭据库中的此邮箱授权码；保留已确认的投递和业务事件</label><p className={styles.muted}>删除失败时会保留“待删除”状态，可重试；不会提前显示已删除。此操作仅支持后端所在设备的本地回环页面。</p></>}<div className={styles.actions}>{realCredential ? <Button danger loading={busy === 'disconnect-real'} disabled={unavailable || !deleteConsent || !isLoopbackSetupPage(window.location) || secureQuery.isError || !secureQuery.data} onClick={() => void disconnectReal()}>确认断开并删除凭据</Button> : <Button danger loading={busy === 'disconnect'} disabled={unavailable} onClick={() => void runAction('disconnect', disconnectJobMail, '已断开邮箱，停止检查；已确认记录保留。')}>确认断开</Button>}<Button disabled={!!busy} onClick={() => setDisconnectOpen(false)}>保留连接</Button></div></div>
     </Modal>
     {importOpen && <JobMailImport onClose={() => setImportOpen(false)} />}

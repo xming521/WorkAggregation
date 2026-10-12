@@ -39,10 +39,11 @@ jobs:
           uv run mypy src/offerpilot/job_mail src/offerpilot/api.py src/offerpilot/cli.py src/offerpilot/db.py --follow-imports=silent
       - name: Frontend regression and production build
         run: |
-          npm test --prefix web -- src/features/jobMail src/services/jobMail.test.ts src/services/jobMailSecureSetup.test.ts src/layout/AppShell.test.ts src/components/SettingsView.test.ts src/features/reminders src/features/dashboard
+          npm test --prefix web -- src/features/jobMail src/services/jobMail.test.ts src/services/jobMailSecureSetup.test.ts src/layout/AppShell.test.ts src/components/SettingsView.test.ts src/features/reminders src/features/dashboard src/features/pilotMascot
           npm run build --prefix web
           node --test scripts/job-mail-browser-wait.test.mjs
       - name: Install isolated browser harness
+        id: browser-harness
         run: |
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
@@ -80,6 +81,7 @@ jobs:
           curl -fsS http://127.0.0.1:38091/api/job-mail/status >/dev/null
           node scripts/job-mail-browser-smoke.mjs
       - name: Synthetic scheduler browser acceptance and screenshots
+        if: ${{ !cancelled() && steps.browser-harness.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail

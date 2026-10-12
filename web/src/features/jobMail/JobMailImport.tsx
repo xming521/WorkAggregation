@@ -1,3 +1,4 @@
+import { MAIL_MODAL_Z_INDEX } from './mailModalLayer';
 import { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Modal } from 'antd';
@@ -38,7 +39,7 @@ export default function JobMailImport({ onClose }: { onClose: () => void }) {
       setError('导入未确认成功，请到“今日 → 提醒”检查已有建议后再操作。不会自动重试或写入正式日程。');
     } finally { lock.current = false; setBusy(false); }
   }
-  return <Modal open title="粘贴单封邮件" onCancel={onClose} footer={null} width={760} maskClosable={!busy} closable={!busy} keyboard={!busy}>
+  return <Modal zIndex={MAIL_MODAL_Z_INDEX} open title="粘贴单封邮件" onCancel={onClose} footer={null} width={760} maskClosable={!busy} closable={!busy} keyboard={!busy}>
     {done ? <div className={styles.section}>
       <Alert type="success" showIcon message="邮件文本已处理" description="请到“今日 → 提醒 → 邮件待确认”核对建议。重复文本会去重；没有写入投递或日程。" />
       <Button onClick={onClose}>完成</Button>

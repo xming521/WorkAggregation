@@ -31,8 +31,9 @@ async function snap(name, locator) {
   await page.evaluate(() => document.fonts.ready);
   // Observe natural modal motion completion; never finish/cancel animations or
   // alter product styles to manufacture a stable screenshot.
-  await page.waitForFunction(() => [...document.querySelectorAll('.ant-modal, .ant-modal-mask, .ant-modal-content')]
-    .every(element => element.getAnimations().every(animation => animation.playState !== 'running')), undefined, { timeout: 3000 });
+  await waitForMailState(() => page.evaluate(() => [...document.querySelectorAll('.ant-modal, .ant-modal-mask, .ant-modal-content')]
+    .every(element => element.getAnimations().every(animation => animation.playState !== 'running'))),
+  Boolean, { timeoutMs: 3000, pollMs: 100 });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await (locator || page).screenshot({ path: path.join(output, name + '.png'), ...(locator ? {} : { fullPage: true }) });
 }
@@ -128,7 +129,17 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Mobile review must not overflow horizontally');
   assert.equal((await api('/application-events')).length, 0);
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await dialog.getByRole('button', { name: '确认加入日程' }).click();
+  const confirmButton = dialog.getByRole('button', { name: '确认加入日程' });
+  await confirmButton.scrollIntoViewIfNeeded();
+  // Regression: the ordinary Haru dock's transparent hit area must not
+  // intercept a modal confirmation. Check actual hit testing, then real click.
+  await waitForMailState(() => confirmButton.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  }), Boolean, { timeoutMs: 3000, pollMs: 100 });
+  assert.equal(await page.getByRole('button', { name: '打开 OfferPilot 领航员', exact: true }).isVisible(), true);
+  await snap('04d-desktop-modal-clear-confirmation');
+  await confirmButton.click();
   await dialog.getByText('已确认写入', { exact: true }).waitFor();
   await snap('05-atomic-write-receipt', dialog);
   const events = await api('/application-events');
@@ -137,6 +148,14 @@ try {
   assert.equal(events[0].duration_minutes, 45);
   assert.equal(events[0].location, '合成会议室 B');
   assert.equal((await api('/applications/' + app.id)).status, app.status);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+  const haruButton = page.getByRole('button', { name: /^(打开|收起) OfferPilot 领航员/ });
+  await haruButton.click();
+  await waitForMailState(() => haruButton.getAttribute('aria-expanded'), value => value === 'true');
+  await haruButton.click();
+  await waitForMailState(() => haruButton.getAttribute('aria-expanded'), value => value === 'false');
+  checks.push('Mail modal receives real confirmation click above visible Haru; after closing, Haru opens and closes normally');
   checks.push('Editable form has no field checkboxes; edits invalidate preview; one explicit confirmation creates one event and preserves application stage');
   await page.goto(base + '/?view=reminders');
   await page.getByRole('button', { name: '粘贴邮件', exact: true }).click();

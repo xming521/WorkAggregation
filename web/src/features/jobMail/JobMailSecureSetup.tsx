@@ -1,3 +1,4 @@
+import { MAIL_MODAL_Z_INDEX } from './mailModalLayer';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Modal } from 'antd';
@@ -141,7 +142,7 @@ export default function JobMailSecureSetup({ onClose }: { onClose: () => void })
   function restart() { releaseSession(); setPhase('intro'); setSetupConsent(false); setTestConsent(false); setSaveConsent(false); setError(''); }
   const excludedSelected = folders.some((folder) => selected.includes(folder.id) && folder.excluded_by_default);
   const readyLabel = capabilityQuery.data?.configured ? '已配置' : allowed ? '原生凭据库可用' : '当前不可配置';
-  return <Modal open title="安全配置 QQ 邮箱" onCancel={close} footer={null} width={720} maskClosable={false} keyboard={busy !== 'save'} closable={busy !== 'save'}>
+  return <Modal zIndex={MAIL_MODAL_Z_INDEX} open title="安全配置 QQ 邮箱" onCancel={close} footer={null} width={720} maskClosable={false} keyboard={busy !== 'save'} closable={busy !== 'save'}>
     <div className={styles.form}>
       <Alert type={allowed ? 'info' : 'warning'} showIcon message={readyLabel} description={!isLoopbackSetupPage(window.location) ? '请在后端所在设备直接打开 localhost 或回环地址。远程部署的安全输入尚未验证，当前页面不接收授权码。' : capabilityQuery.isError ? '安全能力读取失败，暂不接收授权码。请重试检测，或继续手动粘贴邮件。' : mailSecureCapabilityReason(capabilityQuery.data)} />
       <p className={styles.muted}>凭据库：{capabilityQuery.data?.backend || '尚未确认'}。仅使用 QQ 官方 imap.qq.com:993 并校验 TLS 证书。不向模型发送授权码；不放入聊天、截图、日志、代码仓库或普通备份。</p>
