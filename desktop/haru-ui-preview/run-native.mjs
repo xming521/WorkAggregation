@@ -70,6 +70,25 @@ async function capture(name, page = haru, expanded = true, theme) {
 async function check(name, run) { stage = name; await run(); report.checks.push(name); report.completedStage = name; await output(); }
 const bridgeState = () => haru.evaluate(() => window.offerpilotDesktop.getState());
 const draft = '【原生验收草稿】恢复窗口和导航后保留';
+const haruDraft = '【原生Haru草稿】保留';
+const historyText = '【本地合成数据】窗口恢复应保留这条会话。';
+async function assertHaruHistory() {
+  await haru.locator('.desktop-haru-messages').getByText(historyText, { exact: true }).waitFor({ state: 'visible' });
+  const state = await bridgeState();
+  assert.equal(state.snapshot?.conversationId, 101);
+  assert.ok(state.snapshot.messages.some(message => message.role === 'assistant' && message.content === historyText));
+}
+async function assertRetainedHistory(label, checkDrafts = true) {
+  await assertHaruHistory();
+  await owner.locator('.op-pilot-page-host').getByText(historyText, { exact: true }).waitFor({ state: 'visible' });
+  if (checkDrafts) {
+    assert.equal(await owner.locator('.op-pilot-page-host textarea:visible').inputValue(), draft);
+    assert.equal(await haru.getByLabel('给 Haru 发消息', { exact: true }).inputValue(), haruDraft);
+  }
+  report.historyChecks ??= [];
+  report.historyChecks.push({ label, conversationId: 101, ownerHistoryVisible: true, haruHistoryVisible: true,
+    historyText, bothDraftsVerified: checkDrafts });
+}
 await mkdir(evidence, { recursive: true }); await output();
 try {
   assert.equal(process.platform, 'win32', 'Native evidence requires actual Windows');
@@ -161,11 +180,12 @@ try {
       .getByText('原生窗口合成会话', { exact: true }).click();
     await poll(async () => (await bridgeState()).snapshot?.conversationId === 101);
     await owner.locator('.op-pilot-page-host textarea:visible').fill(draft);
+    await assertRetainedHistory('selected-conversation', false);
     await capture('native-owner-pilot-selected', owner);
   });
   await check('real-theme-toggle-and-repeat-retain-drafts', async () => {
-    const haruDraft = '【原生Haru草稿】保留';
     await haru.getByLabel('给 Haru 发消息', { exact: true }).fill(haruDraft);
+    await assertRetainedHistory('both-drafts-seeded');
     for (const theme of ['dark', 'light']) {
       // Immersive Pilot deliberately has no Sidebar. Use its real exit control
       // before changing the theme, then return through Haru's native handoff.
@@ -174,17 +194,20 @@ try {
       await owner.getByRole('navigation', { name: '主导航', exact: true }).waitFor({ state: 'visible' });
       if (await owner.locator('html').getAttribute('data-theme') !== theme) await owner.getByRole('button', { name: '切换明暗模式', exact: true }).click();
       await haru.waitForFunction(value => document.querySelector('.desktop-haru')?.getAttribute('data-theme') === value, theme);
+      await assertHaruHistory();
       await capture(`native-expanded-${theme}`, haru, true, theme);
       await haru.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
       await capture(`native-collapsed-${theme}`, haru, false, theme);
       await haru.getByRole('button', { name: '展开 Haru 对话', exact: true }).click();
       await settleVisual(haru, true);
+      await assertHaruHistory();
       assert.equal(await haru.getByLabel('给 Haru 发消息', { exact: true }).inputValue(), haruDraft);
       await haru.getByRole('button', { name: '打开 OfferPilot 主窗口', exact: true }).click();
       await owner.waitForURL(url => url.searchParams.get('view') === 'pilot');
       await owner.locator('.op-pilot-page-host').waitFor({ state: 'visible' });
       assert.equal((await bridgeState()).snapshot.conversationId, 101);
       assert.equal(await owner.locator('.op-pilot-page-host textarea:visible').inputValue(), draft);
+      await assertRetainedHistory(`theme-${theme}-collapse-reopen`);
     }
   });
   for (const mode of ['minimized', 'hidden-after-close', 'background']) await check(`restore-${mode}-to-pilot-with-draft`, async () => {
@@ -201,6 +224,7 @@ try {
     assert.equal((await bridgeState()).generation, generation);
     assert.equal((await bridgeState()).snapshot.conversationId, 101);
     assert.equal(await owner.locator('.op-pilot-page-host textarea:visible').inputValue(), draft);
+    await assertRetainedHistory(`restore-${mode}`);
     report.checks.push({ mode, before, after: await windowState(owner), conversationId: 101, draftPreserved: true });
     await capture(`native-restored-${mode}`, owner);
   });
@@ -209,6 +233,7 @@ try {
     assert.equal(new URL(owner.url()).searchParams.get('view'), 'pilot');
     assert.equal((await bridgeState()).snapshot.conversationId, 101);
     assert.equal(await owner.locator('.op-pilot-page-host textarea:visible').inputValue(), draft);
+    await assertRetainedHistory('repeated-main-handoff');
   });
   await haru.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
   await settleVisual(haru, false);

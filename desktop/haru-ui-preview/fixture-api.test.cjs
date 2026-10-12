@@ -19,3 +19,25 @@ test('synthetic timeline obeys the real display identity contract', () => {
   assert.equal(page.conversation_id, 101); assert.equal(page.next_cursor, null);
   for (const item of page.items) assert.equal(item.item_id, `turn:${item.turn_id}:${item.payload.item_id}`);
 });
+
+test('fixture history survives the actual timeline and message projection pipeline', async () => {
+  const path = require('node:path');
+  const { build } = require('../../web/node_modules/esbuild');
+  const repository = path.resolve(__dirname, '../..');
+  // Bundle the real TypeScript modules, including their normal alias imports.
+  // Do not duplicate the identity/filter logic inside this test.
+  const bundled = await build({
+    stdin: { contents: "export { applyTimelinePage, timelinePresentation } from './web/src/features/actionPresentation/timeline.ts'; export { mergePresentationTurns } from './web/src/features/actionPresentation/model.ts';", resolveDir: repository },
+    tsconfig: path.join(repository, 'web/tsconfig.json'), bundle: true, platform: 'node', format: 'esm', write: false, logLevel: 'silent',
+  });
+  const { applyTimelinePage, timelinePresentation, mergePresentationTurns } = await import(
+    `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
+  const timeline = fixtureResponse('GET', '/api/chat/conversations/101/timeline?limit=200');
+  const snapshot = timelinePresentation(applyTimelinePage(null, timeline));
+  const projected = mergePresentationTurns([], snapshot);
+  const stored = fixtureResponse('GET', '/api/chat/conversations/101');
+  assert.equal(projected.length, 1, 'Authorized synthetic history must remain visible after the real projection');
+  assert.deepEqual(projected.map(({ role, content }) => ({ role, content })), stored.map(({ role, content }) => ({ role, content })));
+  assert.equal(timeline.next_cursor, null, 'The single fixture page is terminal');
+  assert.ok(timeline.cursor, 'The product still requires a nonempty checkpoint cursor');
+});

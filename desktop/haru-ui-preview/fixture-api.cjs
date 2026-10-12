@@ -21,9 +21,9 @@ const responses = new Map([
   ['/api/chat/conversations/101/readiness-context', { schema_version: 1, state: 'not_applicable', conversation_id: 101,
     application_id: 0, target_event_id: null, resume_id: null, ordered_version_ids: [], selection_fingerprint: '', scope_revision: 0, revision: 0 }],
   ['/api/chat/conversations/101/timeline', { schema_version: 1, conversation_id: 101, mode: 'snapshot', high_watermark: 1,
-    items: [{ schema_version: 1, item_id: 'turn:fixture-1:message-1', turn_id: 'fixture-1', conversation_id: 101, item_type: 'assistant_message',
+    items: [{ schema_version: 1, item_id: 'turn:fixture-1:message:1', turn_id: 'fixture-1', conversation_id: 101, item_type: 'assistant_message',
       source_refs: ['message:1'], source_revision: '1', revision: 1, display_revision: 1, ordinal: 1, change_seq: 1,
-      payload_digest: 'fixture-only', deleted: false, payload: { schema_version: 1, item_id: 'message-1', kind: 'assistant_message',
+      payload_digest: 'fixture-only', deleted: false, payload: { schema_version: 1, item_id: 'message:1', kind: 'assistant_message',
         message_id: 1, operation_id: null, content: message.content, action: null } }], next_cursor: null, cursor: 'fixture-end' }],
 ]);
 function fixtureResponse(method, rawURL) {
