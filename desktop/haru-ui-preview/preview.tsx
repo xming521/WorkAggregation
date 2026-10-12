@@ -6,8 +6,8 @@ import './preview.css';
 
 const scenarios = ['idle', 'empty', 'running', 'pending', 'offline', 'offline-running', 'long', 'collapsed'] as const;
 type Scenario = typeof scenarios[number];
-type PreviewObservation = { scenario: Scenario; connected: boolean; expanded: boolean; visible: boolean; requests: string[]; windowActions: string[]; mainWindowRequests: number };
-type PreviewControls = { setScenario: (scenario: Scenario) => void; observe: () => PreviewObservation };
+type PreviewObservation = { scenario: Scenario; connected: boolean; expanded: boolean; visible: boolean; requests: string[]; windowActions: string[]; mainWindowRequests: number; theme: 'light' | 'dark'; dragPhases: string[] };
+type PreviewControls = { setScenario: (scenario: Scenario) => void; observe: () => PreviewObservation; setTheme: (theme: 'light' | 'dark') => void };
 declare global { interface Window { haruUiPreview?: PreviewControls } }
 const params = new URLSearchParams(location.search);
 const surface = params.get('surface') === '1';
@@ -18,6 +18,8 @@ const initialMessages = [
   { role: 'assistant' as const, content: '先不用急着给自己打分。哪一个问题让你卡住了？' },
 ];
 let version = 0;
+let theme: 'light' | 'dark' = params.get('theme') === 'dark' ? 'dark' : 'light';
+const dragPhases: string[] = [];
 let state: DesktopHaruState;
 const listeners = new Set<(next: DesktopHaruState) => void>();
 const requests: string[] = [];
@@ -37,7 +39,7 @@ function setScenario(next: Scenario) {
   state = {
     connected, generation: 1, visible: true, expanded: next !== 'collapsed', alwaysOnTop: false,
     snapshot: {
-      version, conversationId: 101, taskState: running ? 'running' : pending ? 'waiting_confirmation' : 'idle',
+      theme, version, conversationId: 101, taskState: running ? 'running' : pending ? 'waiting_confirmation' : 'idle',
       messages: next === 'empty' ? [] : next === 'long' ? [
         { role: 'user', content: '请帮我梳理一下这段面试经历。' },
         { role: 'assistant', content: '【本地合成长回复】\n' + '我们先记录问题、当时的回答，以及后来想到的补充。\n'.repeat(20) },
@@ -55,6 +57,7 @@ if (surface) {
   window.offerpilotDesktop = {
     role: 'haru',
     getState: async () => structuredClone(state),
+    dragWindow: async phase => { dragPhases.push(phase); return true; },
     onState: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     windowAction: async (action: DesktopHaruWindowAction) => {
       windowActions.push(action);
@@ -89,8 +92,9 @@ if (surface) {
   };
   window.haruUiPreview = {
     setScenario,
+    setTheme: next => { theme = next; if (state.snapshot) state.snapshot = { ...state.snapshot, theme }; publish(); },
     observe: () => ({ scenario, connected: state.connected, expanded: state.expanded, visible: state.visible,
-      requests: [...requests], windowActions: [...windowActions], mainWindowRequests }),
+      requests: [...requests], windowActions: [...windowActions], mainWindowRequests, theme, dragPhases: [...dragPhases] }),
   };
   setScenario(scenario);
 }
@@ -109,6 +113,7 @@ function PreviewGallery() {
       <p>真实产品界面、原 Live2D 角色和运行时。对话与桌面桥接全部为本地合成数据，没有调用 AI、后端或真实桌面程序。</p>
       <p>“到 Pilot 查看并确认”仅记录转主窗请求，不会批准修改。“发送”进入合成生成状态，可点击“停止”。</p>
       <div className="preview-controls">
+        {(['light', 'dark'] as const).map(mode => <button key={mode} onClick={() => frame.current?.contentWindow?.haruUiPreview?.setTheme(mode)}>{mode}</button>)}
         {scenarios.map(id => <button key={id} onClick={() => frame.current?.contentWindow?.haruUiPreview?.setScenario(id)}>{id}</button>)}
         <button onClick={() => setShort(value => !value)}>{short ? '恢复 740 高' : '查看 620 高'}</button>
       </div>

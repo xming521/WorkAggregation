@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { observeLayout, assertLayout, settleVisual } from './visual.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const evidence = path.join(root, 'evidence');
@@ -46,6 +47,8 @@ async function sourceIdentity() {
     'web/public/live2d/live2dcubismcore.min.js',
     'web/package-lock.json',
     'desktop/installed-ui/package-lock.json',
+    'web/src/features/assistantSurface/assets/haru-window-light.png',
+    'web/src/features/assistantSurface/assets/haru-window-dark.png',
   ];
   const modelRoot = 'web/public/live2d/haru-receptionist';
   async function collect(directory) {
@@ -103,80 +106,15 @@ function finalize() {
   return finalizePromise;
 }
 
-// Read-only inspection: never paints pixels, patches WebGL, changes the model,
-// freezes the runtime or promotes a fallback to a successful render.
-function observeLayout() {
-  const visible = node => Boolean(node && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
-  const rect = node => node?.getBoundingClientRect();
-  const within = box => Boolean(box && box.left >= -1 && box.top >= -1 && box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1);
-  const accessible = node => {
-    if (!visible(node)) return false;
-    const box = rect(node);
-    const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-    return within(box) && Boolean(top && (node === top || node.contains(top)));
-  };
-  const root = document.querySelector('.desktop-haru');
-  const avatar = document.querySelector('.desktop-haru-avatar');
-  const portrait = document.querySelector('.desktop-haru-portrait');
-  const canvas = portrait?.querySelector('canvas');
-  const ready = portrait?.getAttribute('data-runtime-state') === 'ready';
-  let contextAvailable = false;
-  let contextLost = true;
-  if (ready && canvas) {
-    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-    contextAvailable = Boolean(gl);
-    contextLost = !gl || gl.isContextLost();
-  }
-  const avatarBox = rect(avatar);
-  const canvasBox = rect(canvas);
-  const chat = document.querySelector('.desktop-haru-chat');
-  const expanded = root?.classList.contains('expanded') || false;
-  return {
-    width: innerWidth, height: innerHeight, expanded, runtimeState: portrait?.getAttribute('data-runtime-state') || 'absent',
-    canvasCount: portrait?.querySelectorAll('canvas').length || 0,
-    backingWidth: canvas?.width || 0, backingHeight: canvas?.height || 0,
-    contextAvailable, contextLost, fallbackVisible: [...(portrait?.querySelectorAll(':scope > span') || [])].some(visible),
-    replacementImages: portrait?.querySelectorAll('img').length || 0,
-    surfaceWithinViewport: within(rect(root)), avatarWithinViewport: within(avatarBox),
-    // A portrait crop is intentional. The overflowing canvas must be clipped by
-    // the avatar stage; requiring its full-body buffer inside the viewport is wrong.
-    canvasIntersectsAvatar: Boolean(canvasBox && avatarBox && Math.min(canvasBox.right, avatarBox.right) > Math.max(canvasBox.left, avatarBox.left)
-      && Math.min(canvasBox.bottom, avatarBox.bottom) > Math.max(canvasBox.top, avatarBox.top)),
-    avatarClipsCanvas: avatar ? getComputedStyle(avatar).overflow === 'hidden' : false,
-    avatarAboveChat: !expanded || Boolean(avatarBox && rect(chat) && avatarBox.bottom <= rect(chat).top + 2),
-    contextAccessible: !expanded || accessible(document.querySelector('.desktop-haru-context-toggle')),
-    inputAccessible: !expanded || accessible(document.querySelector('#desktop-haru-input')),
-    submitAccessible: !expanded || accessible(document.querySelector('.desktop-haru-submit')),
-    mainWindowAccessible: accessible(document.querySelector('[aria-label="打开 OfferPilot 主窗口"]')),
-    documentOverflows: document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1,
-    horizontalChatOverflow: Boolean(chat && chat.scrollWidth > chat.clientWidth + 1),
-    messagesScroll: Boolean(document.querySelector('.desktop-haru-messages')?.scrollHeight > document.querySelector('.desktop-haru-messages')?.clientHeight),
-    humanPortraitReviewRequired: true,
-  };
-}
-
-async function checkpoint(name, { expanded = true } = {}) {
+async function checkpoint(name, { expanded = true, theme } = {}) {
   stage = name;
-  await page.locator('.desktop-haru-portrait[data-runtime-state="ready"]').waitFor({ timeout: 25_000 });
-  await page.evaluate(() => document.fonts.ready);
-  await page.waitForFunction(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))), undefined, { timeout: 5000 });
+  await settleVisual(page, expanded);
   const value = await page.evaluate(observeLayout);
   const filename = `${name}.png`;
-  await page.screenshot({ path: path.join(evidence, filename), fullPage: false, timeout: 10_000 });
+  await page.screenshot({ path: path.join(evidence, filename), fullPage: false, omitBackground: !expanded, timeout: 10_000 });
   assert.equal(expired, false, 'Browser preview deadline expired');
-  report.screenshots.push({ file: filename, ...value });
-  assert.equal(value.runtimeState, 'ready');
-  assert.equal(value.expanded, expanded);
-  assert.equal(value.canvasCount, 1);
-  assert.equal(value.replacementImages, 0);
-  assert.equal(value.fallbackVisible, false);
-  assert.equal(value.contextLost, false);
-  assert.ok(value.backingWidth > 0 && value.backingHeight > 0);
-  for (const key of ['contextAvailable', 'surfaceWithinViewport', 'avatarWithinViewport', 'canvasIntersectsAvatar', 'avatarClipsCanvas', 'avatarAboveChat', 'contextAccessible', 'inputAccessible', 'submitAccessible', 'mainWindowAccessible']) {
-    assert.equal(value[key], true, `Visual check failed: ${key}`);
-  }
-  assert.equal(value.documentOverflows, false);
-  assert.equal(value.horizontalChatOverflow, false);
+  report.screenshots.push({ file: filename, omitBackground: !expanded, ...value });
+  assertLayout(value, { expanded, theme });
   report.completedStage = name;
   await output();
   return value;
@@ -301,7 +239,7 @@ try {
     await checkpoint('synthetic-disconnected-running');
   });
 
-  await check('collapse-expand-retains-real-runtime', async () => {
+  await check('collapse-expand-switches-static-and-live2d', async () => {
     await scenario('idle');
     await page.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
     await waitBridge(() => !window.haruUiPreview.observe().expanded);
@@ -320,7 +258,7 @@ try {
     await page.getByRole('button', { name: '展开 Haru 对话', exact: true }).focus();
     await page.keyboard.press('Escape');
     await waitBridge(() => !window.haruUiPreview.observe().visible);
-    await page.waitForFunction(() => document.querySelector('.desktop-haru-portrait')?.getAttribute('data-runtime-state') === 'hidden');
+    await page.waitForFunction(() => !document.querySelector('.desktop-haru-portrait canvas'));
     assert.equal(await page.locator('.desktop-haru-portrait canvas').count(), 0);
     await scenario('collapsed');
     await checkpoint('collapsed-after-remount', { expanded: false });
@@ -345,15 +283,42 @@ try {
   });
 
   await check('reduced-motion-static-runtime', async () => {
-    await page.setViewportSize({ width: 420, height: 740 });
+    await page.setViewportSize({ width: 260, height: 340 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     // Full same-origin navigation creates a fresh runtime with reduced motion.
-    // Running normally animates, so this exercises the preference-driven static
-    // path independently of idle's explicit animationLevel='off' behavior.
-    await page.goto(`${origin}/?surface=1&scenario=running`, { waitUntil: 'networkidle', timeout: 30_000 });
+    // Collapsed idle retains the real model under this accessibility preference.
+    // This does not claim running/minimal animation-path coverage.
+    await page.goto(`${origin}/?surface=1&scenario=collapsed`, { waitUntil: 'networkidle', timeout: 30_000 });
     assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
-    assert.equal((await observeBridge()).scenario, 'running');
-    await checkpoint('reduced-motion-420x740');
+    assert.equal((await observeBridge()).scenario, 'collapsed');
+    await checkpoint('reduced-motion-collapsed', { expanded: false });
+  });
+
+  await check('theme-repeated-toggle-and-draft', async () => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await scenario('idle');
+    await page.setViewportSize({ width: 420, height: 740 });
+    const draft = '【预览草稿】反复展开和切换主题后仍保留';
+    await page.getByLabel('给 Haru 发消息', { exact: true }).fill(draft);
+    for (const theme of ['light', 'dark', 'light']) {
+      await page.evaluate(value => window.haruUiPreview.setTheme(value), theme);
+      await checkpoint(`theme-${theme}-${report.screenshots.length}`, { theme });
+      await page.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
+      await waitBridge(() => !window.haruUiPreview.observe().expanded);
+      await page.setViewportSize({ width: 260, height: 340 });
+      await checkpoint(`only-live2d-${theme}-${report.screenshots.length}`, { expanded: false, theme });
+      // Browser pointer events prove click suppression only; native Windows
+      // cursor/window displacement is independently required by run-native.mjs.
+      const avatar = page.locator('.desktop-haru-avatar'); const box = await avatar.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2 + 10, { steps: 5 }); await page.mouse.up();
+      assert.equal((await observeBridge()).expanded, false);
+      assert.ok((await observeBridge()).dragPhases.includes('move'));
+      await avatar.click(); await waitBridge(() => window.haruUiPreview.observe().expanded);
+      await page.setViewportSize({ width: 420, height: 740 });
+      await settleVisual(page, true);
+      assert.equal(await page.getByLabel('给 Haru 发消息', { exact: true }).inputValue(), draft);
+    }
   });
 
   stage = 'console-and-network-clean';
@@ -370,7 +335,7 @@ try {
   if (page) {
     try {
       const value = await page.evaluate(observeLayout);
-      await page.screenshot({ path: path.join(evidence, 'failure.png'), fullPage: false, timeout: 5000 });
+      await page.screenshot({ path: path.join(evidence, 'failure.png'), fullPage: false, omitBackground: !value.expanded, timeout: 5000 });
       report.failureVisual = value;
     } catch { /* Preserve original failure; never substitute an illustration. */ }
   }

@@ -9,5 +9,5 @@
       "react-dom/*": ["node_modules/@types/react-dom/*"]
     }
   },
-  "include": ["preview.tsx"]
+  "include": ["preview.tsx", "../../web/src/vite-env.d.ts"]
 }
