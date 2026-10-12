@@ -24,7 +24,7 @@ async function fixture(t, { pendingWrite=false, overflow=false, covered=0, wrong
   const app={async browserWindow() { return { async evaluate(callback,value) { callback({setContentSize(w,h){ sizes.push([w,h]); width=w; height=h; }},value); } }; }};
   let calls = 0; let critical = 0; const classifications = {};
   const runtime={snapshot:()=>({classifications:{...classifications},ownRequestFailures:[],ownCriticalFailureCount:critical}),hasPendingWrite:()=>pendingWrite && ++calls > 1};
-  const haru = companion ? { ...page, async evaluate(_callback,args) { return args?.rules ? {observedView:'unknown',visibleSurfaces:['S24','S25'],targetSurfaceConfirmed:true} : {width:260,height:340,documentWidth:260,theme:'dark',haruCoveredControls:0}; } } : undefined;
+  const haru = companion ? { ...page, locator: selector => ({ count: async () => { assert.equal(selector, '.desktop-haru.collapsed'); return 1; } }), async evaluate(_callback,args) { return args?.rules ? {observedView:'unknown',visibleSurfaces:['S24','S25'],targetSurfaceConfirmed:true} : {width:260,height:340,documentWidth:260,theme:'dark',haruCoveredControls:0}; } } : undefined;
   const qa=await createCoverage({app,page,haru,evidence,pin:PIN,installedExeSha256:'unit-fixture-hash',runtime,setStage(){}});
   return {qa,haru,evidence,sizes,reloads:()=>reloads, runtimeError:(name)=>{ classifications[name]=(classifications[name]||0)+1; }, criticalFailure:()=>{critical++;}};
 }

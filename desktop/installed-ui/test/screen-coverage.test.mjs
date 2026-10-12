@@ -93,9 +93,14 @@ test('unknown roots fail before any UI action, and hidden interview return contr
   assert.equal(actions.some(([kind, name]) => kind === 'button' && name === '返回面试'), false);
 });
 
-function haruPage({ context = '当前上下文：Synthetic Company · Synthetic Role', failAt } = {}) {
+function haruPage({ context = '当前：Synthetic Company · Synthetic Role', failAt } = {}) {
   const steps = [];
   const page = {
+    async waitForFunction(_callback, expected) {
+      assert.equal(expected, 'Synthetic Company · Synthetic Role');
+      if (failAt === 'snapshot') throw new Error('stale native snapshot');
+      steps.push('snapshot');
+    },
     getByRole(role, options) {
       const expected = role === 'main' ? 'Haru 桌面小窗' : 'Haru 对话';
       assert.ok(['main', 'region'].includes(role));
@@ -123,13 +128,14 @@ const record = { id: 7, company_name: 'Synthetic Company', position_name: 'Synth
 test('row context must be read from the actual expanded standalone Haru window', async () => {
   const { page, steps } = haruPage();
   await verifyStandaloneHaruContext(page, record);
-  assert.deepEqual(steps, ['main', 'region', 'context']);
+  assert.deepEqual(steps, ['main', 'region', 'context', 'snapshot']);
 });
 
 test('missing, collapsed or stale standalone Haru cannot pass row context coverage', async () => {
   await assert.rejects(verifyStandaloneHaruContext(undefined, record), /Haru window is required/);
   for (const failAt of ['main', 'region']) await assert.rejects(verifyStandaloneHaruContext(haruPage({ failAt }).page, record), /not visible/);
   await assert.rejects(verifyStandaloneHaruContext(haruPage({ context: '当前上下文：工作台' }).page, record), /does not match/);
+  await assert.rejects(verifyStandaloneHaruContext(haruPage({ failAt: 'snapshot' }).page, record), /stale native snapshot/);
 });
 
 test('removed in-page mascot coverage is explicitly N/A and cannot create a runtime PASS', async () => {

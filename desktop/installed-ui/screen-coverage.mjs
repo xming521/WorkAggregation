@@ -1107,7 +1107,11 @@ async function verifyStandaloneHaruContext(haru, record) {
   const chat = region(haru, 'Haru 对话');
   await chat.waitFor();
   markUiStep(haru, 'companion-context', 'pilot');
-  await chat.getByText(`当前上下文：${record.company_name} · ${record.position_name}`, { exact: true }).waitFor();
+  await chat.getByText(`当前：${record.company_name} · ${record.position_name}`, { exact: true }).waitFor();
+  await haru.waitForFunction(async expected => {
+    const state = await window.offerpilotDesktop.getState();
+    return state.connected && state.snapshot?.contextLabel === expected;
+  }, `${record.company_name} · ${record.position_name}`);
 }
 
 async function recordDesktopMascotScope(qa) {
@@ -1129,7 +1133,8 @@ async function pilotSettingsFlows(qa, page, record) {
     await verifyHaruVisual(qa.haru, visual => qa.captureHaru('pilot-row-context-standalone-haru', visual));
     qa.observed('actual standalone Haru window mirrors the clicked application context');
     await btn(qa.haru, '打开 OfferPilot 主窗口').click();
-    await command(page, '打开 Pilot 工作区');
+    await page.waitForURL(url => url.searchParams.get('view') === 'pilot');
+    await page.locator('.op-pilot-page-host').waitFor({ state: 'visible' });
     const context = `${record.company_name} · ${record.position_name}`;
     await btn(page, '退出沉浸模式，返回原页面').waitFor();
     const contextLabel = page.getByText('当前上下文', { exact: true }).filter({ visible: true });

@@ -18,7 +18,7 @@ import { probeInstalledClipboard } from './clipboard-probe.mjs';
 import { DESKTOP_SOURCE_FILES } from './desktop-source-manifest.mjs';
 import { probeInstalledOfflineOrt } from './offline-ort-probe.mjs';
 import { probeSettingsExport } from './settings-export-probes.mjs';
-import { verifyHaruVisual } from './haru-visual.mjs';
+import { probeInstalledHaruWindows } from './haru-window-flow.mjs';
 import { verifyApplicationDetail } from './detail-ui.mjs';
 import { createCoverage, observeRuntime } from './coverage-recorder.mjs';
 import { rootSweep, extendedFlows } from './screen-coverage.mjs';
@@ -182,6 +182,7 @@ async function launch(number) {
   await checkpoint(`launch-${number}-identity-and-security`);
   stage = `launch-${number}-observe-real-tray`;
   await app.evaluate(installTrayObserver);
+  await haru.getByRole('button', { name: '展开 Haru 对话', exact: true }).click();
   const pin = haru.getByRole('button', { name: 'Haru 始终置顶', exact: true });
   const pinned = await pin.getAttribute('aria-pressed');
   assert.ok(['true', 'false'].includes(pinned));
@@ -189,6 +190,7 @@ async function launch(number) {
     await pin.click();
     await haru.waitForFunction(value => document.querySelector('[aria-label="Haru 始终置顶"]').getAttribute('aria-pressed') === value, expected);
   }
+  await haru.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
   info.trayObservedThroughRealMenuRefresh = true;
   await checkpoint(`launch-${number}-real-tray-observer`);
   return current;
@@ -343,9 +345,14 @@ try {
 
   stage = 'first-launch-ui';
   const first = await launch(1);
-  const haruCapture = async (name, page) => {
+  const haruCapture = async (name, page, options = {}) => {
+    assert.match(name, /^[a-z0-9-]{1,80}$/);
     await fs.mkdir(path.join(evidence, 'screens'), { recursive: true });
-    await page.screenshot({ path: path.join(evidence, 'screens', `haru-${name}.png`), timeout: 15000 });
+    const omitBackground = options.omitBackground ?? (page === first.haru && await page.locator('.desktop-haru.collapsed').count() === 1);
+    await page.screenshot({ path: path.join(evidence, 'screens', `haru-${name}.png`), omitBackground, timeout: 15000 });
+    (report.haruScreenshots ||= []).push({ file: `screens/haru-${name}.png`, omitBackground,
+      surface: page === first.haru ? 'haru' : 'owner', ...(options.visual ? { visual: options.visual } : {}) });
+    await writeReport();
   };
   stage = 'haru-observed-startup-reload';
   const haruRuntime = observeRuntime(first.haru);
@@ -378,36 +385,26 @@ try {
   stage = 'haru-synthetic-status-mirror';
   report.haruStatus = await probeHaruStatusMirror(first.page, first.haru, haruCapture);
   await checkpoint(stage);
-  const verifyHaruFrame = async (label, requireExpanded) => {
-    await verifyHaruVisual(first.haru, async visual => {
-      (report.haruVisualChecks ||= []).push({ label, ...visual, screenshot: `screens/haru-${label}.png` });
-      await haruCapture(label, first.haru);
-      await writeReport();
-    }, { requireExpanded });
-  };
-  stage = 'haru-real-idle-restored-visual';
-  await first.haru.getByRole('status').filter({ hasText: /^随时待命$/ }).waitFor();
-  await verifyHaruFrame('real-restored-status', false);
-  await checkpoint(stage);
-  stage = 'haru-expanded-visual';
-  await first.haru.getByRole('button', { name: '展开 Haru 对话', exact: true }).click();
-  await first.haru.getByRole('region', { name: 'Haru 对话', exact: true }).waitFor();
-  await verifyHaruFrame('expanded-visual', true);
-  await checkpoint(stage);
-  stage = 'haru-native-hide-show-visual';
-  await first.haru.getByRole('button', { name: '将 Haru 收到托盘', exact: true }).click();
-  const haruWindow = await first.app.browserWindow(first.haru);
-  await waitUntil(async () => !(await haruWindow.evaluate(win => win.isVisible())));
-  await first.haru.locator('.desktop-haru-portrait[data-runtime-state="hidden"]').waitFor({ state: 'attached' });
-  assert.equal(await first.page.evaluate(() => window.offerpilotDesktop.windowAction('show-haru')), true);
-  await waitUntil(() => haruWindow.evaluate(win => win.isVisible()));
-  await verifyHaruFrame('reshown-idle-visual', true);
-  await checkpoint(stage);
-  stage = 'haru-collapsed-visual';
-  await first.haru.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
-  await first.haru.getByRole('region', { name: 'Haru 对话', exact: true }).waitFor({ state: 'hidden' });
-  await verifyHaruFrame('collapsed-idle-visual', false);
-  await checkpoint(stage);
+  stage = 'haru-installed-window-flow';
+  report.haruWindows = await probeInstalledHaruWindows({ ...first, waitUntil, capture: haruCapture,
+    setStage: name => { stage = name; },
+    checkpoint: async (name, details) => { stage = name; await checkpoint(name, details); },
+    nativeInput: async (mode, handles, point = {}) => {
+      stage = mode === 'Drag' ? 'haru-real-os-pointer' : 'haru-owned-os-composition';
+      const args = ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'haru-native-input.ps1'),
+        '-Mode', mode, '-WindowHandle', handles.haru, '-OwnerWindowHandle', handles.owner, '-OwnerProcessId', String(handles.pid)];
+      if (mode === 'Drag') args.push('-XRatio', String(point.x), '-YRatio', String(point.y));
+      const observed = JSON.parse(await command('pwsh.exe', args, environment, 15000));
+      if (mode === 'Capture') {
+        assert.equal(observed.file, 'screens/haru-native-os-composited.png');
+        const bytes = await fs.readFile(path.join(evidence, observed.file));
+        assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+        observed.sha256 = await hash(path.join(evidence, observed.file));
+      }
+      return observed;
+    },
+  });
+  await checkpoint('haru-installed-window-flow');
   stage = 'desktop-capability-probes';
   report.capabilities = await probeInstalledCapabilities({ app: first.app, page: first.page,
     directory: path.join(scratch, 'synthetic-downloads'), setStage: value => { stage = `desktop-capability-${value}`; } });
@@ -514,7 +511,7 @@ try {
   if (current?.haru && !current.haru.isClosed()) {
     try {
       await fs.mkdir(path.join(evidence, 'screens'), { recursive: true });
-      await current.haru.screenshot({ path: path.join(evidence, 'screens', 'haru-failure.png'), timeout: 15000 });
+      await current.haru.screenshot({ path: path.join(evidence, 'screens', 'haru-failure.png'), omitBackground: await current.haru.locator('.desktop-haru.collapsed').count() === 1, timeout: 15000 });
       report.haruFailureScreenshot = 'screens/haru-failure.png';
     } catch { report.haruFailureCaptureFailed = true; }
   }

@@ -89,6 +89,8 @@ export async function probeHaruStatusMirror(owner, haru, capture) {
     if (window.__offerpilotInstalledSnapshot) throw new Error('snapshot probe already running');
     window.__offerpilotInstalledSnapshot = (await window.offerpilotDesktop.getState()).snapshot;
   });
+  const wasExpanded = await haru.evaluate(async () => (await window.offerpilotDesktop.getState()).expanded);
+  if (!wasExpanded) await haru.getByRole('button', { name: '展开 Haru 对话', exact: true }).click();
   const cases = [['idle', '随时待命'], ['running', '正在处理'], ['waiting_confirmation', '等待你确认'], ['completed', '已完成'], ['failed', '需要查看']];
   try {
     for (const [index, [taskState, label]] of cases.entries()) {
@@ -104,6 +106,7 @@ export async function probeHaruStatusMirror(owner, haru, capture) {
     if (capture) await capture('synthetic-status-failed', haru);
   } finally {
     await owner.evaluate(() => { window.offerpilotDesktop.publish(window.__offerpilotInstalledSnapshot); delete window.__offerpilotInstalledSnapshot; });
+    if (!wasExpanded) await haru.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
   }
   await haru.waitForFunction(async () => (await window.offerpilotDesktop.getState()).snapshot?.contextLabel !== '安装验证合成状态');
   return { labels: cases.map(([state]) => state), source: 'synthetic-bounded-owner-preload-publish',

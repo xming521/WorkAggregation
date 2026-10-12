@@ -92,21 +92,23 @@ test('queued real tray quit cannot be confused with window hide or an exit asser
 });
 function statusFixture(failCapture = false) {
   const original = { version: 3, contextLabel: '实际上下文', taskState: 'idle' };
-  let snapshot = original; const states = [];
-  const ownerBridge = { role: 'owner', getState: async () => ({ connected: true, snapshot }), publish: value => { snapshot = value; states.push(value.taskState); } };
+  let snapshot = original; let expanded = false; const states = []; const actions = [];
+  const ownerBridge = { role: 'owner', getState: async () => ({ connected: true, snapshot, expanded }), publish: value => { snapshot = value; states.push(value.taskState); } };
   const haruBridge = { role: 'haru', getState: ownerBridge.getState, request: () => {} };
   const owner = renderer({ window: { offerpilotDesktop: ownerBridge } });
   const haru = renderer({ window: { offerpilotDesktop: haruBridge } });
   const labels = { idle: '随时待命', running: '正在处理', waiting_confirmation: '等待你确认', completed: '已完成', failed: '需要查看' };
   haru.waitForFunction = async fn => assert.equal(await haru.evaluate(fn), true);
-  haru.getByRole = role => ({ waitFor: async () => {}, filter: ({ hasText }) => ({ waitFor: async () => assert.match(labels[snapshot.taskState], hasText) }) });
-  return { owner, haru, states, original, current: () => snapshot, capture: async () => { if (failCapture) throw new Error('capture failed'); } };
+  haru.getByRole = (role, options) => ({ click: async () => { actions.push(options.name); expanded = options.name === '展开 Haru 对话'; }, waitFor: async () => {}, filter: ({ hasText }) => ({ waitFor: async () => assert.match(labels[snapshot.taskState], hasText) }) });
+  return { owner, haru, states, actions, expanded: () => expanded, original, current: () => snapshot, capture: async () => { if (failCapture) throw new Error('capture failed'); } };
 }
 test('status probe exercises every real preload/IPC label then restores original bounded snapshot', async () => {
   const fixture = statusFixture();
   const result = await probeHaruStatusMirror(fixture.owner, fixture.haru, fixture.capture);
   assert.deepEqual(fixture.states, ['idle', 'running', 'waiting_confirmation', 'completed', 'failed', 'idle']);
   assert.equal(fixture.current(), fixture.original);
+  assert.equal(fixture.expanded(), false);
+  assert.deepEqual(fixture.actions, ['展开 Haru 对话', '收起 Haru 对话']);
   assert.equal(result.realAiTaskExecutionProven, false);
   assert.equal(fixture.owner.context.window.__offerpilotInstalledSnapshot, undefined);
 });
@@ -114,6 +116,8 @@ test('failed status capture still restores owner snapshot, and Haru cannot gain 
   const fixture = statusFixture(true);
   await assert.rejects(probeHaruStatusMirror(fixture.owner, fixture.haru, fixture.capture));
   assert.equal(fixture.current(), fixture.original);
+  assert.equal(fixture.expanded(), false);
+  assert.deepEqual(fixture.actions, ['展开 Haru 对话', '收起 Haru 对话']);
   const unsafe = statusFixture(); unsafe.haru.context.window.offerpilotDesktop.publish = () => {};
   await assert.rejects(probeHaruStatusMirror(unsafe.owner, unsafe.haru));
   assert.deepEqual(unsafe.states, []);

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 
-// Read-only inspection of the real renderer. No image decoding, replacement,
-// model stub, raw text, pixel dump or WebGL calls that draw/alter state.
+// Read-only: never paints substitute pixels, patches WebGL or forces readiness.
 export function observeHaruVisual() {
   const visible = node => {
     if (!node || !node.getClientRects().length) return false;
@@ -12,72 +11,121 @@ export function observeHaruVisual() {
     const box = node.getBoundingClientRect();
     return box.width > 0 && box.height > 0;
   };
+  // Never publish arbitrary renderer URLs/text through installed evidence.
+  const imageSource = node => {
+    const source = node?.getAttribute('src') || '';
+    const matched = source.match(/(?:^|\/)haru-window-(?:light|dark)(?:-[A-Za-z0-9_-]+)?\.png$/);
+    return matched ? matched[0].replace(/^\//, '') : null;
+  };
+  const rect = node => node?.getBoundingClientRect();
+  const within = box => Boolean(box && box.left >= -1 && box.top >= -1 && box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1);
+  const accessible = node => {
+    if (!visible(node)) return false;
+    const box = rect(node);
+    const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return within(box) && Boolean(top && (node === top || node.contains(top)));
+  };
+  const root = document.querySelector('.desktop-haru');
+  const avatar = document.querySelector('.desktop-haru-avatar');
   const portrait = document.querySelector('.desktop-haru-portrait');
-  const state = portrait?.getAttribute('data-runtime-state');
-  const runtimeState = ['ready', 'loading', 'failed', 'hidden'].includes(state) ? state : 'unknown';
-  const canvases = portrait ? [...portrait.querySelectorAll('canvas')].filter(visible) : [];
-  const canvas = canvases.length === 1 ? canvases[0] : null;
-  const images = portrait ? [...portrait.querySelectorAll('img')].filter(visible).length : 0;
-  const fallbackVisible = Boolean(portrait && [...portrait.querySelectorAll(':scope > span')].some(visible));
-  const context = document.querySelector('.desktop-haru-context');
-  const input = document.querySelector('#desktop-haru-input');
-  const chat = document.querySelector('[aria-label="Haru 对话"]');
-  const box = canvas?.getBoundingClientRect();
-  const frame = portrait?.getBoundingClientRect();
+  const canvas = portrait?.querySelector('canvas');
+  const staticImage = document.querySelector('.desktop-haru-static-portrait');
+  const assistantAvatars = [...document.querySelectorAll('[data-role=assistant] .desktop-haru-message-avatar')].map(node => {
+    const image = node.querySelector('img');
+    return { loaded: Boolean(image?.complete && image.naturalWidth > 0), alt: image?.alt === 'Haru 头像' ? 'Haru 头像' : null, source: imageSource(image), hidden: Boolean(image?.closest('[aria-hidden=true]')) };
+  });
+  const ready = portrait?.getAttribute('data-runtime-state') === 'ready';
+  const canvasVisible = visible(canvas);
   let contextAvailable = false;
   let contextLost = true;
-  // The product's ready marker means a runtime context already exists. Never
-  // call getContext on an uninitialized/loading canvas to fabricate readiness.
-  if (runtimeState === 'ready' && canvas && canvas.width > 0 && canvas.height > 0) {
-    try {
-      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-      contextAvailable = Boolean(gl);
-      contextLost = !gl || gl.isContextLost();
-    } catch { /* Missing/lost native context remains a failing observation. */ }
+  let contextAlpha = false;
+  if (ready && canvasVisible && canvas.width > 0 && canvas.height > 0) {
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    contextAvailable = Boolean(gl); contextLost = !gl || gl.isContextLost(); contextAlpha = gl?.getContextAttributes()?.alpha === true;
   }
-  const unobscured = node => {
-    if (!visible(node)) return false;
-    const rect = node.getBoundingClientRect();
-    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    return top === node || Boolean(top && node.contains(top));
+  const expanded = root?.classList.contains('expanded') || false;
+  const avatarBox = rect(avatar); const canvasBox = rect(canvas); const portraitBox = rect(portrait);
+  const chat = document.querySelector('.desktop-haru-chat');
+  const transparent = node => !node || ['rgba(0, 0, 0, 0)', 'transparent'].includes(getComputedStyle(node).backgroundColor);
+  return {
+    width: innerWidth, height: innerHeight, expanded, theme: ['light', 'dark'].includes(root?.getAttribute('data-theme')) ? root.getAttribute('data-theme') : 'unknown',
+    runtimeState: !portrait ? 'absent' : ['ready', 'loading', 'failed', 'hidden'].includes(portrait.getAttribute('data-runtime-state')) ? portrait.getAttribute('data-runtime-state') : 'unknown', canvasCount: document.querySelectorAll('.desktop-haru canvas').length,
+    backingWidth: canvas?.width || 0, backingHeight: canvas?.height || 0, canvasVisible,
+    contextAvailable, contextLost, contextAlpha, canvasCssTransparent: transparent(canvas), fallbackVisible: [...(portrait?.querySelectorAll(':scope > span') || [])].some(visible),
+    staticImages: document.querySelectorAll('.desktop-haru-static-portrait').length,
+    staticImageLoaded: Boolean(staticImage?.complete && staticImage.naturalWidth > 0 && visible(staticImage)),
+    staticImageSource: imageSource(staticImage),
+    assistantMessageCount: document.querySelectorAll('.desktop-haru-messages article[data-role=assistant]').length,
+    assistantAvatars,
+    surfaceWithinViewport: within(rect(root)), avatarWithinViewport: within(avatarBox),
+    canvasIntersectsAvatar: Boolean(canvasBox && avatarBox && Math.min(canvasBox.right, avatarBox.right) > Math.max(canvasBox.left, avatarBox.left)
+      && Math.min(canvasBox.bottom, avatarBox.bottom) > Math.max(canvasBox.top, avatarBox.top)),
+    canvasWithinPortrait: Boolean(canvasBox && portraitBox && canvasBox.left >= portraitBox.left - 1 && canvasBox.right <= portraitBox.right + 1
+      && canvasBox.top >= portraitBox.top - 1 && canvasBox.bottom <= portraitBox.bottom + 1),
+    portraitWithinViewport: within(portraitBox),
+    avatarAboveChat: !expanded || Boolean(avatarBox && rect(chat) && avatarBox.bottom <= rect(chat).top + 2),
+    contextAccessible: !expanded || accessible(document.querySelector('.desktop-haru-context-toggle')),
+    inputAccessible: !expanded || accessible(document.querySelector('#desktop-haru-input')),
+    submitAccessible: !expanded || accessible(document.querySelector('.desktop-haru-submit')),
+    mainWindowAccessible: !expanded || accessible(document.querySelector('[aria-label="打开 OfferPilot 主窗口"]')),
+    collapsedOnlyModel: expanded || Boolean(root?.children.length === 1 && avatar && !root.querySelector('header,nav,.desktop-haru-chat,.desktop-haru-speech,.desktop-haru-presence,.desktop-haru-expand-hint,img')),
+    collapsedTransparent: expanded || [document.documentElement, document.body, root, avatar].every(transparent),
+    documentOverflows: document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1,
+    horizontalChatOverflow: Boolean(chat && chat.scrollWidth > chat.clientWidth + 1),
+    messagesScroll: Boolean(document.querySelector('.desktop-haru-messages')?.scrollHeight > document.querySelector('.desktop-haru-messages')?.clientHeight),
+    humanPortraitReviewRequired: true,
   };
-  return { runtimeState, expanded: Boolean(document.querySelector('.desktop-haru.expanded')), visibleCanvases: canvases.length, visibleImages: images, fallbackVisible,
-    backingWidth: canvas?.width || 0, backingHeight: canvas?.height || 0, contextAvailable, contextLost,
-    canvasWithinPortrait: Boolean(box && frame && box.left >= frame.left - 1 && box.right <= frame.right + 1
-      && box.top >= frame.top - 1 && box.bottom <= frame.bottom + 1),
-    portraitWithinViewport: Boolean(frame && frame.left >= 0 && frame.right <= innerWidth && frame.top >= 0 && frame.bottom <= innerHeight),
-    mediaAboveChat: Boolean(box && frame && visible(chat) && Math.max(box.bottom, frame.bottom) <= chat.getBoundingClientRect().top + 1),
-    contextUnobscured: unobscured(context), inputUnobscured: unobscured(input),
-    imageQualityRequiresHumanReview: true };
 }
-export function assertHaruVisual(value, { requireExpanded = true } = {}) {
-  assert.equal(value.runtimeState, 'ready', 'Haru runtime must actually finish loading');
-  assert.equal(value.visibleCanvases, 1); assert.equal(value.visibleImages, 0);
-  assert.equal(value.fallbackVisible, false, 'Haru fallback is not successful model rendering');
-  for (const key of ['backingWidth', 'backingHeight']) assert.ok(Number.isFinite(value[key]) && value[key] > 0 && value[key] <= 16384);
-  assert.equal(value.contextAvailable, true); assert.equal(value.contextLost, false);
-  if (requireExpanded) assert.equal(value.expanded, true, 'Haru conversation must really be expanded');
-  for (const key of ['canvasWithinPortrait', 'portraitWithinViewport', ...(value.expanded ? ['mediaAboveChat', 'contextUnobscured', 'inputUnobscured'] : [])]) {
-    assert.equal(value[key], true, `Haru visual boundary failed: ${key}`);
+export function assertHaruVisual(value, { requireExpanded: expanded = true, theme } = {}) {
+  assert.equal(value.expanded, expanded);
+  assert.ok(['light', 'dark'].includes(value.theme));
+  if (theme) assert.equal(value.theme, theme);
+  assert.equal(value.fallbackVisible, false);
+  assert.equal(value.canvasCount, expanded ? 0 : 1);
+  assert.equal(value.staticImages, expanded ? 1 : 0);
+  if (expanded) {
+    assert.equal(value.runtimeState, 'absent');
+    assert.equal(value.staticImageLoaded, true);
+    assert.match(value.staticImageSource, new RegExp(`^haru-window-${value.theme}(?:-[A-Za-z0-9_-]+)?\\.png$`));
+    assert.equal(value.assistantAvatars.length, value.assistantMessageCount);
+    for (const avatar of value.assistantAvatars) {
+      assert.equal(avatar.loaded, true); assert.equal(avatar.alt, 'Haru 头像');
+      assert.equal(avatar.source, value.staticImageSource); assert.equal(avatar.hidden, false);
+    }
+  } else {
+    assert.equal(value.canvasVisible, true);
+    assert.equal(value.runtimeState, 'ready'); assert.equal(value.contextAvailable, true); assert.equal(value.contextLost, false); assert.equal(value.contextAlpha, true); assert.equal(value.canvasCssTransparent, true);
+    assert.ok([value.backingWidth, value.backingHeight].every(size => Number.isFinite(size) && size > 0 && size <= 16384)); assert.equal(value.canvasIntersectsAvatar, true);
+    assert.equal(value.canvasWithinPortrait, true); assert.equal(value.portraitWithinViewport, true);
   }
+  for (const key of ['surfaceWithinViewport', 'avatarWithinViewport', 'avatarAboveChat', 'contextAccessible', 'inputAccessible', 'submitAccessible', 'mainWindowAccessible', 'collapsedOnlyModel', 'collapsedTransparent']) {
+    assert.equal(value[key], true, `Visual check failed: ${key}`);
+  }
+  assert.equal(value.documentOverflows, false); assert.equal(value.horizontalChatOverflow, false);
 }
-export async function verifyHaruVisual(page, capture, options) {
+async function settleVisual(page, expanded) {
+  if (expanded) await page.waitForFunction(() => {
+    const image = document.querySelector('.desktop-haru-static-portrait');
+    const messageImages = [...document.querySelectorAll('[data-role=assistant] .desktop-haru-message-avatar img')];
+    return image?.complete && image.naturalWidth > 0 && messageImages.every(item => item.complete && item.naturalWidth > 0) && !document.querySelector('.desktop-haru canvas');
+  }, undefined, { timeout: 25_000 });
+  else await page.locator('.desktop-haru-portrait[data-runtime-state="ready"]').waitFor({ timeout: 25_000 });
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForFunction(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))), undefined, { timeout: 5000 });
+}
+
+export async function verifyHaruVisual(page, capture, options = {}) {
   let captured = false;
   try {
-    await page.locator('.desktop-haru-portrait[data-runtime-state="ready"]').waitFor();
-    // The native window may be hidden between readiness and the next paint.
-    // Use Playwright's host-side deadline rather than an unbounded evaluate.
-    await page.waitForFunction(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))),
-      undefined, { timeout: 5000 });
+    await settleVisual(page, options.requireExpanded !== false);
     const value = await page.evaluate(observeHaruVisual);
     if (capture) { captured = true; await capture(value); }
     assertHaruVisual(value, options);
     return value;
   } catch (error) {
-    // A loading/failed runtime must still retain the actual broken pixels,
-    // rather than fail before the requested screenshot callback is reached.
+    // Preserve the actual failed frame before teardown; failure stays failed.
     if (capture && !captured) {
-      try { captured = true; await capture(await page.evaluate(observeHaruVisual)); } catch { /* Original validation failure remains a failure. */ }
+      try { await capture(await page.evaluate(observeHaruVisual)); } catch { /* Original failure wins. */ }
     }
     throw error;
   }

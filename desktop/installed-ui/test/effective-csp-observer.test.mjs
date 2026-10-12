@@ -7,6 +7,7 @@ import os from 'node:os';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { auditInstalledResponseObserver, nativeEffectiveCspObserver, assertEffectiveCspObservation } from '../effective-csp-observer.mjs';
+import { AUDITED_DESKTOP_PRODUCT } from '../desktop-source-manifest.mjs';
 import { auditedArchive, nativeObserverFixture } from './fixtures/effective-csp-fixture.mjs';
 const { contentSecurityPolicy: policy } = createRequire(import.meta.url)('../../capabilities.cjs');
 const ownerURL = 'http://127.0.0.1:18420/?view=settings';
@@ -22,7 +23,7 @@ async function installation(t, overrides) {
 test('installed ASAR audit verifies the exact production entrypoint and complete unoccupied module closure', async t => {
   const root = await installation(t);
   assert.deepEqual(await auditInstalledResponseObserver(root), {
-    auditedProductCommit: '3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8', verifiedModuleCount: 12,
+    auditedProductCommit: AUDITED_DESKTOP_PRODUCT, verifiedModuleCount: 12,
     mainEntryMatched: true, responseStartedUnused: true,
   });
 });
