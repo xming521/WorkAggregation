@@ -1,0 +1,37 @@
+name: Current master web Haru screenshot
+on:
+  push:
+    branches: [test/20261012-web-haru-screenshot]
+    paths: ['tools/web-haru-screenshot/**', '.github/workflows/web-haru-screenshot.yml']
+permissions:
+  contents: read
+jobs:
+  screenshot:
+    if: ${{ github.repository == 'offercontext/offerPilot' && github.ref == 'refs/heads/test/20261012-web-haru-screenshot' }}
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.3'
+      - name: Verify unchanged master product source
+        shell: pwsh
+        run: |
+          git diff --exit-code 5b9605bab343c4f95ede2c0c61ecd47bb7d923a1 HEAD -- web
+          if ($LASTEXITCODE -ne 0) { throw 'Product source changed' }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: web
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: tools/web-haru-screenshot
+      - run: node tools/web-haru-screenshot/run.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: web-haru-screenshot-${{ github.run_id }}
+          path: tools/web-haru-screenshot/evidence/
+          if-no-files-found: warn
+          retention-days: 7
