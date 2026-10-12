@@ -10,6 +10,7 @@ function sanitizeSnapshot(value) {
   if (!value || !Number.isSafeInteger(value.version) || value.version < 1 || !TASKS.has(value.taskState)) return null;
   return {
     version: value.version,
+    ...(['light', 'dark'].includes(value.theme) ? { theme: value.theme } : {}),
     conversationId: Number.isSafeInteger(value.conversationId) && value.conversationId > 0 ? value.conversationId : null,
     taskState: value.taskState,
     messages: Array.isArray(value.messages) ? value.messages.slice(-12).filter(item => item && ['user', 'assistant'].includes(item.role)).map(item => ({ role: item.role, content: text(item.content, 12000) })) : [],

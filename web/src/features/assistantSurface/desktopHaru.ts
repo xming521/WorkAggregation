@@ -1,5 +1,6 @@
 export interface DesktopHaruSnapshot {
   version: number;
+  theme?: 'light' | 'dark';
   conversationId: number | null;
   taskState: 'idle' | 'running' | 'waiting_confirmation' | 'completed' | 'failed';
   messages: { role: 'user' | 'assistant'; content: string }[];
@@ -29,6 +30,8 @@ interface DesktopHaruBridge {
   getState(): Promise<DesktopHaruState | null>;
   onState(listener: (state: DesktopHaruState) => void): () => void;
   windowAction(action: DesktopHaruWindowAction): Promise<boolean>;
+  dragWindow?(phase: 'start' | 'move' | 'end' | 'cancel'): Promise<boolean>;
+  onShowPilot?(listener: () => void): () => void;
   publish?(snapshot: DesktopHaruSnapshot): void;
   disconnect?(): void;
   onCommand?(listener: (command: DesktopHaruCommand) => void): () => void;

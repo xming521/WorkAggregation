@@ -12,6 +12,8 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   let nextCommand = 0;
   let generation = 0;
   let saveTimer;
+  let drag = null;
+  let pilotRequested = false;
   const pending = new Map();
   const stateFile = path.join(userData, 'haru-window.json');
   let saved;
@@ -21,6 +23,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     return [primary, ...screen.getAllDisplays().filter(display => display.id !== primary.id)].map(display => display.workArea);
   };
   const liveHaru = () => haru && !haru.isDestroyed();
+  const cancelDrag = () => { drag = null; };
   const state = () => ({ connected: snapshot !== null, generation, snapshot, visible: Boolean(liveHaru() && haru.isVisible()), expanded, alwaysOnTop: pinned });
   const publishState = () => {
     if (liveHaru()) haru.webContents.send(CHANNEL + 'state', state());
@@ -36,13 +39,24 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     } catch { log('Could not save Haru window position.\n'); }
   };
   const fit = () => {
+    cancelDrag();
     if (liveHaru()) haru.setBounds(clampBounds(haru.getBounds(), workAreas()));
   };
   const showMain = () => {
-    if (isQuitting() || mainWindow.isDestroyed()) return;
+    if (isQuitting() || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return false;
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
+    return true;
+  };
+  const publishPilotIntent = () => {
+    // A snapshot is published after the owner installs its listeners. Keep one
+    // startup/reload intent; never reload the document or select a conversation.
+    if (!pilotRequested || !snapshot || isQuitting() || mainWindow.isDestroyed()) return;
+    const contents = mainWindow.webContents;
+    if (!isTrustedFrame({ sender: contents, senderFrame: contents.mainFrame }, contents, origin)) return;
+    pilotRequested = false;
+    contents.send(CHANNEL + 'show-pilot');
   };
   const refreshMenu = () => {
     if (!tray || tray.isDestroyed()) return;
@@ -83,10 +97,13 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
       haru.once('ready-to-show', () => { if (!isQuitting() && liveHaru()) { haru.show(); publishState(); } });
       haru.on('close', event => { if (!isQuitting()) { event.preventDefault(); haru.hide(); } });
       haru.on('show', () => { publishState(); refreshMenu(); });
-      haru.on('hide', () => { publishState(); refreshMenu(); });
+      haru.on('hide', () => { cancelDrag(); publishState(); refreshMenu(); });
+      haru.on('blur', cancelDrag);
       haru.on('move', () => { clearTimeout(saveTimer); saveTimer = setTimeout(savePosition, 300); });
+      haru.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) cancelDrag(); });
       haru.webContents.on('render-process-gone', () => {
         // The mirror may be recreated; it never owns or replays a request.
+        cancelDrag();
         savePosition();
         haru.destroy();
         refreshMenu();
@@ -105,11 +122,15 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     state: event => trustedOwner(event) || trustedHaru(event) ? state() : null,
     window: (event, action) => {
       if ((!trustedOwner(event) && !trustedHaru(event)) || isQuitting()) return false;
-      if (action === 'show-main') showMain();
+      if (action === 'show-main') {
+        if (!showMain()) return false;
+        if (trustedHaru(event)) { pilotRequested = true; publishPilotIntent(); }
+      }
       else if (action === 'show-haru') showHaru();
       else if (action === 'hide-haru' && liveHaru()) haru.hide();
       else if (action === 'toggle-top') setPinned(!pinned);
       else if ((action === 'expand' || action === 'collapse') && liveHaru()) {
+        cancelDrag();
         expanded = action === 'expand';
         const old = haru.getBounds();
         const width = expanded ? 420 : 260;
@@ -117,6 +138,29 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
         haru.setBounds(clampBounds({ x: old.x + old.width - width, y: old.y + old.height - height, width, height }, workAreas()));
         publishState();
       } else return false;
+      return true;
+    },
+    drag: (event, phase) => {
+      // The mirror may only move itself. Coordinates, target windows and sizes
+      // never come from the renderer; Electron's cursor and bounds use DIP.
+      if (!trustedHaru(event) || isQuitting()) return false;
+      if (phase === 'cancel') { cancelDrag(); return true; }
+      if (!haru.isVisible() || !['start', 'move', 'end'].includes(phase)) return false;
+      const cursor = screen.getCursorScreenPoint();
+      if (![cursor?.x, cursor?.y].every(Number.isFinite)) { cancelDrag(); return false; }
+      if (phase === 'start') {
+        if (drag) return false;
+        const bounds = haru.getBounds();
+        if (cursor.x < bounds.x || cursor.x >= bounds.x + bounds.width || cursor.y < bounds.y || cursor.y >= bounds.y + bounds.height) return false;
+        drag = { cursor, bounds, moved: false };
+        return true;
+      }
+      if (!drag) return false;
+      const dx = cursor.x - drag.cursor.x;
+      const dy = cursor.y - drag.cursor.y;
+      drag.moved ||= Math.hypot(dx, dy) >= 5;
+      if (drag.moved) haru.setBounds(clampBounds({ ...drag.bounds, x: drag.bounds.x + dx, y: drag.bounds.y + dy }, workAreas()));
+      if (phase === 'end') { cancelDrag(); savePosition(); }
       return true;
     },
     request: (event, value) => {
@@ -144,6 +188,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     const clean = sanitizeSnapshot(value);
     if (!clean) return;
     snapshot = clean;
+    publishPilotIntent();
     if (liveHaru() && haru.isVisible()) publishState();
   };
   const onDisconnect = event => { if (trustedOwner(event)) invalidateOwner(); };
@@ -181,6 +226,8 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   return {
     showHaru,
     dispose() {
+      cancelDrag();
+      pilotRequested = false;
       savePosition();
       invalidateOwner();
       if (tray && !tray.isDestroyed()) tray.destroy();

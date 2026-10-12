@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { CloseOutlined, CommentOutlined, DownOutlined, HolderOutlined, RightOutlined, UnorderedListOutlined, UpOutlined, UserOutlined } from '@ant-design/icons';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { CloseOutlined, CommentOutlined, HolderOutlined, RightOutlined, UnorderedListOutlined, UpOutlined, UserOutlined } from '@ant-design/icons';
 import type { DesktopHaruRequest, DesktopHaruState } from './desktopHaru';
 import { live2dPilotMascotRuntime, type PilotMascotActivity } from '@/features/pilotMascot/live2dRuntime';
+import { useThemeMode } from '@/theme/ThemeContext';
+import haruWindowLight from './assets/haru-window-light.png';
+import haruWindowDark from './assets/haru-window-dark.png';
 import './DesktopHaruWindow.css';
 
 const STATUS = { idle: '随时待命', running: '正在处理', waiting_confirmation: '等待你确认', completed: '已完成', failed: '需要查看' };
@@ -36,11 +39,12 @@ function HaruCanvas({ active, activity }: { active: boolean; activity: PilotMasc
     });
     return () => { abort.abort(); dispose?.(); canvas.remove(); };
   }, [active, activity]);
-  return <div ref={ref} className="desktop-haru-portrait" data-runtime-state={runtimeState} aria-hidden="true">{runtimeState === 'failed' ? <span>Haru</span> : null}</div>;
+  return <div ref={ref} className="desktop-haru-portrait" data-runtime-state={runtimeState} aria-hidden="true" />;
 }
 
 export default function DesktopHaruWindow() {
   const bridge = window.offerpilotDesktop;
+  const { mode } = useThemeMode();
   const [state, setState] = useState<DesktopHaruState>(INITIAL);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,6 +56,8 @@ export default function DesktopHaruWindow() {
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const contextToggle = useRef<HTMLButtonElement>(null);
+  const gesture = useRef<{ pointerId: number; x: number; y: number; dragged: boolean } | null>(null);
+  const suppressClick = useRef(false);
   useEffect(() => {
     document.documentElement.classList.add('desktop-haru-root');
     return () => document.documentElement.classList.remove('desktop-haru-root');
@@ -68,10 +74,34 @@ export default function DesktopHaruWindow() {
   useEffect(() => { if (state.expanded && state.visible) input.current?.focus(); }, [state.expanded, state.visible]);
   useEffect(() => { if (!state.expanded) setContextExpanded(false); }, [state.expanded]);
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'nearest' }); }, [state.snapshot?.messages]);
+  useEffect(() => {
+    const cancel = () => {
+      if (!gesture.current) return;
+      gesture.current = null;
+      suppressClick.current = true;
+      void bridge?.dragWindow?.('cancel').catch(() => {});
+    };
+    window.addEventListener('blur', cancel);
+    return () => { window.removeEventListener('blur', cancel); cancel(); };
+  }, [bridge, state.expanded, state.visible]);
   const snapshot = state.snapshot;
+  const theme = snapshot?.theme ?? mode;
   const active = state.visible && pageVisible;
   const activity: PilotMascotActivity = snapshot?.taskState === 'running' ? 'thinking' : snapshot?.hasPending ? 'waiting_confirmation' : snapshot?.taskState === 'failed' ? 'error' : 'idle';
   const windowAction = (action: 'show-main' | 'hide-haru' | 'toggle-top' | 'expand' | 'collapse') => { void bridge?.windowAction(action).catch(() => setNotice('窗口操作失败，请使用托盘菜单。')); };
+  const dragWindow = (phase: 'start' | 'move' | 'end' | 'cancel') => { void bridge?.dragWindow?.(phase).catch(() => setNotice('拖动暂不可用，请重试。')); };
+  const moved = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = gesture.current;
+    return current && Math.hypot(event.screenX - current.x, event.screenY - current.y) >= 5;
+  };
+  const finishGesture = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
+    const current = gesture.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    suppressClick.current = cancelled || current.dragged || Boolean(moved(event));
+    gesture.current = null;
+    dragWindow(cancelled ? 'cancel' : 'end');
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
   const request = async (action: DesktopHaruRequest['action']) => {
     if (!bridge?.request || !snapshot || !state.connected || requestLock.current || uncertain) return;
     const submitted = draft;
@@ -91,8 +121,8 @@ export default function DesktopHaruWindow() {
       setNotice('连接中断，操作可能已经提交。请打开主窗口核对。');
     } finally { requestLock.current = false; setBusy(false); }
   };
-  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (contextExpanded) { setContextExpanded(false); contextToggle.current?.focus(); } else windowAction(state.expanded ? 'collapse' : 'hide-haru'); } }}>
-    <header className="desktop-haru-bar">
+  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} data-theme={theme} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (contextExpanded) { setContextExpanded(false); contextToggle.current?.focus(); } else windowAction(state.expanded ? 'collapse' : 'hide-haru'); } }}>
+    {state.expanded ? <header className="desktop-haru-bar">
       <strong>Haru</strong>
       <HolderOutlined className="desktop-haru-grip" aria-hidden="true" />
       <nav aria-label="窗口操作">
@@ -100,12 +130,36 @@ export default function DesktopHaruWindow() {
         <button type="button" aria-label="打开 OfferPilot 主窗口" onClick={() => windowAction('show-main')}>主窗</button>
         <button type="button" aria-label="将 Haru 收到托盘" onClick={() => windowAction('hide-haru')}><CloseOutlined aria-hidden="true" /></button>
       </nav>
-    </header>
-    <button type="button" className="desktop-haru-avatar" aria-label={state.expanded ? '收起 Haru 对话' : '展开 Haru 对话'} onClick={() => windowAction(state.expanded ? 'collapse' : 'expand')}>
-      <HaruCanvas active={active} activity={activity} />
+    </header> : null}
+    <button type="button" className="desktop-haru-avatar" aria-label={state.expanded ? '收起 Haru 对话' : '展开 Haru 对话'}
+      onDragStart={event => event.preventDefault()}
+      onPointerDown={event => {
+        if (state.expanded || event.button !== 0 || event.isPrimary === false || gesture.current) return;
+        suppressClick.current = false;
+        gesture.current = { pointerId: event.pointerId, x: event.screenX, y: event.screenY, dragged: false };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        dragWindow('start');
+      }}
+      onPointerMove={event => {
+        const current = gesture.current;
+        if (!current || current.pointerId !== event.pointerId || (!current.dragged && !moved(event))) return;
+        current.dragged = true;
+        dragWindow('move');
+      }}
+      onPointerUp={event => finishGesture(event)}
+      onPointerCancel={event => finishGesture(event, true)}
+      onLostPointerCapture={event => finishGesture(event, true)}
+      onClick={event => {
+        if (suppressClick.current && event.detail !== 0) { suppressClick.current = false; return; }
+        suppressClick.current = false;
+        windowAction(state.expanded ? 'collapse' : 'expand');
+      }}>
+      {state.expanded ? <>
+      <img className="desktop-haru-static-portrait" src={theme === 'dark' ? haruWindowDark : haruWindowLight} alt="" aria-hidden="true" draggable={false} />
       <span className="desktop-haru-speech" aria-hidden="true">{state.connected && snapshot ? GREETING[snapshot.taskState] : '打开主窗，我们就能继续聊。'}</span>
       <span className="desktop-haru-presence" role="status"><i aria-hidden="true" data-activity={activity} />{state.connected && snapshot ? STATUS[snapshot.taskState] : '等待主窗口连接'}</span>
-      <span className="desktop-haru-expand-hint" aria-hidden="true">{state.expanded ? <>收起对话 <UpOutlined /></> : <>展开对话 <DownOutlined /></>}</span>
+      <span className="desktop-haru-expand-hint" aria-hidden="true">收起对话 <UpOutlined /></span>
+      </> : <HaruCanvas active={active} activity={activity} />}
     </button>
     {state.expanded ? <section className="desktop-haru-chat" aria-label="Haru 对话">
       <div className="desktop-haru-context">

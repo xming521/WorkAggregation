@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { PilotConversationController } from './usePilotConversationController';
 import type { DesktopHaruCommand, DesktopHaruSnapshot } from './desktopHaru';
 import { compactMessageText } from './assistantPresentation';
+import { useThemeMode } from '@/theme/ThemeContext';
 
 export function desktopHaruSnapshot(controller: PilotConversationController): Omit<DesktopHaruSnapshot, 'version'> {
   const current = controller.conversations.find(item => item.id === controller.conversationId);
@@ -41,11 +42,12 @@ function controlSignature(controller: PilotConversationController) {
 }
 
 export function useDesktopHaruOwner(controller: PilotConversationController, openPending: () => void) {
+  const { mode } = useThemeMode();
   const bridge = window.offerpilotDesktop;
   const isOwner = bridge?.role === 'owner';
   const current = useRef({ controller, openPending });
   current.current = { controller, openPending };
-  const data = isOwner ? desktopHaruSnapshot(controller) : null;
+  const data = isOwner ? { ...desktopHaruSnapshot(controller), theme: mode } : null;
   const signature = JSON.stringify(data);
   const controls = isOwner ? controlSignature(controller) : "";
   const controlRef = useRef({ controls: '', request: controller.activeRequestRef.current });
@@ -62,6 +64,9 @@ export function useDesktopHaruOwner(controller: PilotConversationController, ope
 
   useEffect(() => {
     if (!isOwner || !bridge) return;
+    // Native focus is independent of the mirrored command lease. Opening Pilot
+    // only selects the existing workspace; it never sends or approves a turn.
+    const offShowPilot = bridge.onShowPilot?.(() => current.current.openPending());
     const off = bridge.onCommand?.((command: DesktopHaruCommand) => {
       const { controller: owner, openPending: showPending } = current.current;
       const snapshot = snapshotRef.current.snapshot;
@@ -116,7 +121,7 @@ export function useDesktopHaruOwner(controller: PilotConversationController, ope
         }
       } else bridge.reply?.(command.id, { ok: false, reason: 'unavailable' });
     });
-    return () => { off?.(); bridge.disconnect?.(); };
+    return () => { offShowPilot?.(); off?.(); bridge.disconnect?.(); };
   }, [bridge, isOwner]);
 
   useEffect(() => {
