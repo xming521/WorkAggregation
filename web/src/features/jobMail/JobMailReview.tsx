@@ -62,6 +62,12 @@ function ReviewContent({ suggestion, onClose, onOpenRecord, onNavigate, onProces
   const live = useRef(true);
   const generation = useRef(0);
   const previewHeading = useRef<HTMLHeadingElement>(null);
+  const receiptFocus = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Confirmation replaces its focused button. Restore only lost focus; never
+    // steal focus from a control the user moved to while awaiting the result.
+    if (receipt && (document.activeElement === document.body || !document.activeElement?.isConnected)) receiptFocus.current?.focus();
+  }, [receipt?.operation_id]);
   useEffect(() => { live.current = true; return () => { live.current = false; generation.current += 1; }; }, []);
   useEffect(() => { if (preview) previewHeading.current?.focus(); }, [preview]);
 
@@ -192,7 +198,7 @@ function ReviewContent({ suggestion, onClose, onOpenRecord, onNavigate, onProces
       </div>
       {suggestion.reason && <p className={styles.muted}>{suggestion.reason}</p>}
       {receipt ? <>
-        <Alert type="success" showIcon message="已确认写入" description={`事件 #${receipt.application_event_id} · ${displayMailTime(receipt.confirmed_at)}`} />
+        <div ref={receiptFocus} tabIndex={-1} aria-label="邮件写入回执"><Alert type="success" showIcon message="已确认写入" description={`事件 #${receipt.application_event_id} · ${displayMailTime(receipt.confirmed_at)}`} /></div>
         <MailRecord value={receipt.after} />
         <p className={styles.muted}>操作回执：{receipt.operation_id}</p>
         <div><Button type="primary" onClick={() => { onClose(); onOpenRecord(Number(receipt.after.application_id)); }}>查看记录</Button></div>

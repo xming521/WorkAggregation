@@ -148,6 +148,14 @@ try {
   assert.equal(events[0].duration_minutes, 45);
   assert.equal(events[0].location, '合成会议室 B');
   assert.equal((await api('/applications/' + app.id)).status, app.status);
+  const receiptFocus = await dialog.evaluate(element => ({
+    tag: document.activeElement?.tagName,
+    label: document.activeElement?.getAttribute('aria-label'),
+    insideDialog: element.contains(document.activeElement),
+  }));
+  console.log(JSON.stringify({ receiptFocus }));
+  assert.equal(receiptFocus.insideDialog, true);
+  assert.equal(receiptFocus.label, '邮件写入回执');
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
   const haruButton = page.getByRole('button', { name: /^(打开|收起) OfferPilot 领航员/ });

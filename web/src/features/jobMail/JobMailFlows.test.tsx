@@ -113,9 +113,19 @@ describe('mandatory mail review in StrictMode', () => {
     expect(container.querySelector('[aria-label="最终变更预览"] details')?.hasAttribute('open')).toBe(false);
     expect(container.querySelector('[aria-label="最终变更预览"] dl')?.textContent).toContain('2026-10-15 07:00:00 (UTC)');
     expect(container.textContent).toContain('无现有记录（将新增）');
-    const work = deferred<JobMailReceipt>(); api.confirmJobMail.mockReturnValue(work.promise); const confirm = button('确认加入日程'); await act(async () => { confirm.click(); confirm.click(); });
+    const work = deferred<JobMailReceipt>(); api.confirmJobMail.mockReturnValue(work.promise); const confirm = button('确认加入日程'); confirm.focus(); await act(async () => { confirm.click(); confirm.click(); });
     expect(api.confirmJobMail).toHaveBeenCalledTimes(1); expect(api.confirmJobMail).toHaveBeenCalledWith(suggestionId, { ...api.previewJobMail.mock.calls[0][1], preview_token: 'token-for-exact-preview', explicit_confirmation: true });
-    await act(async () => work.resolve(receipt)); await flush(); expect(container.textContent).toContain('已确认写入'); expect(readMailRecovery()).toEqual({}); await click(button('查看记录')); expect(openRecord).toHaveBeenCalledWith(7);
+    await act(async () => work.resolve(receipt)); await flush(); expect(container.textContent).toContain('已确认写入'); expect(document.activeElement?.getAttribute('aria-label')).toBe('邮件写入回执'); expect(readMailRecovery()).toEqual({}); await click(button('查看记录')); expect(openRecord).toHaveBeenCalledWith(7);
+  });
+  it('does not steal focus moved to persistent source evidence while confirmation is pending', async () => {
+    await render(review()); await click(button('预览最终变更'));
+    const work = deferred<JobMailReceipt>(); api.confirmJobMail.mockReturnValue(work.promise);
+    const confirm = button('确认加入日程'); confirm.focus(); await click(confirm);
+    const summary = container.querySelector('summary')!; summary.focus();
+    expect(document.activeElement).toBe(summary);
+    await act(async () => work.resolve(receipt)); await flush();
+    expect(container.textContent).toContain('已确认写入');
+    expect(document.activeElement).toBe(summary);
   });
   it('invalidates the server preview after edits or changing the application', async () => {
     await render(review()); await click(button('预览最终变更')); await change(container.querySelector('[aria-label="地点"]')!, '新地点'); expect(container.textContent).not.toContain('最终确认摘要');
