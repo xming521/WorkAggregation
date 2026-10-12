@@ -10,7 +10,7 @@ const { createHaruShell } = require('../haru.cjs');
 const origin = 'http://127.0.0.1:4040';
 const view = { version: 1, taskState: 'idle', conversationId: 7, messages: [{ role: 'assistant', content: 'hello', confirmation_token: 'secret' }], canSend: true, pending: { confirmation_token: 'secret' }, config: { api_key: 'secret' } };
 
-test('snapshot copies only bounded prose and booleans; never credentials or action payloads', () => {
+test('snapshot copies only bounded prose, booleans and theme enum; never credentials or action payloads', () => {
   const value = sanitizeSnapshot({ ...view, error: 'x'.repeat(5000) });
   assert.equal(value.messages[0].content, 'hello');
   assert.equal(value.error.length, 1200);
@@ -18,6 +18,8 @@ test('snapshot copies only bounded prose and booleans; never credentials or acti
   assert(!('pending' in value));
   assert.equal(sanitizeSnapshot({ ...view, version: NaN }), null);
   assert.equal(sanitizeSnapshot({ ...view, taskState: 'approved' }), null);
+  for (const theme of ['dark', 'light']) assert.equal(sanitizeSnapshot({ ...view, theme }).theme, theme);
+  for (const theme of [undefined, 'system', '<script>', {}, null]) assert(!('theme' in sanitizeSnapshot({ ...view, theme })));
 });
 test('IPC has no approval, arbitrary method, or unbounded submission command', () => {
   for (const action of ['approve', 'confirm', 'execute', 'shell', 'selectConversation']) assert.equal(validateRequest({ action, version: 1 }), null);
@@ -82,18 +84,18 @@ function harness(t, { trayFails = false } = {}) {
     send(channel, value) { this.sent.push({ channel, value }); }
   }
   class Window extends EventEmitter {
-    constructor(options = {}) { super(); this.options = options; this.webContents = new Contents(); this.visible = false; this.bounds = { x: 10, y: 20, width: 260, height: 340, ...options }; this.destroyed = false; Window.all.push(this); }
+    constructor(options = {}) { super(); this.options = options; this.webContents = new Contents(); this.visible = false; this.bounds = { x: 10, y: 20, width: 260, height: 340, ...options }; this.destroyed = false; this.calls = []; Window.all.push(this); }
     isDestroyed() { return this.destroyed; }
     isVisible() { return this.visible; }
-    isMinimized() { return false; }
-    restore() {}
-    focus() {}
-    show() { this.visible = true; this.emit('show'); }
+    isMinimized() { return Boolean(this.minimized); }
+    restore() { this.minimized = false; this.calls.push('restore'); }
+    focus() { this.calls.push('focus'); }
+    show() { this.visible = true; this.calls.push('show'); this.emit('show'); }
     hide() { this.visible = false; this.emit('hide'); }
     getBounds() { const { x, y, width, height } = this.bounds; return { x, y, width, height }; }
     setBounds(value) { this.bounds = value; }
     setAlwaysOnTop(value) { this.pinned = value; }
-    async loadURL(url) { this.url = url; this.webContents.mainFrame.url = url; }
+    async loadURL(url) { this.calls.push('loadURL'); this.url = url; this.webContents.mainFrame.url = url; }
     destroy() { this.destroyed = true; this.webContents.destroyed = true; this.webContents.emit('destroyed'); }
   }
   Window.all = [];
@@ -113,6 +115,8 @@ function harness(t, { trayFails = false } = {}) {
   const screen = new EventEmitter();
   screen.getPrimaryDisplay = () => ({ id: 1, workArea: { x: 0, y: 0, width: 1280, height: 800 } });
   screen.getAllDisplays = () => [screen.getPrimaryDisplay()];
+  let cursor = { x: 1100, y: 500 };
+  screen.getCursorScreenPoint = () => ({ ...cursor });
   const main = new Window();
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'haru-shell-'));
   let quitting = false;
@@ -125,7 +129,7 @@ function harness(t, { trayFails = false } = {}) {
   const invoke = (win, name, value) => ipc.handlers.get(CHANNEL + name)(event(win), value);
   const publish = value => ipc.emit(CHANNEL + 'publish', event(main), value);
   t.after(() => { quitting = true; shell.dispose(); fs.rmSync(folder, { recursive: true, force: true }); });
-  return { main, mirror, ipc, event, invoke, publish, shell, registered, screen, quitCalls: () => quitCalls };
+  return { main, mirror, ipc, event, invoke, publish, shell, registered, screen, setCursor: point => { cursor = point; }, setQuitting: value => { quitting = value; }, quitCalls: () => quitCalls };
 }
 test('only owner publishes; only mirror sends; stale epochs fail after reload', async t => {
   const h = harness(t);
@@ -214,4 +218,205 @@ test('a removed screen reclamps current bounds and pin is an explicit window act
   assert.equal(h.invoke(h.mirror, 'window', 'toggle-top'), true);
   assert.equal(h.mirror.pinned, true);
   assert.equal(h.invoke(h.mirror, 'window', 'quit'), false);
+});
+
+test('Haru opens Pilot from a hidden or minimized main window without replacing its conversation or document', t => {
+  const h = harness(t);
+  h.publish(view);
+  const before = h.invoke(h.mirror, 'state');
+  h.main.webContents.mainFrame.url = origin + '/?view=settings';
+  h.main.minimized = true;
+  assert.equal(h.invoke(h.mirror, 'window', 'show-main'), true);
+  assert.deepEqual(h.main.calls, ['restore', 'show', 'focus']);
+  assert.equal(h.main.isVisible(), true);
+  assert.equal(h.main.webContents.mainFrame.url, origin + '/?view=settings');
+  assert.deepEqual(h.main.webContents.sent, [{ channel: CHANNEL + 'show-pilot', value: undefined }]);
+  const after = h.invoke(h.mirror, 'state');
+  assert.deepEqual(after.snapshot, before.snapshot);
+  assert.equal(after.generation, before.generation);
+  h.main.hide();
+  assert.equal(h.invoke(h.mirror, 'window', 'show-main'), true);
+  assert.deepEqual(h.main.calls.slice(-2), ['show', 'focus']);
+  assert.equal(h.main.webContents.sent.length, 2);
+  assert.equal(h.invoke(h.main, 'window', 'show-main'), true);
+  assert.equal(h.main.webContents.sent.length, 2, 'owner focus does not loop back into Pilot navigation');
+});
+
+test('Pilot intent during owner startup/reload is delivered once when its trusted snapshot returns', t => {
+  const h = harness(t);
+  h.invoke(h.mirror, 'window', 'show-main');
+  h.invoke(h.mirror, 'window', 'show-main');
+  assert.equal(h.main.webContents.sent.length, 0);
+  h.ipc.emit(CHANNEL + 'publish', h.event(h.mirror), view);
+  assert.equal(h.main.webContents.sent.length, 0);
+  h.publish(view);
+  h.publish(view);
+  assert.equal(h.main.webContents.sent.length, 1);
+  h.main.webContents.emit('did-start-navigation', {}, origin, false, true);
+  h.invoke(h.mirror, 'window', 'show-main');
+  assert.equal(h.main.webContents.sent.length, 1);
+  h.publish({ ...view, version: 2 });
+  assert.equal(h.main.webContents.sent.length, 2);
+});
+
+test('opening Pilot preserves an in-flight mirror command and does not replay its submission', async t => {
+  const h = harness(t);
+  h.publish(view);
+  const request = { action: 'send', version: 1, generation: h.invoke(h.mirror, 'state').generation, text: 'keep this conversation' };
+  const pending = h.invoke(h.mirror, 'request', request);
+  const command = h.main.webContents.sent[0].value;
+  h.invoke(h.mirror, 'window', 'show-main');
+  assert.equal(h.invoke(h.mirror, 'request', request).reason, 'busy');
+  assert.equal(h.main.webContents.sent.filter(item => item.channel === CHANNEL + 'command').length, 1);
+  assert.equal(h.main.webContents.sent.filter(item => item.channel === CHANNEL + 'show-pilot').length, 1);
+  h.ipc.emit(CHANNEL + 'reply', h.event(h.main), { id: command.id, result: { ok: true } });
+  assert.deepEqual(await pending, { ok: true });
+});
+
+test('Pilot notification cannot be sent to an owner that has left the trusted origin', t => {
+  const h = harness(t);
+  h.publish(view);
+  h.main.webContents.mainFrame.url = 'https://hostile.example/';
+  assert.equal(h.invoke(h.mirror, 'window', 'show-main'), true);
+  assert.deepEqual(h.main.webContents.sent, []);
+  h.publish(view);
+  assert.deepEqual(h.main.webContents.sent, []);
+  h.main.webContents.mainFrame.url = origin + '/';
+  h.publish(view);
+  assert.deepEqual(h.main.webContents.sent, [{ channel: CHANNEL + 'show-pilot', value: undefined }]);
+});
+
+test('hostile senders cannot open Pilot or move Haru; destroyed and quitting owners do not accept navigation', t => {
+  const h = harness(t);
+  h.publish(view);
+  const bounds = h.mirror.getBounds();
+  const windowHandler = h.ipc.handlers.get(CHANNEL + 'window');
+  const dragHandler = h.ipc.handlers.get(CHANNEL + 'drag');
+  const impostor = { isDestroyed: () => false, mainFrame: { url: origin + '/' } };
+  for (const event of [
+    { sender: impostor, senderFrame: impostor.mainFrame },
+    { sender: h.mirror.webContents, senderFrame: { url: origin + '/' } },
+  ]) {
+    assert.equal(windowHandler(event, 'show-main'), false);
+    assert.equal(dragHandler(event, 'start'), false);
+  }
+  h.mirror.webContents.mainFrame.url = 'https://hostile.example/';
+  assert.equal(h.invoke(h.mirror, 'window', 'show-main'), false);
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), false);
+  h.mirror.webContents.mainFrame.url = origin + '/?desktopSurface=haru';
+  assert.deepEqual(h.main.calls, []);
+  assert.deepEqual(h.main.webContents.sent, []);
+  assert.deepEqual(h.mirror.getBounds(), bounds);
+  h.setQuitting(true);
+  assert.equal(h.invoke(h.mirror, 'window', 'show-main'), false);
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), false);
+  h.setQuitting(false);
+  h.main.destroy();
+  assert.equal(h.invoke(h.mirror, 'window', 'show-main'), false);
+  assert.deepEqual(h.main.calls, []);
+});
+
+test('Haru drag uses the actual cursor, ignores click jitter and never expands or changes owner state', t => {
+  const h = harness(t);
+  h.publish(view);
+  h.mirror.setBounds({ x: 100, y: 120, width: 260, height: 340 });
+  h.setCursor({ x: 180, y: 200 });
+  assert.equal(h.invoke(h.main, 'drag', 'start'), false);
+  assert.equal(h.invoke(h.mirror, 'drag', { phase: 'start', x: 1000, y: 1000 }), false);
+  assert.equal(h.invoke(h.mirror, 'drag', 'move'), false);
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), true);
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), false, 'duplicate start cannot reset the gesture anchor');
+  h.setCursor({ x: 182, y: 201 });
+  assert.equal(h.invoke(h.mirror, 'drag', 'move'), true);
+  assert.deepEqual(h.mirror.getBounds(), { x: 100, y: 120, width: 260, height: 340 });
+  h.setCursor({ x: 240, y: 280 });
+  assert.equal(h.invoke(h.mirror, 'drag', 'move'), true);
+  assert.deepEqual(h.mirror.getBounds(), { x: 160, y: 200, width: 260, height: 340 });
+  h.setCursor({ x: 250, y: 285 });
+  assert.equal(h.invoke(h.mirror, 'drag', 'end'), true, 'end applies the final cursor even when a move event was missed');
+  assert.deepEqual(h.mirror.getBounds(), { x: 170, y: 205, width: 260, height: 340 });
+  h.setCursor({ x: 900, y: 700 });
+  assert.equal(h.invoke(h.mirror, 'drag', 'move'), false);
+  assert.equal(h.invoke(h.mirror, 'drag', 'end'), false);
+  assert.equal(h.invoke(h.mirror, 'state').expanded, false);
+  assert.equal(h.invoke(h.mirror, 'state').snapshot.conversationId, view.conversationId);
+  assert.deepEqual(h.main.webContents.sent, []);
+});
+
+test('drag rejects hidden/outside/invalid cursors and clamps offscreen movement on negative-coordinate monitors', t => {
+  const h = harness(t);
+  const primary = h.screen.getPrimaryDisplay();
+  h.screen.getAllDisplays = () => [primary, { id: 2, workArea: { x: -1280, y: -100, width: 1280, height: 900 } }];
+  h.mirror.setBounds({ x: 100, y: 120, width: 260, height: 340 });
+  h.setCursor({ x: 0, y: 0 });
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), false);
+  h.setCursor({ x: NaN, y: Infinity });
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), false);
+  h.setCursor({ x: 180, y: 200 });
+  h.mirror.hide();
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), false);
+  h.mirror.show();
+  assert.equal(h.invoke(h.mirror, 'drag', 'start'), true);
+  h.setCursor({ x: -1100, y: 100 });
+  h.invoke(h.mirror, 'drag', 'move');
+  assert.deepEqual(h.mirror.getBounds(), { x: -1180, y: 20, width: 260, height: 340 });
+  h.setCursor({ x: -9999, y: -9999 });
+  h.invoke(h.mirror, 'drag', 'end');
+  assert.deepEqual(h.mirror.getBounds(), { x: -1280, y: -100, width: 260, height: 340 });
+});
+
+test('cancel, blur, hide, resize, navigation and display changes end a drag instead of reusing stale bounds', t => {
+  const interruptions = [
+    h => h.invoke(h.mirror, 'drag', 'cancel'),
+    h => h.mirror.emit('blur'),
+    h => h.mirror.hide(),
+    h => h.invoke(h.mirror, 'window', 'expand'),
+    h => h.mirror.webContents.emit('did-start-navigation', {}, origin, false, true),
+    h => h.screen.emit('display-metrics-changed'),
+  ];
+  for (const interrupt of interruptions) {
+    const h = harness(t);
+    h.mirror.setBounds({ x: 100, y: 120, width: 260, height: 340 });
+    h.setCursor({ x: 180, y: 200 });
+    assert.equal(h.invoke(h.mirror, 'drag', 'start'), true);
+    h.setCursor({ x: 200, y: 220 });
+    h.invoke(h.mirror, 'drag', 'move');
+    interrupt(h);
+    const bounds = h.mirror.getBounds();
+    h.setCursor({ x: 400, y: 500 });
+    assert.equal(h.invoke(h.mirror, 'drag', 'move'), false);
+    assert.deepEqual(h.mirror.getBounds(), bounds);
+  }
+});
+
+test('preload exposes drag only to Haru and payload-free Pilot subscription only to owner', async () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(require.resolve('../preload.cjs'), 'utf8');
+  for (const role of ['owner', 'haru']) {
+    const exposed = {};
+    const ipc = new EventEmitter();
+    const invoked = [];
+    ipc.invoke = (...args) => { invoked.push(args); return Promise.resolve(true); };
+    vm.runInNewContext(source, {
+      process: { argv: [`--offerpilot-${role}`] },
+      require: () => ({ contextBridge: { exposeInMainWorld: (key, value) => { exposed[key] = value; } }, ipcRenderer: ipc }),
+    });
+    const bridge = exposed.offerpilotDesktop;
+    assert.equal(Object.isFrozen(bridge), true);
+    assert.equal(bridge.invoke, undefined);
+    assert.equal(bridge.send, undefined);
+    if (role === 'owner') {
+      assert.equal(bridge.dragWindow, undefined);
+      let received = 0;
+      const off = bridge.onShowPilot(() => { received++; });
+      ipc.emit(CHANNEL + 'show-pilot', { sender: 'not exposed' });
+      off();
+      ipc.emit(CHANNEL + 'show-pilot', {});
+      assert.equal(received, 1);
+    } else {
+      assert.equal(bridge.onShowPilot, undefined);
+      assert.equal(await bridge.dragWindow('start'), true);
+      assert.deepEqual(invoked, [[CHANNEL + 'drag', 'start']]);
+    }
+  }
 });

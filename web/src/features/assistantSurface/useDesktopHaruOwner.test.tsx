@@ -11,11 +11,15 @@ import type { ChatStartRequest, Conversation } from '@/types/chat';
 let root: Root;
 let host: HTMLDivElement;
 let command: (value: DesktopHaruCommand) => void;
+let showPilot: () => void;
+let theme: 'light' | 'dark';
+vi.mock('@/theme/ThemeContext', () => ({ useThemeMode: () => ({ mode: theme }) }));
 let controller: PilotConversationController;
 const publish = vi.fn();
 const reply = vi.fn();
 const openPending = vi.fn();
 const windowAction = vi.fn().mockResolvedValue(true);
+const offShowPilot = vi.fn();
 const applicationDraft: ChatStartRequest = {
   requestKey: 1, context_type: 'application', context_ref: '8',
   context_label: '星河科技 · 前端工程师', mode: 'general',
@@ -29,8 +33,9 @@ function render() { act(() => root.render(<Harness />)); }
 function latest(): DesktopHaruSnapshot { return publish.mock.calls[publish.mock.calls.length - 1][0]; }
 beforeEach(() => {
   vi.clearAllMocks();
+  theme = 'light';
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
-  window.offerpilotDesktop = { role: 'owner', publish, reply, onCommand: handler => { command = handler; return vi.fn(); }, disconnect: vi.fn(), windowAction, getState: vi.fn(), onState: vi.fn() };
+  window.offerpilotDesktop = { role: 'owner', publish, reply, onShowPilot: handler => { showPilot = handler; return offShowPilot; }, onCommand: handler => { command = handler; return vi.fn(); }, disconnect: vi.fn(), windowAction, getState: vi.fn(), onState: vi.fn() };
   controller = {
     conversations: [], turns: [], taskState: 'idle', hasKey: true, loading: false, pending: null,
     attachments: [], followingContext: { view: 'applications-list', label: '同名公司', entity: { kind: 'application', id: 1, label: '同名公司' } },
@@ -42,6 +47,25 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); delete window.offerpilotDesktop; });
 
 describe('desktop Haru owner', () => {
+  it('publishes the application theme without invalidating an in-flight command version', () => {
+    render();
+    const version = latest().version;
+    expect(latest().theme).toBe('light');
+    theme = 'dark'; render();
+    expect(latest().theme).toBe('dark');
+    expect(latest().version).toBe(version);
+  });
+  it('routes a native show-main request to the existing Pilot workspace without requesting or approving a turn', () => {
+    render();
+    act(() => showPilot());
+    expect(openPending).toHaveBeenCalledOnce();
+    expect(controller.sendMessage).not.toHaveBeenCalled();
+    expect(controller.stopActiveRequest).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
+    expect(windowAction).not.toHaveBeenCalled();
+    act(() => root.render(null));
+    expect(offShowPilot).toHaveBeenCalledOnce();
+  });
   it('publishes an application draft label before a conversation exists without a provider', () => {
     controller = { ...controller, hasKey: false, draftContext: applicationDraft };
     render();
