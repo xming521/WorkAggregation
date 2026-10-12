@@ -10,6 +10,10 @@ export const HARU_SESSION_CHECKS = Object.freeze([
   'haruProductionTrayExit', 'haruProcessAndPortsReleased', 'haruSameProfileRestart',
   'haruRestartedHistoryVisible', 'haruRestartedThemeRetained',
 ]);
+export const HARU_SESSION_STAGES = Object.freeze(['OPEN_PILOT', 'STORED_CONVERSATION', 'UNIQUE_ROW',
+  'UNIQUE_TITLE', 'HISTORY_GET', 'BODY_PAIR', 'THEME', 'SCREENSHOT', 'COMPLETE']);
+export const HARU_SESSION_DIAGNOSTIC_FLAGS = Object.freeze(['productionTrayExit', 'processAndPortsReleased', 'sameProfileAndExe', 'stored', 'storedTitleUnique', 'rowFound',
+  'rowUnique', 'titleUnique', 'historyGet', 'ownerReady', 'haruReady', 'identityEqual', 'bodyEqual', 'themeEqual']);
 const OWNER_DRAFT = '【MOCK 主窗草稿】保留此处未发送输入。';
 const HARU_DRAFT = '【MOCK Haru 草稿】这是独立的未发送输入。';
 const normalize = value => typeof value === 'string' ? value.replace(/\s+/gu, ' ').trim() : '';
@@ -112,10 +116,22 @@ export function assertHaruSessionPair(pair, expected) {
   return { conversationId: owner.conversationId, text, theme: owner.theme };
 }
 
+export async function readStoredHaruConversation(conversationId) {
+  const response = await fetch('/api/chat/conversations');
+  if (!response.ok) return null;
+  const rows = await response.json();
+  if (!Array.isArray(rows)) return null;
+  const matches = rows.filter(row => row.id === conversationId);
+  return matches.length === 1 && typeof matches[0].title === 'string' && matches[0].title.length <= 400
+    ? { id: matches[0].id, title: matches[0].title, titleUnique: rows.filter(row => row.title === matches[0].title).length === 1 } : null;
+}
+
 export function createMockHaruSession({ mode, broker } = {}) {
   demand(mode === 'mock' && broker?.mode === 'MOCK', 'INVALID_HARNESS');
   let retained;
   const proof = {};
+  const diagnostic = { stage: 'OPEN_PILOT', ...Object.fromEntries(HARU_SESSION_DIAGNOSTIC_FLAGS.map(key => [key, false])) };
+  const mark = stage => { diagnostic.stage = stage; };
   const captured = new Set();
   const capture = async (args, id, surface) => {
     if (captured.has(id)) return;
@@ -133,7 +149,7 @@ export function createMockHaruSession({ mode, broker } = {}) {
     do { if (await predicate()) return; await pause(100); } while (Date.now() < stop);
     reject();
   };
-  const read = async ({ page, haru, native, deadlineMs }, expected, drafts) => {
+  const read = async ({ page, haru, native, deadlineMs }, expected, drafts, diagnose = false) => {
     await native.assertIdentity();
     for (const [surface, selector] of [[page, '[data-onboarding-target="pilot"] [class*="bubbleAssistant"]'],
       [haru, '.desktop-haru-messages article[data-role="assistant"] p']]) {
@@ -143,6 +159,16 @@ export function createMockHaruSession({ mode, broker } = {}) {
     await until(async () => {
       pair = Object.fromEntries(await Promise.all([['owner', page], ['haru', haru]].map(async ([role, surface]) =>
         [role, await surface.evaluate(readHaruSessionRenderer, { role, origin: native.origin })])));
+      if (diagnose) {
+        diagnostic.ownerReady = pair.owner?.ready === true; diagnostic.haruReady = pair.haru?.ready === true;
+        diagnostic.identityEqual = diagnostic.ownerReady && diagnostic.haruReady
+          && pair.owner.conversationId === expected.conversationId && pair.haru.conversationId === expected.conversationId
+          && pair.owner.generation === pair.haru.generation;
+        diagnostic.bodyEqual = diagnostic.ownerReady && diagnostic.haruReady
+          && [pair.owner.text, pair.owner.bridgeText, pair.haru.text, pair.haru.bridgeText].every(text => normalize(text) === expected.text);
+        diagnostic.themeEqual = diagnostic.ownerReady && diagnostic.haruReady
+          && pair.owner.theme === expected.theme && pair.haru.theme === expected.theme;
+      }
       try { assertHaruSessionPair(pair, expected); return true; } catch { return false; }
     }, deadlineMs);
     const identity = assertHaruSessionPair(pair, expected);
@@ -151,6 +177,7 @@ export function createMockHaruSession({ mode, broker } = {}) {
     return identity;
   };
   return {
+    diagnostic: () => ({ ...diagnostic }),
     async afterPilot(args) {
       demand(!retained && args.current?.id === 'pilot-stream', 'INVALID_HARNESS');
       const before = mockSessionLedger(broker);
@@ -205,38 +232,46 @@ export function createMockHaruSession({ mode, broker } = {}) {
       demand(retained && proof.haruSessionNoExtraRequests === true, 'INVALID_HARNESS');
       const before = mockSessionLedger(broker);
       const { page, haru, native, deadlineMs, restart } = args;
-      demand(restart?.productionTrayExit && restart.processAndPortsReleased && restart.sameProfileAndExe,
+      demand(restart?.productionTrayExit === true && restart.processAndPortsReleased === true && restart.sameProfileAndExe === true,
         'INSTALLED_PROCESS_IDENTITY_MISMATCH');
+      Object.assign(diagnostic, { productionTrayExit: true, processAndPortsReleased: true, sameProfileAndExe: true });
+      mark('OPEN_PILOT');
       await haru.getByRole('button', exact('展开 Haru 对话')).click({ timeout: within(deadlineMs) });
       await haru.getByRole('button', exact('打开 OfferPilot 主窗口')).click({ timeout: within(deadlineMs) });
       await page.locator('[data-onboarding-target="pilot"]').waitFor({ timeout: within(deadlineMs) });
       // Read the persisted title by the original ID from the actual backend,
       // then select its unique real row. No synthetic response or state write.
-      const stored = await page.evaluate(async conversationId => {
-        const response = await fetch('/api/chat/conversations');
-        if (!response.ok) return null;
-        const rows = await response.json();
-        if (!Array.isArray(rows)) return null;
-        const matches = rows.filter(row => row.id === conversationId);
-        return matches.length === 1 && typeof matches[0].title === 'string' && matches[0].title.length <= 400
-          ? { id: matches[0].id, title: matches[0].title } : null;
-      }, retained.conversationId);
-      demand(stored?.id === retained.conversationId && stored.title.trim(), 'HARU_SYNC_FAILED');
+      mark('STORED_CONVERSATION');
+      const stored = await page.evaluate(readStoredHaruConversation, retained.conversationId);
+      diagnostic.stored = stored?.id === retained.conversationId && typeof stored.title === 'string' && Boolean(stored.title.trim());
+      diagnostic.storedTitleUnique = stored?.titleUnique === true;
+      demand(diagnostic.stored && diagnostic.storedTitleUnique, 'HARU_SYNC_FAILED');
+      mark('UNIQUE_ROW');
       const conversation = page.getByRole('button', exact(`打开对话：${stored.title}`));
-      demand(await conversation.count() === 1, 'HARU_SYNC_FAILED');
+      await until(async () => {
+        const count = await conversation.count(); diagnostic.rowFound = count > 0; diagnostic.rowUnique = count === 1;
+        return diagnostic.rowUnique;
+      }, deadlineMs);
+      mark('UNIQUE_TITLE');
       const title = conversation.getByText(stored.title, { exact: true });
-      demand(await title.count() === 1, 'HARU_SYNC_FAILED');
+      await until(async () => { diagnostic.titleUnique = await title.count() === 1; return diagnostic.titleUnique; }, deadlineMs);
+      mark('HISTORY_GET');
       await Promise.all([page.waitForResponse(value => {
         const url = new URL(value.url());
         return url.origin === native.origin && url.pathname === `/api/chat/conversations/${retained.conversationId}`
           && value.request().method() === 'GET' && value.status() === 200;
       }, { timeout: within(deadlineMs) }), title.click({ timeout: within(deadlineMs) })]);
-      const restored = await read(args, retained);
+      diagnostic.historyGet = true;
+      mark('BODY_PAIR');
+      const restored = await read(args, retained, false, true);
+      mark('THEME');
       demand(restored.theme === retained.theme, 'HARU_SYNC_FAILED');
+      mark('SCREENSHOT');
       await capture(args, 'pilot-session-restored', page);
       demand(mockSessionLedger(broker) === before, 'UNEXPECTED_PROVIDER_REQUESTS');
       Object.assign(proof, { haruProductionTrayExit: true, haruProcessAndPortsReleased: true,
         haruSameProfileRestart: true, haruRestartedHistoryVisible: true, haruRestartedThemeRetained: true });
+      mark('COMPLETE');
       return { ...proof };
     },
   };

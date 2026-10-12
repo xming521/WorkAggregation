@@ -4,8 +4,14 @@ import path from 'node:path';
 import { SCREEN_IDS, SKIP_CODES, GUARD_REASONS } from './mock-screenshots.mjs';
 import { sanitizeUiDiagnostic, CONTINUATION_CODES } from './ui-diagnostics.mjs';
 import { CASES, PIN, demand, EVIDENCE_CODES } from './contract.mjs';
-import { HARU_SESSION_CHECKS } from './mock-haru-session.mjs';
+import { HARU_SESSION_CHECKS, HARU_SESSION_STAGES, HARU_SESSION_DIAGNOSTIC_FLAGS } from './mock-haru-session.mjs';
 const CHECKS = new Set('sustainedStreamingObserved freshConversationProven uiAdmissionProven naturalCompletionProven terminalIdentityProven terminalMirrorProven terminalTextProven ledgerUnchanged admissionObserverCleanupPassed settingsSavedThroughUi connectionTestClicked connectionSucceeded incrementalAssistantRendering haruRunningAndIdleMirrored haruVisibleAssistantMatchesSnapshot hitlVisible rejectedThroughUi syntheticWriteAbsent haruPendingAndIdleMirrored stopClickedWhileRunning stopAcknowledged haruRunningAndStoppedMirrored sourceAndResumeSelected disclosureAccepted generatedProposalVisible classificationPreviewVisible cancelledThroughUi sourceUnchanged inputReviewedThroughUi generatedDraftVisible finalSaveNotSubmitted providerRequestObserved providerRequestSettled oneProviderRequestVerified productDisconnectObserved providerDisconnectObserved ownerRunningTransitionObserved haruRunningTransitionObserved positiveRunningConversationMatched finalRunningConversationMatched brokerCleanupFailed mirrorObserverCleanupFailed streamObserverCleanupFailed'.split(' '));
+export function safeHaruSessionDiagnostic(value, isMock) {
+  demand(isMock === true && value && HARU_SESSION_STAGES.includes(value.stage)
+    && Object.keys(value).sort().join('|') === ['stage', ...HARU_SESSION_DIAGNOSTIC_FLAGS].sort().join('|')
+    && HARU_SESSION_DIAGNOSTIC_FLAGS.every(key => typeof value[key] === 'boolean'), 'REPORT_INVALID');
+  return { stage: value.stage, ...Object.fromEntries(HARU_SESSION_DIAGNOSTIC_FLAGS.map(key => [key, value[key]])) };
+}
 export function safeResults(results, isMock = false) {
   demand(Array.isArray(results) && results.length === CASES.length, 'SCENARIO_EVIDENCE_INVALID');
   return results.map((row, index) => {
@@ -153,6 +159,9 @@ export async function saveEvidence(directory, report, ledger, secrets = []) {
     safe.scenarios.every(row => row.status === 'PASS') && ledger?.journalFailed === false && ledger?.closed === true &&
     ledger?.active === false && ledger.requests?.length === CASES.length &&
     CASES.every(id => ledger.requests.filter(row => row.caseId === id).length === 1)), 'REPORT_INVALID');
+  if (report.haruSessionDiagnostic !== undefined) {
+    safe.haruSessionDiagnostic = safeHaruSessionDiagnostic(report.haruSessionDiagnostic, isMock);
+  }
   const haruScope = safe.scenarios.find(row => row.id === 'pilot-stream')?.checks || {};
   if (HARU_SESSION_CHECKS.some(key => Object.hasOwn(haruScope, key))) {
     demand(isMock && (safe.status !== 'PASS' || HARU_SESSION_CHECKS.every(key => haruScope[key] === true)), 'REPORT_INVALID');

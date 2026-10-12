@@ -165,7 +165,7 @@ try {
     const { page, haru } = first;
     const mockSession = mockHaruSessionFactory?.({ mode, broker });
     if (mockHaruSessionFactory) demand(mockSession && typeof mockSession.afterPilot === 'function'
-      && typeof mockSession.afterRestart === 'function', 'INVALID_HARNESS');
+      && typeof mockSession.afterRestart === 'function' && typeof mockSession.diagnostic === 'function', 'INVALID_HARNESS');
     const native = mockSession ? nativeControls(first, prepared) : undefined;
     const api = syntheticApi(page);
     const fixture = await prepareSyntheticProfile(api);
@@ -185,10 +185,23 @@ try {
       await until(async () => { portsClosed = (await Promise.all(first.endpoints.map(endpointOpen))).every(open => !open); return portsClosed; });
       const second = await launchOwned(prepared);
       const restart = assertHaruRestartFacts(first, second, exited, portsClosed);
-      const checks = await mockSession.afterRestart({ page: second.page, haru: second.haru,
-        native: nativeControls(second, prepared), capture, restart, deadlineMs: started + 600000 });
-      demand(JSON.stringify(broker.snapshot()) === beforeRestart, 'UNEXPECTED_PROVIDER_REQUESTS');
-      Object.assign(report.scenarios.find(row => row.id === 'pilot-stream').checks, checks);
+      const secondNative = nativeControls(second, prepared);
+      try {
+        const checks = await mockSession.afterRestart({ page: second.page, haru: second.haru,
+          native: secondNative, capture, restart, deadlineMs: started + 600000 });
+        demand(JSON.stringify(broker.snapshot()) === beforeRestart, 'UNEXPECTED_PROVIDER_REQUESTS');
+        Object.assign(report.scenarios.find(row => row.id === 'pilot-stream').checks, checks);
+      } catch (error) {
+        // Reuse the existing fixed failure-image guard only for these same
+        // native windows. A secondary diagnostic failure never replaces it.
+        try {
+          lifetime.assertActive(); await secondNative.assertIdentity();
+          for (const [id, surface] of [['failure-owner', second.page], ['failure-haru', second.haru]]) {
+            await capture?.(id, surface, 'pilot-stream');
+          }
+        } catch { /* Keep the original restart failure. */ }
+        throw error;
+      } finally { report.haruSessionDiagnostic = mockSession.diagnostic(); }
     }
     demand(!externalRendererRequest, 'UNEXPECTED_RENDERER_NETWORK');
     report.status = result.allPassed ? 'PASS' : 'FAIL';

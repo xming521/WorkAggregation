@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { Ledger, POLICY } from '../broker-core.cjs';
-import { readHaruSessionRenderer, assertHaruSessionPair, mockSessionLedger, createMockHaruSession, assertHaruRestartFacts } from '../mock-haru-session.mjs';
+import { readHaruSessionRenderer, assertHaruSessionPair, mockSessionLedger, createMockHaruSession, assertHaruRestartFacts, readStoredHaruConversation, HARU_SESSION_DIAGNOSTIC_FLAGS } from '../mock-haru-session.mjs';
 import { executeValidation } from '../validation-runner.mjs';
-import { runUiScenarios } from '../ui-scenarios.mjs';
-import { safeResults } from '../safe-evidence.mjs';
+import { runUiScenarios, pilotPrompt } from '../ui-scenarios.mjs';
+import { safeResults, safeHaruSessionDiagnostic } from '../safe-evidence.mjs';
 import { CASES } from '../contract.mjs';
 const ORIGIN = 'http://127.0.0.1:49321';
 const BODY = '【MOCK 合成回复】边界值检查正文。';
@@ -125,10 +125,10 @@ test('session evidence permits only fixed boolean keys in MOCK pilot-stream', ()
 
 // Exercises the actual session orchestration with local fake Page/native ports.
 // This proves control ordering and rejection, never a Windows product pass.
-function sessionHarness() {
+function sessionHarness({ storedTitleUnique = true, counts = [], wrongBody = false, wrongTheme = false } = {}) {
   const { broker, value } = brokerFixture();
   const events = [], inputs = { owner: '', haru: '' };
-  let theme = 'light';
+  let theme = 'light', restarted = false;
   class Surface {
     constructor(role, selector = '') { this.role = role; this.selector = selector; }
     locator(selector) { return new Surface(this.role, `${this.selector}|${selector}`); }
@@ -136,7 +136,7 @@ function sessionHarness() {
     getByPlaceholder(label) { return this.locator(label); }
     getByText(label) { return this.locator(`title:${label}`); }
     last() { return this; }
-    async count() { return 1; }
+    async count() { return counts.length ? counts.shift() : 1; }
     async getAttribute() { return theme; }
     async inputValue() { return inputs[this.role]; }
     async fill(text) { inputs[this.role] = text; }
@@ -148,8 +148,8 @@ function sessionHarness() {
     }
     async evaluate(fn) {
       if (fn === readHaruSessionRenderer) return { ready: true, conversationId: 7, generation: 2,
-        theme, draft: inputs[this.role], text: BODY, bridgeText: BODY };
-      return { id: 7, title: '合成历史标题' };
+        theme: restarted && wrongTheme ? 'light' : theme, draft: inputs[this.role], text: restarted && wrongBody ? 'wrong body' : BODY, bridgeText: BODY };
+      restarted = true; return { id: 7, title: '合成历史标题', titleUnique: storedTitleUnique };
     }
     async waitForResponse(predicate) {
       assert.equal(predicate({ url: () => `${ORIGIN}/api/chat/conversations/7`, request: () => ({ method: () => 'GET' }), status: () => 200 }), true);
@@ -185,6 +185,8 @@ test('session matrix retains two drafts, captures both themes, clears only its i
     ['capture:haru-session-light', 'capture:haru-session-dark', 'capture:pilot-session-restored']);
   assert.ok(value.events.some(event => event.endsWith('title:合成历史标题')));
   assert.equal(value.value.sentRequests, 2);
+  assert.equal(value.session.diagnostic().stage, 'COMPLETE');
+  assert.ok(HARU_SESSION_DIAGNOSTIC_FLAGS.every(key => value.session.diagnostic()[key] === true));
 });
 for (const extra of ['sent', 'denied']) {
   test(`session matrix refuses an extra ${extra} request even though the visible history and drafts match`, async () => {
@@ -201,4 +203,61 @@ test('session matrix fails closed when mandatory safe screenshots are skipped', 
   const value = sessionHarness();
   value.args.capture = async () => ({ status: 'skipped', code: 'SCREEN_VISUAL_UNSETTLED' });
   await assert.rejects(value.session.afterPilot(value.args), { safeCode: 'UNSAFE_SCREENSHOT' });
+});
+
+const restartProof = { productionTrayExit: true, processAndPortsReleased: true, sameProfileAndExe: true };
+test('MOCK stream has a distinct fixed first sentence while both original LIVE prompts and request constraints remain intact', () => {
+  const liveStream = '这是虚构软件验收。不要调用任何工具或读取资料，只分十个小段说明软件测试中的边界值检查，每段约四十字。';
+  const liveCancel = '这是虚构软件验收。不要调用任何工具或读取资料，请连续写二十段关于软件测试边界条件的说明，每段约六十字。';
+  assert.equal(pilotPrompt('pilot-stream', 'live'), liveStream);
+  assert.equal(pilotPrompt('pilot-cancel', 'live'), liveCancel);
+  assert.equal(pilotPrompt('pilot-cancel', 'mock'), liveCancel);
+  assert.equal(pilotPrompt('pilot-stream', 'mock'), liveStream.replace('这是虚构软件验收。', '这是虚构软件流式验收。'));
+  assert.notEqual(pilotPrompt('pilot-stream', 'mock').split('。')[0], pilotPrompt('pilot-cancel', 'mock').split('。')[0]);
+});
+test('the actual stored-title reader preserves ID lookup and refuses first-sentence collisions', async () => {
+  const read = rows => vm.runInNewContext(`(${readStoredHaruConversation.toString()})(7)`, {
+    fetch: async url => { assert.equal(url, '/api/chat/conversations'); return { ok: true, json: async () => rows }; },
+  });
+  const colliding = await read([{ id: 7, title: '这是虚构软件验收。' }, { id: 9, title: '这是虚构软件验收。' }]);
+  assert.equal(colliding.id, 7); assert.equal(colliding.titleUnique, false);
+  const unique = await read([{ id: 7, title: '这是虚构软件流式验收。' }, { id: 9, title: '这是虚构软件验收。' }]);
+  assert.equal(unique.id, 7); assert.equal(unique.titleUnique, true);
+  assert.equal(await read([{ id: 8, title: '这是虚构软件流式验收。' }]), null);
+});
+test('restart refuses stored-title collisions before clicking any conversation and retains native proof', async () => {
+  const value = sessionHarness({ storedTitleUnique: false });
+  await value.session.afterPilot(value.args);
+  await assert.rejects(value.session.afterRestart({ ...value.args, restart: restartProof }), { safeCode: 'HARU_SYNC_FAILED' });
+  assert.equal(value.events.some(event => event.includes('title:')), false);
+  const diagnostic = value.session.diagnostic();
+  assert.equal(diagnostic.stage, 'STORED_CONVERSATION');
+  assert.equal(diagnostic.stored, true); assert.equal(diagnostic.storedTitleUnique, false);
+  assert.equal(diagnostic.productionTrayExit, true); assert.equal(diagnostic.sameProfileAndExe, true);
+});
+test('restart waits for asynchronous unique row and title appearance before their real click', async () => {
+  const value = sessionHarness({ counts: [0, 1, 0, 1] });
+  await value.session.afterPilot(value.args);
+  await value.session.afterRestart({ ...value.args, restart: restartProof });
+  assert.equal(value.events.filter(event => event.includes('title:')).length, 1);
+  assert.equal(value.session.diagnostic().stage, 'COMPLETE');
+});
+for (const problem of ['duplicate-row', 'wrong-body', 'wrong-theme']) {
+  test(`restart preserves fail-closed ${problem} and exposes only bounded stage/boolean diagnosis`, async () => {
+    const value = sessionHarness({ counts: problem === 'duplicate-row' ? [2, 2, 2] : [],
+      wrongBody: problem === 'wrong-body', wrongTheme: problem === 'wrong-theme' });
+    await value.session.afterPilot(value.args);
+    await assert.rejects(value.session.afterRestart({ ...value.args, restart: restartProof, deadlineMs: Date.now() + 60 }),
+      { safeCode: 'HARU_SYNC_FAILED' });
+    const diagnostic = safeHaruSessionDiagnostic(value.session.diagnostic(), true);
+    assert.equal(diagnostic.stage, problem === 'duplicate-row' ? 'UNIQUE_ROW' : problem === 'wrong-body' ? 'BODY_PAIR' : 'THEME');
+    assert.doesNotMatch(JSON.stringify(diagnostic), /合成|wrong body|title:|conversationId/);
+  });
+}
+test('diagnostic serialization refuses LIVE, raw fields, unknown stages and non-boolean flags', () => {
+  const diagnostic = sessionHarness().session.diagnostic();
+  assert.throws(() => safeHaruSessionDiagnostic(diagnostic, false));
+  assert.throws(() => safeHaruSessionDiagnostic({ ...diagnostic, title: 'private' }, true));
+  assert.throws(() => safeHaruSessionDiagnostic({ ...diagnostic, stage: 'private-stage' }, true));
+  assert.throws(() => safeHaruSessionDiagnostic({ ...diagnostic, bodyEqual: BODY }, true));
 });

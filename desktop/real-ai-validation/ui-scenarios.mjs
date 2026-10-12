@@ -415,11 +415,19 @@ const PROMPTS = Object.freeze({
   'pilot-cancel': '这是虚构软件验收。不要调用任何工具或读取资料，请连续写二十段关于软件测试边界条件的说明，每段约六十字。',
   'pilot-hitl-reject': '这是虚构隔离验收。请直接调用 create_application 工具，新建公司“合成待拒绝公司”、岗位“合成待拒绝岗位”的投递，status为applied，notes为空；不要先查询其他记录。只提出这一次写入，等待我确认。',
 });
+export function pilotPrompt(caseId, mode) {
+  const prompt = PROMPTS[caseId];
+  check(typeof prompt === 'string' && ['live', 'mock'].includes(mode), 'INVALID_HARNESS');
+  // Production titles use the first sentence. Keep this synthetic stream
+  // distinguishable from cancellation without changing any LIVE prompt.
+  return mode === 'mock' && caseId === 'pilot-stream'
+    ? prompt.replace('这是虚构软件验收。', '这是虚构软件流式验收。') : prompt;
+}
 async function runPilot({ page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore }) {
   await openPilot(page, ctx);
   await expandHaru(haru, ctx);
   ctx.mark('PILOT_COMPOSE');
-  await ctx.fill(composer(page), PROMPTS[current.id] + (mode === 'live' && current.id === 'pilot-stream'
+  await ctx.fill(composer(page), pilotPrompt(current.id, mode) + (mode === 'live' && current.id === 'pilot-stream'
     ? '请只用纯文本，不使用 Markdown、标题、列表标记或结构化任务卡。' : ''));
   if (current.id === 'pilot-stream') await installStreamObservation(page);
   if (['pilot-stream', 'pilot-cancel'].includes(current.id) || freshSessionRequired) {
