@@ -89,6 +89,10 @@ interface Live2dModelInstance {
   scale: { set: (scale: number) => void };
   motion?: (group: string, index: number, priority: number) => Promise<boolean> | boolean;
   expression?: (name: string) => Promise<boolean> | boolean;
+  internalModel?: {
+    coreModel: { update: () => void };
+    pose?: { updateParameters: (model: unknown, deltaTimeSeconds: number) => void };
+  };
   destroy: (options: { children: boolean }) => void;
 }
 
@@ -201,6 +205,13 @@ export function createLive2dPilotMascotRuntime(
         throw new DOMException('Mascot mount aborted', 'AbortError');
       }
       model = loadedModel;
+      if (staticRender && model.internalModel?.pose) {
+        // Without a ticker, Cubism never initializes mutually exclusive parts.
+        // Resolve the initial pose and drawable opacity without advancing motion.
+        const { coreModel, pose } = model.internalModel;
+        pose.updateParameters(coreModel, 0);
+        coreModel.update();
+      }
       application.stage.addChild(model);
       model.anchor.set(0.5, 0.5);
       const naturalWidth = model.width;

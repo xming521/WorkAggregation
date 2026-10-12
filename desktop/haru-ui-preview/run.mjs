@@ -344,6 +344,18 @@ try {
     assert.equal(await page.locator('.desktop-haru-context-toggle').getAttribute('aria-expanded'), 'false');
   });
 
+  await check('reduced-motion-static-runtime', async () => {
+    await page.setViewportSize({ width: 420, height: 740 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    // Full same-origin navigation creates a fresh runtime with reduced motion.
+    // Running normally animates, so this exercises the preference-driven static
+    // path independently of idle's explicit animationLevel='off' behavior.
+    await page.goto(`${origin}/?surface=1&scenario=running`, { waitUntil: 'networkidle', timeout: 30_000 });
+    assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
+    assert.equal((await observeBridge()).scenario, 'running');
+    await checkpoint('reduced-motion-420x740');
+  });
+
   stage = 'console-and-network-clean';
   assert.equal(report.consoleErrors, 0, 'Browser console errors are validation failures');
   assert.equal(report.pageErrors, 0, 'Unhandled browser errors are validation failures');
