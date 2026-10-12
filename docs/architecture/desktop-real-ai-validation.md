@@ -2,18 +2,18 @@
 
 ## 状态与边界
 
-本工具的当前目标是 `3edd7976` 普通构建安装器。`fullRegressionRunId: 38126232510` 标识同一产品提交的完整门禁；准备时仍待完成，编号或打包成功不能当作完整门禁成功。本地 helper 候选只有在负责人确认该完整门禁成功后才可发布。新包非 AI 与 Windows MOCK 尚待实跑，runner 不修改或重建该 EXE，普通 helper 发布不注入 AI secret。既有精确 helper、同 helper MOCK、完整历史和人工审批约束不变。
+本工具的当前目标是 `c83ee78e` 普通构建安装器。`fullRegressionRunId: 38223263718` 标识同一产品提交的完整门禁；准备时仍待完成，编号或打包成功不能当作完整门禁成功。在成功打包并核定同一安装器身份、helper 审查与测试通过后，可并行执行免费实装和 MOCK；最终验收结论仍须等待该提交完整门禁成功，真实 AI 不会自动启用。新包非 AI 与 Windows MOCK 尚待实跑，runner 不修改或重建该 EXE，普通 helper 发布不注入 AI secret。既有精确 helper、同 helper MOCK、完整历史和人工审批约束不变。
 
 最终验收固定下述同一份 EXE，分别完成免费非 AI 与全 MOCK；唯一 live 也绑定该 EXE。旧 `590291ce` / `c040a5d2` / `16f31e47` 的局部结果均不能转作当前安装器认证。
 
 固定对象见 `desktop/real-ai-validation/product.json`：
 
-- 产品/构建提交：`3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8`
-- 构建 run：`38126232510`；artifact：`11697823484`；完整回归来源：`38126232510`（普通同提交门禁，结果独立核验）
-- artifact digest：`sha256:a87339f0e1550f016cb9b0796745761f1c78ef1a96c134dc7544e53a9cef94b8`
-- installer SHA-256：`7038977acd92c9778cc83db77e3084509aea7d18d5ea678cb1ca41864c882158`
+- 产品/构建提交：`c83ee78e0efe166d7976ef5abd9bc895272f38da`
+- 构建 run：`38223263718`；artifact：`11736815053`；完整回归来源：`38223263718`（普通同提交门禁，结果独立核验）
+- artifact digest：`sha256:1f17df65b400f03a70ebb0adb0846f396c94cf2adf793321e1c5325ef90fa26f`
+- installer SHA-256：`d0151da6b7644e7fd03ae113236b566af9448851da5cfe6b85ced28e708bfccb`
 
-最后一项是安装器哈希，不是安装后的主程序哈希。安装器 `178123391` 字节；artifact ZIP `177801886` 字节。安装后逐文件比对固定安装器内 payload，另记录主程序哈希供启动前复查。来源比较统一使用共享 manifest 的原 6 个桌面模块和新增 6 个 updater 模块；broker snapshot 的产品提交、build run、artifact 与安装器哈希必须全部与 PIN 一致，任何旧/新混配拒绝写成有效证据。完整回归是独立门禁；PIN 仅绑定完整回归来源，本 helper 不认证、不重跑、不取消任何既有完整门禁。Playwright 使用现有 inspect fuse 和临时 loopback CDP；不修改 fuse。GitHub hosted Windows 是管理员/UAC受平台管理环境，不证明普通用户 UAC/SmartScreen、无开发工具的正常启动体验。
+最后一项是安装器哈希，不是安装后的主程序哈希。安装器 `180763673` 字节；artifact ZIP `180442899` 字节。安装后逐文件比对固定安装器内 payload，另记录主程序哈希供启动前复查。来源比较统一使用共享 manifest 的原 6 个桌面模块和新增 6 个 updater 模块；broker snapshot 的产品提交、build run、artifact 与安装器哈希必须全部与 PIN 一致，任何旧/新混配拒绝写成有效证据。完整回归是独立门禁；PIN 仅绑定完整回归来源，本 helper 不认证、不重跑、不取消任何既有完整门禁。Playwright 使用现有 inspect fuse 和临时 loopback CDP；不修改 fuse。GitHub hosted Windows 是管理员/UAC受平台管理环境，不证明普通用户 UAC/SmartScreen、无开发工具的正常启动体验。
 
 ## 真实流量与费用边界
 
@@ -95,6 +95,8 @@ MOCK 工具在自身进程中封锁真实 HTTPS/TLS 和非 loopback TCP，生产
 
 paid preflight 必须从真实 GitHub Actions 记录查到同一 H 的完整 successful push run、唯一 completed/success 的 “Pinned EXE offline UI” job，且 job/run/head SHA 全一致；不能用变量 `true`、别的 helper SHA、局部单测或旧截图代替。产物只在 `mock-evidence/`，artifact 名 `fixed-exe-mock-evidence-*`，result/ledger 都显式 `mode: MOCK`、零真实 provider 证据和 `simulated-counters-only`；不会覆盖 live ledger。
 
+本轮仅在 MOCK 中增加 Haru 会话保留检查：原 pilot-stream 自然完成并结算后，经真实 UI 切换亮暗、折叠及窗口恢复，核对两窗可见正文、同会话 ID 和各自草稿；这些动作前后代理账本必须不变。随后继续完成原七场景的剩余步骤。全部成功后，通过真实托盘退出、独立进程/端口消失检查，再启动同一 EXE 和 profile，从后端实际历史重新选择原会话，核对正文与主题。未发送草稿跨重启保存不在证明范围。新增截图只有固定的亮色、暗色和重启后 Pilot 三张，沿用凭据缺席、临时令牌排除和自然稳定检查；live 入口拒绝该扩展。
+
 任何修复改变 H 都需要重新通过该 H 的 Windows MOCK。此模式也不允许自动变为 live，仍要后续专用 secret、精确 R/H、同轮预算闩锁和用户本人环境批准。
 
 ## 离线验证与发布隔离
@@ -108,7 +110,7 @@ npm test --prefix desktop/real-ai-validation
 
 原 `desktop-windows.yml` 现仅为本工具新增三个精确 `paths-ignore`：`desktop/real-ai-validation/**`、`.github/workflows/desktop-real-ai.yml`、本文。产品、锁文件、原 workflow 自身和 release gate 路径仍触发默认完整门禁，dispatch 与原有 package-only 判定不变。
 
-首次修改原 workflow 的迁移提交本身仍触发旧流程。本次候选发布显式使用已存在的 `build: AI [windows-package-only] ` 前缀（末尾空格属于契约），允许额外 focused/build/packaging 和独立 Windows MOCK；不使用全 CI 跳过标记。该前缀不触发本工具 paid 入口：没有精确 R/H 和人工环境批准仍然跳过真实 AI。原 `validation-status` 仍按设计拒绝把 skipped full-regression 当成功，故 package-only run 不应被承诺整体绿色或发布就绪。后续完整验证须使用无此前缀的明确 full-gate 提交。
+首次修改原 workflow 的迁移提交本身仍触发旧流程。早期迁移候选曾显式使用已存在的 `build: AI [windows-package-only] ` 前缀（末尾空格属于契约），允许额外 focused/build/packaging 和独立 Windows MOCK；不使用全 CI 跳过标记。该前缀不触发本工具 paid 入口：没有精确 R/H 和人工环境批准仍然跳过真实 AI。原 `validation-status` 仍按设计拒绝把 skipped full-regression 当成功，故 package-only run 不应被承诺整体绿色或发布就绪。当前 c83ee78e 已使用无此前缀的普通完整门禁，免费实装可与该门禁并行，最终结果分别核验。
 
 空激活提交是否被其他 path-filtered workflow 忽略按真实 GitHub run 验证，不预先声称不会触发。
 

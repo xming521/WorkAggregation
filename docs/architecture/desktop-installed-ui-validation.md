@@ -1,6 +1,6 @@
 # 固定 Windows 安装包的 UI 自验
 
-状态：限定分支上的实验验证辅助工具。2026-10-11 固定为产品 `3edd7976`、普通构建 run `38126232510` 的实际安装包。打包 job 已成功；artifact 元数据、本地 ZIP/CRC 和安装器/sidecar SHA256 已核验。`fullRegressionRunId: 38126232510` 只标识同提交的独立完整门禁，准备时仍待完成，不表示成功。本地 helper 候选只有在负责人确认该完整门禁成功后才可发布。新包安装后 UI 与 MOCK 尚未实跑，不能由打包成功或本地 helper 单测推导通过。
+状态：限定分支上的实验验证辅助工具。2026-10-12 固定为产品 `c83ee78e`、普通构建 run `38223263718` 的实际安装包。打包 job 已成功；artifact 元数据、本地 ZIP/CRC 和安装器/sidecar SHA256 已核验。`fullRegressionRunId: 38223263718` 只标识同提交的独立完整门禁，准备时仍待完成，不表示成功。在成功打包并核定同一安装器身份、helper 审查与测试通过后，可并行执行免费实装和 MOCK；最终验收结论仍须等待该提交完整门禁成功，真实 AI 不会自动启用。新包安装后 UI 与 MOCK 尚未实跑，不能由打包成功或本地 helper 单测推导通过。
 
 更早固定产品 `16f31e47` 的实装 [37794297987](https://github.com/offercontext/offerPilot/actions/runs/37794297987) 为 115 PASS、1 FAIL、20 BLOCKED、66 NOT RUN、4 N/A。唯一失败位于 ORT 模块导入：真实 MJS 响应为 `text/plain`，HTTP 200、无重定向、响应字节和 SHA 与安装资源一致，WASM 编译及生产 CSP 检查通过；factory、ORT 初始化和 ASR 均未执行成功。旧结果保持失败，不转写为新包证据。
 
@@ -8,15 +8,15 @@
 
 ## 固定输入与独立路由
 
-- 源提交：`3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8`。
-- 构建 run：[38126232510](https://github.com/offercontext/offerPilot/actions/runs/38126232510)，普通同提交构建，`fullRegressionRunId: 38126232510`。该编号不是成功证明；本流程不重跑、不取消，也不把其他提交的完整回归作为本产品证据。
-- 成功打包 job：[114431061976](https://github.com/offercontext/offerPilot/actions/runs/38126232510/job/114431061976)；其成功只证明打包范围。
-- Artifact：`11697823484`，名称 `offerpilot-windows-experimental-validation-3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8`。
-- Artifact 元数据摘要：`sha256:a87339f0e1550f016cb9b0796745761f1c78ef1a96c134dc7544e53a9cef94b8`。
+- 源提交：`c83ee78e0efe166d7976ef5abd9bc895272f38da`。
+- 构建 run：[38223263718](https://github.com/offercontext/offerPilot/actions/runs/38223263718)，普通同提交构建，`fullRegressionRunId: 38223263718`。该编号不是成功证明；本流程不重跑、不取消，也不把其他提交的完整回归作为本产品证据。
+- 成功打包 job：[114724437845](https://github.com/offercontext/offerPilot/actions/runs/38223263718/job/114724437845)；其成功只证明打包范围。
+- Artifact：`11736815053`，名称 `offerpilot-windows-experimental-validation-c83ee78e0efe166d7976ef5abd9bc895272f38da`。
+- Artifact 元数据摘要：`sha256:1f17df65b400f03a70ebb0adb0846f396c94cf2adf793321e1c5325ef90fa26f`。
 - 安装包：`OfferPilot-Desktop-0.1.0-desktop.1-win-x64-setup.exe`。
-- 安装包 SHA256：`7038977acd92c9778cc83db77e3084509aea7d18d5ea678cb1ca41864c882158`。
+- 安装包 SHA256：`d0151da6b7644e7fd03ae113236b566af9448851da5cfe6b85ced28e708bfccb`。
 
-schema 2 区分产品源码 `commit`、安装包构建的 `buildCommit` / `buildWorkflow` / `runId`，以及独立完整回归 `fullRegressionRunId`。当前 source/build 都是 `3edd7976dc21dc3d44ebd6f3a5a33c2e52679ea8`，构建工作流为 `desktop-windows.yml`，run 为 `38126232510`；完整回归来源为同一 run，须独立确认成功。
+schema 2 区分产品源码 `commit`、安装包构建的 `buildCommit` / `buildWorkflow` / `runId`，以及独立完整回归 `fullRegressionRunId`。当前 source/build 都是 `c83ee78e0efe166d7976ef5abd9bc895272f38da`，构建工作流为 `desktop-windows.yml`，run 为 `38223263718`；完整回归来源为同一 run，须独立确认成功。
 
 正整数 `fullRegressionRunId` 保留原严格规则：普通构建要求 `buildCommit === commit` 且构建/完整回归 run 相同；限定 `.github/workflows/desktop-layout-retry.yml` 要求产品与激活 SHA 不同、构建/完整回归 run 不同。build run 和 artifact.workflow_run.head_sha 必须匹配 `buildCommit`，完整回归 run.head_sha 必须匹配 `commit`。只接受固定仓库/分支、push 和既有两个 workflow 路径，不接受任意 URL、run 或额外键。
 
@@ -24,7 +24,7 @@ schema 2 区分产品源码 `commit`、安装包构建的 `buildCommit` / `build
 
 `source.json`、`result.json` 与 `coverage.json` 均记录精确产品、构建、artifact 身份和未认证完整门禁结果的状态；源码 checkout 及已安装 12 个桌面模块/托盘资源对比始终使用产品 `commit`。安装器哈希、payload 字节比对、artifact 摘要及成功打包 job 检查不变。正整数路径的完整回归 metadata 仍仅核验来源，不认证结果。
 
-最终验收采用上述 `3edd7976` 提交及其自身安装器，再对这份固定 EXE 运行免费非 AI 与全 MOCK；唯一 live 也只能绑定最终同一份 EXE。helper 提交可以更新，但源码 checkout 始终使用 PIN 产品提交；旧包通过记录不可转移，不引入跨提交源码等价认证。
+最终验收采用上述 `c83ee78e` 提交及其自身安装器，再对这份固定 EXE 运行免费非 AI 与全 MOCK；唯一 live 也只能绑定最终同一份 EXE。helper 提交可以更新，但源码 checkout 始终使用 PIN 产品提交；旧包通过记录不可转移，不引入跨提交源码等价认证。
 
 下载由官方 `actions/download-artifact@v4` 使用固定仓库、run 与名称完成。验证 metadata digest 并不伪装成本地重算 ZIP：下载 action 解压 artifact，执行前另对安装包字节计算硬编码 SHA256，任一不符都不执行。没有应用重建步骤。
 
@@ -56,6 +56,10 @@ schema 2 区分产品源码 `commit`、安装包构建的 `buildCommit` / `build
 11. 再次正常退出并核对进程/端口清理与 exe 完整性。任何启动、保护、持久化、正常关闭或清理问题均为失败；失败后的清理不能改成成功。
 
 ### 逐屏与交互覆盖
+
+本轮安装器加入已选定的 Haru 亮暗静态对话窗及本人消息头像。收起时只显示原 Live2D 角色，展开时加载对应主题静态图且无 Live2D canvas；隐藏状态不以一个不存在的 canvas 作为等待条件。非 AI 流程增加真实 Windows 光标拖拽、防误展开、主窗按钮进入 Pilot，以及主窗最小化、关闭隐藏和后台三态恢复检查。透明效果另从实际 Windows 合成器截取限定自有窗口区域，不通过图片编辑制造透明。
+
+无 provider 的非 AI 流程不伪造历史正文或草稿。正文和双窗口草稿在主题、折叠与窗口切换中的保留，以及退出重启后的已发送历史读回，交由同安装器的免费 MOCK 流程验证。未发送草稿仅为进程内状态，不承诺跨进程保存；这些新增流程须以实际 Windows 结果为准。
 
 `coverage-model.mjs` 列出 R01–R13 根页面、S01–S32 主要子界面及结果枚举；`screen-coverage.mjs` 驱动真实安装窗口中的控件。`coverage-recorder.mjs` 使用 `BrowserWindow.setContentSize` 设置 900、1008、1280、1440 内容宽度，并读取 `innerWidth/innerHeight` 核对；不使用浏览器 viewport 模拟、Vite fixture、React 状态注入、API 造数或数据库写入。
 

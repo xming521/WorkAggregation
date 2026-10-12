@@ -4,6 +4,7 @@ import path from 'node:path';
 import { SCREEN_IDS, SKIP_CODES, GUARD_REASONS } from './mock-screenshots.mjs';
 import { sanitizeUiDiagnostic, CONTINUATION_CODES } from './ui-diagnostics.mjs';
 import { CASES, PIN, demand, EVIDENCE_CODES } from './contract.mjs';
+import { HARU_SESSION_CHECKS } from './mock-haru-session.mjs';
 const CHECKS = new Set('sustainedStreamingObserved freshConversationProven uiAdmissionProven naturalCompletionProven terminalIdentityProven terminalMirrorProven terminalTextProven ledgerUnchanged admissionObserverCleanupPassed settingsSavedThroughUi connectionTestClicked connectionSucceeded incrementalAssistantRendering haruRunningAndIdleMirrored haruVisibleAssistantMatchesSnapshot hitlVisible rejectedThroughUi syntheticWriteAbsent haruPendingAndIdleMirrored stopClickedWhileRunning stopAcknowledged haruRunningAndStoppedMirrored sourceAndResumeSelected disclosureAccepted generatedProposalVisible classificationPreviewVisible cancelledThroughUi sourceUnchanged inputReviewedThroughUi generatedDraftVisible finalSaveNotSubmitted providerRequestObserved providerRequestSettled oneProviderRequestVerified productDisconnectObserved providerDisconnectObserved ownerRunningTransitionObserved haruRunningTransitionObserved positiveRunningConversationMatched finalRunningConversationMatched brokerCleanupFailed mirrorObserverCleanupFailed streamObserverCleanupFailed'.split(' '));
 export function safeResults(results, isMock = false) {
   demand(Array.isArray(results) && results.length === CASES.length, 'SCENARIO_EVIDENCE_INVALID');
@@ -11,7 +12,8 @@ export function safeResults(results, isMock = false) {
     demand(row.id === CASES[index] && ['PASS', 'FAIL', 'BLOCKED'].includes(row.status) &&
       EVIDENCE_CODES.has(row.code), 'SCENARIO_EVIDENCE_INVALID');
     const checks = Object.fromEntries(Object.entries(row.checks || {}).map(([key, value]) => {
-      demand(CHECKS.has(key) && typeof value === 'boolean', 'SCENARIO_EVIDENCE_INVALID');
+      demand((CHECKS.has(key) || (isMock && row.id === 'pilot-stream' && HARU_SESSION_CHECKS.includes(key)))
+        && typeof value === 'boolean', 'SCENARIO_EVIDENCE_INVALID');
       return [key, value];
     }));
     demand(isMock || row.id !== 'pilot-stream' || row.status !== 'PASS'
@@ -151,6 +153,10 @@ export async function saveEvidence(directory, report, ledger, secrets = []) {
     safe.scenarios.every(row => row.status === 'PASS') && ledger?.journalFailed === false && ledger?.closed === true &&
     ledger?.active === false && ledger.requests?.length === CASES.length &&
     CASES.every(id => ledger.requests.filter(row => row.caseId === id).length === 1)), 'REPORT_INVALID');
+  const haruScope = safe.scenarios.find(row => row.id === 'pilot-stream')?.checks || {};
+  if (HARU_SESSION_CHECKS.some(key => Object.hasOwn(haruScope, key))) {
+    demand(isMock && (safe.status !== 'PASS' || HARU_SESSION_CHECKS.every(key => haruScope[key] === true)), 'REPORT_INVALID');
+  }
   const livePilotProven = safe.scenarios.some(row => ['LIVE_COMPLETION_ONLY', 'LIVE_STREAMING_PROVEN'].includes(row.code));
   if (livePilotProven) {
     demand(ledger?.mode !== 'MOCK' && ledger?.mock === undefined, 'REPORT_INVALID');
@@ -168,6 +174,9 @@ export async function saveEvidence(directory, report, ledger, secrets = []) {
   }
   const completionOnly = safe.scenarios.some(row => row.code === 'LIVE_COMPLETION_ONLY');
   safe.coverageLimitations = completionOnly ? ['PILOT_SUSTAINED_STREAMING_NOT_PROVEN'] : [];
+  if (HARU_SESSION_CHECKS.some(key => Object.hasOwn(haruScope, key))) {
+    safe.coverageLimitations.push('UNSENT_DRAFT_RESTART_PERSISTENCE_NOT_TESTED');
+  }
   demand(safe.status !== 'PASS' || safe.code === (completionOnly ? 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' : 'ALL_UI_CASES_PASSED'), 'REPORT_INVALID');
   demand(safe.code !== 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' || (!isMock && completionOnly), 'REPORT_INVALID');
   const texts = [JSON.stringify(safe, null, 2) + '\n', JSON.stringify({ ...numericLedger(ledger), mode: isMock ? 'MOCK' : 'LIVE', billingKind: isMock ? 'simulated-counters-only' : 'real-provider-conservative-accounting' }, null, 2) + '\n'];

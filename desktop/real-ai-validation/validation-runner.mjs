@@ -1,26 +1,32 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import net from 'node:net';
 import { _electron } from 'playwright-core';
 import { CASES, childEnvironment, demand, safeCode, validateFixedFiles, validateLiveProduct } from './contract.mjs';
 import { hash } from '../installed-ui/integrity.mjs';
-import { waitForDesktopSurfaces, readDesktopSecurity } from '../installed-ui/desktop-surfaces.mjs';
-import { selectOwnedProcesses, sameWindowsPath, validateListeners } from '../installed-ui/contract.mjs';
+import { waitForDesktopSurfaces, readDesktopSecurity, validatePartitionIsolation } from '../installed-ui/desktop-surfaces.mjs';
+import { selectOwnedProcesses, sameWindowsPath, validateListeners, validateSecurity } from '../installed-ui/contract.mjs';
+import { observeDevToolsDisabled } from '../installed-ui/devtools-probe.mjs';
+import { installTrayObserver, invokeTrayAction } from '../installed-ui/haru-probes.mjs';
 import { quietCommand, exists } from './prepare.mjs';
 import { cleanOwnedFiles } from './cleanup.mjs';
 import { saveEvidence } from './safe-evidence.mjs';
 import { syntheticApi } from './synthetic-api.mjs';
 import { prepareSyntheticProfile, runUiScenarios } from './ui-scenarios.mjs';
 import { refreshSyntheticProfile } from './seed-refresh.mjs';
+import { assertHaruRestartFacts } from './mock-haru-session.mjs';
+import { createRunLifetime } from './run-lifetime.mjs';
 
-export async function executeValidation({ mode, brokerFactory, providerKey, screenshotFactory, mockContinuation } = {}) {
+export async function executeValidation({ mode, brokerFactory, providerKey, screenshotFactory, mockContinuation, mockHaruSessionFactory } = {}) {
   demand(['live', 'mock'].includes(mode) && typeof brokerFactory === 'function' &&
     (mockContinuation === undefined || typeof mockContinuation === 'function') &&
+    (mockHaruSessionFactory === undefined || typeof mockHaruSessionFactory === 'function') &&
     (mode !== 'live' || screenshotFactory === undefined) &&
-    (mode !== 'live' || mockContinuation === undefined), 'INVALID_HARNESS');
+    (mode !== 'live' || (mockContinuation === undefined && mockHaruSessionFactory === undefined)), 'INVALID_HARNESS');
   if (mode === 'live') validateLiveProduct();
 const blocked = code => CASES.map(id => ({ id, status: 'BLOCKED', code, checks: {} }));
 const report = { mode, status: 'BLOCKED', code: 'NOT_STARTED', scenarios: blocked('NOT_STARTED'), cleanupPassed: false };
-let app, broker, timer, screenshotEvidence, ledger = {}, failure, cleanupFailure;
+let app, broker, lifetime, screenshotEvidence, ledger = {}, failure, cleanupFailure;
 const root = process.env.RUNNER_TEMP && path.join(process.env.RUNNER_TEMP, mode === 'live' ? 'offerpilot-bounded-ai' : 'offerpilot-bounded-ai-mock');
 const evidence = process.env.AI_EVIDENCE_DIR;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -29,6 +35,94 @@ async function ownedSnapshot(prepared) {
     path.resolve('desktop/installed-ui/windows.ps1'), '-Mode', 'snapshot'], {
     ...childEnvironment(process.env), UI_EXE: prepared.exe, UI_BACKEND: prepared.backend,
   }, 30000));
+}
+const endpointOpen = ({ address = '127.0.0.1', port }) => new Promise(resolve => {
+  const socket = net.connect({ host: address, port });
+  const done = open => { socket.destroy(); resolve(open); };
+  socket.once('connect', () => done(true)); socket.once('error', () => done(false));
+  socket.setTimeout(1000, () => done(true)); // Inconclusive is never closed.
+});
+async function until(predicate, limit = 15000) {
+  const stop = Date.now() + limit;
+  do { lifetime?.assertActive(); const ready = await predicate(); lifetime?.assertActive(); if (ready) return; await pause(200); } while (Date.now() < stop);
+  demand(false, 'UI_TIMEOUT');
+}
+let externalRendererRequest = false;
+async function launchOwned(prepared) {
+  lifetime.assertActive();
+  demand((await ownedSnapshot(prepared)).processes.length === 0
+    && await hash(prepared.exe) === prepared.exeSha256, 'PREEXISTING_PRODUCT_PROCESS');
+  lifetime.assertActive();
+  app = await _electron.launch({ executablePath: prepared.exe, cwd: prepared.installDir,
+    env: childEnvironment(process.env), chromiumSandbox: true, bypassCSP: false, timeout: 90000 });
+  lifetime.assertActive();
+  app.context().on('request', request => {
+    try { const url = new URL(request.url()); if (['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)
+      && url.hostname !== '127.0.0.1') externalRendererRequest = true; } catch { externalRendererRequest = true; }
+  });
+  const identity = await app.evaluate(({ app }) => ({ pid: process.pid, exe: process.execPath, profile: app.getPath('userData') }));
+  demand(sameWindowsPath(identity.exe, prepared.exe) && sameWindowsPath(identity.profile, prepared.profile), 'INSTALLED_PROCESS_IDENTITY_MISMATCH');
+  const portPath = path.join(prepared.profile, 'desktop-port.json');
+  await until(() => exists(portPath), 90000);
+  const saved = JSON.parse(await fs.readFile(portPath, 'utf8'));
+  demand(Object.keys(saved).length === 1 && Number.isSafeInteger(saved.port) && saved.port > 0 && saved.port <= 65535,
+    'PRODUCT_ORIGIN_INVALID');
+  const origin = `http://127.0.0.1:${saved.port}`;
+  const surfaces = await waitForDesktopSurfaces(app, origin);
+  const page = surfaces.owner.page, haru = surfaces.haru.page;
+  const windows = await ownedSnapshot(prepared);
+  const owned = selectOwnedProcesses(windows.processes, identity.pid, prepared.exe, prepared.backend);
+  validateListeners(windows.listeners, owned.main.pid, owned.backend.pid, saved.port);
+  const ids = {};
+  for (const [name, surface] of [['owner', page], ['haru', haru]]) {
+    surface.setDefaultTimeout(15000); ids[name] = await (await app.browserWindow(surface)).evaluate(win => win.id);
+  }
+  const security = await app.evaluate(readDesktopSecurity, ids);
+  try {
+    for (const role of ['owner', 'haru']) {
+      security[role].devToolsProbe = await app.evaluate(observeDevToolsDisabled, ids[role]);
+      validateSecurity(security[role]);
+    }
+    validatePartitionIsolation(security.partitionIsolation);
+  } catch { demand(false, 'PRODUCT_SECURITY_ASSERTION_FAILED'); }
+  await page.getByRole('navigation', { name: '主导航', exact: true }).waitFor();
+  await haru.getByRole('main', { name: 'Haru 桌面小窗', exact: true }).waitFor();
+  return { app, page, haru, ids, identity, origin, owned, port: saved.port,
+    endpoints: windows.listeners.filter(value => [owned.main.pid, owned.backend.pid].includes(value.pid)) };
+}
+function nativeControls(session, prepared) {
+  demand(mode === 'mock' && broker?.mode === 'MOCK', 'INVALID_HARNESS');
+  const visible = role => session.app.evaluate(({ BrowserWindow }, id) => {
+    const win = BrowserWindow.fromId(id);
+    return win && !win.isDestroyed() ? win.isVisible() : null;
+  }, session.ids[role]);
+  return {
+    origin: session.origin,
+    async assertIdentity() {
+      const current = await waitForDesktopSurfaces(session.app, session.origin);
+      demand(current.owner.page === session.page && current.haru.page === session.haru, 'INSTALLED_PROCESS_IDENTITY_MISMATCH');
+      const snapshot = await ownedSnapshot(prepared);
+      for (const process of [session.owned.main, session.owned.backend]) demand(snapshot.processes.some(value =>
+        value.pid === process.pid && value.created === process.created && sameWindowsPath(value.path, process.path)), 'INSTALLED_PROCESS_IDENTITY_MISMATCH');
+    },
+    async prepareTray() {
+      await session.app.evaluate(installTrayObserver);
+      const pin = session.haru.getByRole('button', { name: 'Haru 始终置顶', exact: true });
+      const initial = await pin.getAttribute('aria-pressed');
+      demand(['true', 'false'].includes(initial), 'HARU_SYNC_FAILED');
+      for (const expected of [initial === 'true' ? 'false' : 'true', initial]) {
+        await pin.click(); await until(async () => await pin.getAttribute('aria-pressed') === expected);
+      }
+    },
+    async hideOwner() {
+      await (await session.app.browserWindow(session.page)).evaluate(win => win.close());
+      await until(async () => await visible('owner') === false);
+      demand(!session.page.isClosed(), 'HARU_SYNC_FAILED');
+    },
+    async waitVisible(role) { demand(['owner', 'haru'].includes(role), 'INVALID_HARNESS'); await until(async () => await visible(role) === true); },
+    async waitHidden(role) { demand(['owner', 'haru'].includes(role), 'INVALID_HARNESS'); await until(async () => await visible(role) === false); },
+    async restoreHaru() { await session.app.evaluate(invokeTrayAction, 'show'); await until(async () => await visible('haru') === true); },
+  };
 }
 try {
   demand(process.platform === 'win32' && process.env.RUNNER_ENVIRONMENT === 'github-hosted' && root && evidence,
@@ -65,57 +159,47 @@ try {
       { stage: failedCase || screenId.replace(/^haru-/, '') });
   }
   const started = Date.now();
-  const timeout = new Promise((_, reject) => { timer = setTimeout(() => {
-    void broker.close().catch(() => { cleanupFailure = 'BROKER_CLEANUP_FAILED'; });
-    reject(Object.assign(new Error('SESSION_DEADLINE'), { safeCode: 'SESSION_DEADLINE' }));
-  }, 600000); });
-  await Promise.race([(async () => {
-    app = await _electron.launch({ executablePath: prepared.exe, cwd: prepared.installDir,
-      env: childEnvironment(process.env), chromiumSandbox: true, bypassCSP: false, timeout: 90000 });
-    const identity = await app.evaluate(({ app }) => ({ pid: process.pid, exe: process.execPath, profile: app.getPath('userData') }));
-    demand(sameWindowsPath(identity.exe, prepared.exe) && sameWindowsPath(identity.profile, prepared.profile), 'INSTALLED_PROCESS_IDENTITY_MISMATCH');
-    const portPath = path.join(prepared.profile, 'desktop-port.json');
-    const until = Date.now() + 90000;
-    while (!await exists(portPath) && Date.now() < until) await pause(200);
-    const saved = JSON.parse(await fs.readFile(portPath, 'utf8'));
-    demand(Object.keys(saved).length === 1 && Number.isSafeInteger(saved.port) && saved.port > 0 && saved.port <= 65535,
-      'PRODUCT_ORIGIN_INVALID');
-    const surfaces = await waitForDesktopSurfaces(app, `http://127.0.0.1:${saved.port}`);
-    const page = surfaces.owner.page, haru = surfaces.haru.page;
-    const windows = await ownedSnapshot(prepared);
-    const owned = selectOwnedProcesses(windows.processes, identity.pid, prepared.exe, prepared.backend);
-    validateListeners(windows.listeners, owned.main.pid, owned.backend.pid, saved.port);
-    const ids = {};
-    for (const [name, surface] of [['owner', page], ['haru', haru]]) {
-      surface.setDefaultTimeout(15000);
-      ids[name] = await (await app.browserWindow(surface)).evaluate(win => win.id);
-    }
-    const security = await app.evaluate(readDesktopSecurity, ids);
-    for (const value of [security.owner, security.haru]) demand(value.packaged && !value.nodeIntegration &&
-      value.contextIsolation && value.sandbox && value.webSecurity && !value.devTools && !value.devToolsOpened &&
-      value.unsafeSwitches.length === 0, 'PRODUCT_SECURITY_ASSERTION_FAILED');
-    let externalRendererRequest = false;
-    app.context().on('request', request => {
-      try { const url = new URL(request.url()); if (['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) &&
-        url.hostname !== '127.0.0.1') externalRendererRequest = true; } catch { externalRendererRequest = true; }
-    });
-    await page.getByRole('navigation', { name: '主导航', exact: true }).waitFor();
-    await haru.getByRole('main', { name: 'Haru 桌面小窗', exact: true }).waitFor();
+  lifetime = createRunLifetime(started + 600000);
+  await lifetime.run(async () => {
+    const first = await launchOwned(prepared);
+    const { page, haru } = first;
+    const mockSession = mockHaruSessionFactory?.({ mode, broker });
+    if (mockHaruSessionFactory) demand(mockSession && typeof mockSession.afterPilot === 'function'
+      && typeof mockSession.afterRestart === 'function', 'INVALID_HARNESS');
+    const native = mockSession ? nativeControls(first, prepared) : undefined;
     const api = syntheticApi(page);
     const fixture = await prepareSyntheticProfile(api);
     await refreshSyntheticProfile(page, broker, fixture, started + 600000);
     const result = await runUiScenarios({ page, haru, api, broker: scenarioBroker, fixture,
-      capture, mode, mockContinuation, deadlineMs: started + 600000 });
+      capture, mode, mockContinuation,
+      mockHaruSession: mockSession ? args => mockSession.afterPilot({ ...args, native, capture }) : undefined,
+      deadlineMs: started + 600000 });
     report.scenarios = CASES.map(id => result.results.find(row => row.id === id));
+    if (result.allPassed && mockSession) {
+      demand(mode === 'mock' && broker.mode === 'MOCK' && !broker.snapshot().active, 'INVALID_HARNESS');
+      const beforeRestart = JSON.stringify(broker.snapshot());
+      await first.app.evaluate(invokeTrayAction, 'quit');
+      let exited;
+      await until(async () => { exited = await ownedSnapshot(prepared); return exited.processes.length === 0; }, 45000);
+      let portsClosed = false;
+      await until(async () => { portsClosed = (await Promise.all(first.endpoints.map(endpointOpen))).every(open => !open); return portsClosed; });
+      const second = await launchOwned(prepared);
+      const restart = assertHaruRestartFacts(first, second, exited, portsClosed);
+      const checks = await mockSession.afterRestart({ page: second.page, haru: second.haru,
+        native: nativeControls(second, prepared), capture, restart, deadlineMs: started + 600000 });
+      demand(JSON.stringify(broker.snapshot()) === beforeRestart, 'UNEXPECTED_PROVIDER_REQUESTS');
+      Object.assign(report.scenarios.find(row => row.id === 'pilot-stream').checks, checks);
+    }
     demand(!externalRendererRequest, 'UNEXPECTED_RENDERER_NETWORK');
     report.status = result.allPassed ? 'PASS' : 'FAIL';
     report.code = result.allPassed ? (report.scenarios.some(row => row.code === 'LIVE_COMPLETION_ONLY')
       ? 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' : 'ALL_UI_CASES_PASSED') : 'UI_CASES_INCOMPLETE';
-  })(), timeout]);
+  }, async () => {
+    try { await broker.close(); } catch { cleanupFailure = 'BROKER_CLEANUP_FAILED'; }
+  });
 } catch (error) {
   failure = safeCode(error); report.status = 'BLOCKED'; report.code = failure;
 } finally {
-  clearTimeout(timer);
   if (broker) { try { await broker.close(); } catch { cleanupFailure = 'BROKER_CLEANUP_FAILED'; }
     try { ledger = broker.snapshot(); } catch { cleanupFailure = 'LEDGER_UNAVAILABLE'; } }
   if (ledger.journalFailed) cleanupFailure = 'LEDGER_PERSISTENCE_FAILED';

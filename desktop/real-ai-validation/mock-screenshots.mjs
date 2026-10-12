@@ -6,6 +6,7 @@ import path from 'node:path';
 export const SCREEN_IDS = Object.freeze([
   'pilot-stream', 'pilot-cancel', 'pilot-hitl-reject',
   'haru-pilot-stream', 'haru-pilot-cancel', 'haru-pilot-hitl-reject',
+  'haru-session-light', 'haru-session-dark', 'pilot-session-restored',
   'interview-preparation', 'resume-structure', 'offer-negotiation',
   'failure-owner', 'failure-haru',
 ]);
@@ -19,7 +20,10 @@ export const GUARD_REASONS = Object.freeze(['PASSED', 'DOCUMENT_HIDDEN', 'CREDEN
   'UNINSPECTABLE_CONTENT', 'CREDENTIAL_CONTROL', 'TOKEN_VISIBLE', 'WRONG_ROLE', 'HARU_SURFACE',
   'PILOT_SURFACE', 'PILOT_COMPOSER', 'BUSINESS_SURFACE', 'RESUME_SURFACE', 'RESULT_MISSING', 'STATE_UNSETTLED',
   'RESULT_NOT_VISIBLE', 'VISUAL_UNSETTLED', 'GUARD_EXCEPTION']);
-const STAGES = new Set(SCREEN_IDS.filter(id => !id.startsWith('haru-') && !id.startsWith('failure-')));
+export const SESSION_SCREEN_STAGES = Object.freeze({
+  'haru-session-light': 'pilot-stream', 'haru-session-dark': 'pilot-stream', 'pilot-session-restored': 'pilot-stream',
+});
+const STAGES = new Set(SCREEN_IDS.filter(id => !id.startsWith('haru-') && !id.startsWith('failure-') && !SESSION_SCREEN_STAGES[id]));
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 
 // Runs in the renderer, returning ONLY a fixed reason enum. Never return DOM, text,
@@ -171,6 +175,17 @@ async function safeScreen({ screenId, stage, tokens, visual = false }) {
     const messages = haru ? 'article[data-role="assistant"] p' : '[class*="bubbleAssistant"], [data-operation-id]';
     const pattern = stage === 'pilot-hitl-reject' ? /拒绝|未执行|已取消这次操作/ : /\S/;
     const results = shown(messages, root).filter(node => pattern.test(node.textContent || ''));
+    if (screenId === 'haru-session-light' || screenId === 'haru-session-dark') {
+      const theme = screenId === 'haru-session-light' ? 'light' : 'dark';
+      const main = shown('main[aria-label="Haru 桌面小窗"]')[0];
+      const portrait = shown('.desktop-haru-static-portrait', main);
+      const avatars = shown('article[data-role="assistant"] .desktop-haru-message-avatar img', root);
+      const avatar = avatars.at(-1);
+      if (main?.getAttribute('data-theme') !== theme || all('canvas', main).length || portrait.length !== 1
+        || !avatar || avatar.getAttribute('alt') !== 'Haru 头像'
+        || [portrait[0], avatar].some(node => node.complete !== true || node.naturalWidth <= 0 || node.naturalHeight <= 0)) return 'HARU_SURFACE';
+      return results.length > 0 ? readable([results.at(-1), portrait[0], avatar], true) : 'RESULT_MISSING';
+    }
     return results.length > 0 ? readable(results) : 'RESULT_MISSING';
   } catch { return 'GUARD_EXCEPTION'; }
 }
@@ -213,7 +228,7 @@ export function createMockScreenshots({ directory, mode } = {}) {
   async function captureOne(screenId, page, options) {
     if (!SCREEN_IDS.includes(screenId)) return skip(screenId, 'SCREEN_ID_INVALID');
     const stage = options?.stage;
-    if (!STAGES.has(stage) || (!screenId.startsWith('failure-') && screenId.replace(/^haru-/, '') !== stage)) return skip(screenId, 'SCREEN_STAGE_INVALID');
+    if (!STAGES.has(stage) || (!screenId.startsWith('failure-') && (SESSION_SCREEN_STAGES[screenId] || screenId.replace(/^haru-/, '')) !== stage)) return skip(screenId, 'SCREEN_STAGE_INVALID');
     if (!page || typeof page.evaluate !== 'function' || typeof page.screenshot !== 'function') return skip(screenId, 'SCREEN_PAGE_INVALID');
     if (tokenInvalid || tokens.size === 0) return skip(screenId, 'SCREEN_TOKEN_INVALID');
     if (captured.has(screenId)) return skip(screenId, 'SCREEN_ALREADY_CAPTURED');
@@ -245,7 +260,9 @@ export function createMockScreenshots({ directory, mode } = {}) {
         } else {
           const haru = screenId.startsWith('haru-');
           const scope = page.locator(haru ? 'section[aria-label="Haru 对话"]' : '.op-pilot-page-host [data-onboarding-target="pilot"]');
-          target = stage === 'pilot-cancel' ? scope.locator('[role="status"]').filter({ hasText: /停止/ })
+          target = screenId === 'haru-session-light' || screenId === 'haru-session-dark'
+            ? scope.locator('article[data-role="assistant"] .desktop-haru-message-avatar img')
+            : stage === 'pilot-cancel' ? scope.locator('[role="status"]').filter({ hasText: /停止/ })
             : scope.locator(haru ? 'article[data-role="assistant"] p' : '[class*="bubbleAssistant"], [data-operation-id]')
               .filter({ hasText: stage === 'pilot-hitl-reject' ? /拒绝|未执行|已取消这次操作/ : /\S/ });
         }

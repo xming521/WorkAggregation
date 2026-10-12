@@ -40,6 +40,11 @@ test('cold shallow helper requires its independent verified PIN checkout', async
   }
   await fs.copyFile(new URL('../../installed-ui/filesystem-safety.mjs', import.meta.url),
     path.join(helper, 'desktop/installed-ui/filesystem-safety.mjs'));
+  // The helper fixture uses the reviewed working-tree PIN alongside current
+  // tests; its shallow Git history must still lack that independent product.
+  await fs.copyFile(new URL('../../installed-ui/contract.mjs', import.meta.url),
+    path.join(helper, 'desktop/installed-ui/contract.mjs'));
+  await fs.copyFile(new URL('../product.json', import.meta.url), path.join(helper, 'desktop/real-ai-validation/product.json'));
   await fs.mkdir(product);
   git(product, 'init');
   git(product, 'fetch', '--depth=1', '--no-tags', pathToFileURL(selected).href, PIN.commit);

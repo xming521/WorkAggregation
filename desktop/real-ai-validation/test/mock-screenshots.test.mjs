@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
-import { createMockScreenshots, SCREEN_IDS, SKIP_CODES, GUARD_REASONS } from '../mock-screenshots.mjs';
+import { createMockScreenshots, SCREEN_IDS, SKIP_CODES, GUARD_REASONS, SESSION_SCREEN_STAGES } from '../mock-screenshots.mjs';
 import { safeScreenshotEvidence } from '../safe-evidence.mjs';
 
 // Local fake-Page tests execute the actual renderer guard in a separate VM.
@@ -131,6 +131,15 @@ function fakePage(stage = 'pilot-stream', { haru = false, screenshotError = fals
     },
   };
 }
+function sessionImages(page, theme) {
+  const main = page.document.querySelector('main[aria-label="Haru 桌面小窗"]');
+  main.attributes['data-theme'] = theme;
+  const portrait = main.add('.desktop-haru-static-portrait', new Node({ tag: 'img' }));
+  const avatar = page.surface.add('article[data-role="assistant"] .desktop-haru-message-avatar img',
+    new Node({ tag: 'img', attributes: { alt: 'Haru 头像' } }));
+  for (const image of [portrait, avatar]) Object.assign(image, { complete: true, naturalWidth: 1586, naturalHeight: 992 });
+  return { main, portrait, avatar };
+}
 async function setup(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mock-screens-test-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -155,8 +164,9 @@ test('only strict mock mode and a bounded absolute output directory construct a 
 test('all fixed successful surfaces capture naturally and expose only safe inventory', async t => {
   const { directory, screenshots } = await setup(t);
   for (const id of SCREEN_IDS.filter(id => !id.startsWith('failure-'))) {
-    const stage = id.replace(/^haru-/, '');
+    const stage = SESSION_SCREEN_STAGES[id] || id.replace(/^haru-/, '');
     const page = fakePage(stage, { haru: id.startsWith('haru-') });
+    if (id.startsWith('haru-session-')) sessionImages(page, id.endsWith('light') ? 'light' : 'dark');
     assert.deepEqual(await screenshots.capture(id, page, { stage }), { status: 'captured', code: 'SCREEN_CAPTURED' }, id);
     assert.equal(countCaptures(page), 1);
     assert.deepEqual(page.calls.find(call => call.method === 'screenshot').options,
@@ -656,3 +666,20 @@ test('interview body alone cannot pass when either bottom action remains outside
   }
   t.mock.timers.reset(); await absent(directory);
 });
+
+for (const fault of ['wrong-theme', 'avatar-unloaded', 'portrait-unloaded', 'avatar-hidden', 'canvas-present']) {
+  test(`Haru session screenshot rejects ${fault} without altering the renderer`, async t => {
+    const { directory, screenshots } = await setup(t);
+    const page = fakePage('pilot-stream', { haru: true });
+    const images = sessionImages(page, 'dark');
+    if (fault === 'wrong-theme') images.main.attributes['data-theme'] = 'light';
+    if (fault === 'avatar-unloaded') images.avatar.complete = false;
+    if (fault === 'portrait-unloaded') images.portrait.naturalWidth = 0;
+    if (fault === 'avatar-hidden') images.avatar.visible = false;
+    if (fault === 'canvas-present') images.main.add('canvas');
+    assert.deepEqual(await screenshots.capture('haru-session-dark', page, { stage: 'pilot-stream' }),
+      { status: 'skipped', code: 'SCREEN_GUARD_REJECTED' });
+    assert.equal(countCaptures(page), 0);
+    await absent(directory);
+  });
+}

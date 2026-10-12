@@ -654,7 +654,7 @@ export function canContinueMockScenario({ mode, result, proof, cleanupPassed, le
     && ['eligible', 'ledgerSafe', 'mirrorProven', 'domEqual', 'noNewRequests'].every(key => proof[key] === true)
     && ledgerBefore !== undefined && JSON.stringify(ledgerBefore) === JSON.stringify(ledgerAfter);
 }
-export async function runUiScenarios({ page, haru, api, broker, fixture, capture, mode = 'live', mockContinuation, deadlineMs = Date.now() + 600_000 } = {}) {
+export async function runUiScenarios({ page, haru, api, broker, fixture, capture, mode = 'live', mockContinuation, mockHaruSession, deadlineMs = Date.now() + 600_000 } = {}) {
   const results = [];
   const continuedSettledFailures = new Set();
   let blocked = null;
@@ -662,7 +662,8 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
     && typeof broker.armCase === 'function' && typeof broker.cancelCase === 'function'
     && typeof broker.snapshot === 'function' && fixture && Number.isFinite(deadlineMs)
     && ['live', 'mock'].includes(mode)
-    && (mockContinuation === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockContinuation === 'function'));
+    && (mockContinuation === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockContinuation === 'function'))
+    && (mockHaruSession === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockHaruSession === 'function'));
   if (!valid) blocked = 'INVALID_HARNESS';
   const deadline = Math.min(deadlineMs, Date.now() + 600_000);
   const ctx = operationContext(deadline);
@@ -705,6 +706,14 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
       await broker.cancelCase();
       if (livePilot) check(liveLedgerFingerprint(broker.snapshot()) === liveFingerprint, 'LIVE_COMPLETION_UNPROVEN');
       assertProviderCase(broker.snapshot(), current.id, requestCountBefore);
+      if (current.id === 'pilot-stream' && typeof mockHaruSession === 'function') {
+        // The original provider case must settle first. This capability only
+        // performs UI/window checks; it cannot repair or relabel a failed case.
+        const before = JSON.stringify(broker.snapshot());
+        try { Object.assign(checks, await mockHaruSession({ page, haru, current, deadlineMs: deadline })); }
+        catch { fail('HARU_SYNC_FAILED'); }
+        check(JSON.stringify(broker.snapshot()) === before, 'UNEXPECTED_PROVIDER_REQUESTS');
+      }
       results.push({ id: current.id, status: 'PASS', code: livePilot ? outcome.code : 'PASSED', checks: { ...checks, oneProviderRequestVerified: true } });
     } catch (error) {
       const code = safeUiCode(error);
