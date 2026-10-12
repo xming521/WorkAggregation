@@ -294,6 +294,34 @@ try {
     await checkpoint('reduced-motion-collapsed', { expanded: false });
   });
 
+  await check('avatar-hover-preserves-layout-in-both-themes', async () => {
+    await scenario('idle');
+    report.hoverMeasurements = [];
+    const geometry = () => Object.fromEntries(['.desktop-haru-avatar', '.desktop-haru-context', '.desktop-haru-chat'].map(selector => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return [selector, { x: box.x, y: box.y, width: box.width, height: box.height }];
+    }));
+    const unchanged = (before, after, label) => {
+      for (const selector of Object.keys(before)) for (const key of ['x', 'y', 'width', 'height']) {
+        assert.ok(Math.abs(before[selector][key] - after[selector][key]) <= 0.5, `${label}: ${selector} ${key} moved`);
+      }
+    };
+    for (const height of [740, 620]) for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width: 420, height });
+      await page.evaluate(value => window.haruUiPreview.setTheme(value), theme);
+      await page.mouse.move(1, 1); await settleVisual(page, true);
+      const before = await page.evaluate(geometry);
+      await page.locator('.desktop-haru-avatar').hover(); await settleVisual(page, true);
+      const hovered = await page.evaluate(geometry);
+      unchanged(before, hovered, `hover ${theme} ${height}`);
+      await checkpoint(`hover-${theme}-420x${height}`, { theme });
+      await page.mouse.move(1, 1); await settleVisual(page, true);
+      const after = await page.evaluate(geometry);
+      unchanged(before, after, `leave ${theme} ${height}`);
+      report.hoverMeasurements.push({ theme, width: 420, height, before, hovered, after });
+    }
+  });
+
   await check('theme-repeated-toggle-and-draft', async () => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await scenario('idle');

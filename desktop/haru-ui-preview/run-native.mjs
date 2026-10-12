@@ -17,7 +17,7 @@ const report = { schemaVersion: 1, scope: 'WINDOWS_SOURCE_ELECTRON_REAL_APPSHELL
   fixtureModules: ['desktop/haru-ui-preview/native-main.cjs', 'desktop/haru-ui-preview/fixture-api.cjs'],
   productionMainStartupTested: false, installedExeTested: false, backendTested: false, backendTokenInjectionTested: false, realAiTested: false,
   nativeWindowBehaviorTested: false, requestedWebPreferencesSandbox: true, bypassCSP: false,
-  osAlphaCompositionRequiresHumanReview: true,
+  osAlphaCompositionRequiresHumanReview: true, nativeOsCompositionCaptured: false,
   conversationData: 'Local synthetic read-only fixture; UI-only has_api_key flag enables unsent drafts, with no key/provider and all writes denied',
   workflowCommit: process.env.GITHUB_SHA || null, hostPlatform: process.platform, checks: [], screenshots: [], pageErrors: [], consoleErrors: [],
   completedStage: 'starting', failureStage: null };
@@ -79,7 +79,7 @@ try {
     'web/src/features/assistantSurface/useDesktopHaruOwner.ts', 'web/src/features/assistantSurface/DesktopHaruWindow.tsx',
     'web/src/features/assistantSurface/DesktopHaruWindow.css', 'web/src/features/assistantSurface/desktopHaru.ts',
     'web/src/features/assistantSurface/assets/haru-window-light.png', 'web/src/features/assistantSurface/assets/haru-window-dark.png',
-    'web/dist/index.html', 'desktop/haru-ui-preview/native-main.cjs', 'desktop/haru-ui-preview/fixture-api.cjs', 'desktop/haru-ui-preview/run-native.mjs'];
+    'web/dist/index.html', 'desktop/haru-ui-preview/native-drag.ps1', 'desktop/haru-ui-preview/native-main.cjs', 'desktop/haru-ui-preview/fixture-api.cjs', 'desktop/haru-ui-preview/run-native.mjs'];
   report.sourceFiles = await Promise.all(sourceFiles.map(async file => ({ file, sha256: createHash('sha256').update(await readFile(path.join(repo, file))).digest('hex') })));
   const requireInstalled = createRequire(path.resolve(root, '../installed-ui/package.json'));
   const requireDesktop = createRequire(path.resolve(root, '../package.json'));
@@ -123,7 +123,11 @@ try {
     const constructed = await app.evaluate(() => globalThis.haruNativeAudit.constructedWindows);
     assert.equal(constructed.length, 1); assert.equal(constructed[0].transparent, true); assert.equal(constructed[0].frame, false);
     report.haruConstructedOptions = constructed[0];
-    assert.equal((await windowState(haru)).backgroundColor, '#00000000');
+    // Electron 44 returns RGB only: this getter deliberately omits alpha.
+    // https://www.electronjs.org/docs/latest/api/browser-window#wingetbackgroundcolor
+    const backgroundColorRgb = (await windowState(haru)).backgroundColor;
+    assert.equal(backgroundColorRgb, '#000000');
+    report.backgroundColorObservation = { rgb: backgroundColorRgb, alphaReturnedByGetter: false, provesOsAlphaComposition: false };
     const roles = await Promise.all([owner, haru].map(page => page.evaluate(() => ({ role: window.offerpilotDesktop.role,
       require: typeof window.require, genericInvoke: typeof window.offerpilotDesktop.invoke, publish: typeof window.offerpilotDesktop.publish, request: typeof window.offerpilotDesktop.request }))));
     assert.deepEqual(roles, [{ role: 'owner', require: 'undefined', genericInvoke: 'undefined', publish: 'function', request: 'undefined' },
@@ -195,6 +199,41 @@ try {
     assert.equal(new URL(owner.url()).searchParams.get('view'), 'pilot');
     assert.equal((await bridgeState()).snapshot.conversationId, 101);
     assert.equal(await owner.locator('[data-pilot-surface-host] textarea').inputValue(), draft);
+  });
+  await haru.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
+  await settleVisual(haru, false);
+  await check('native-os-composition-over-owned-appshell', async () => {
+    const ownerWindow = await app.browserWindow(owner);
+    const previous = await ownerWindow.evaluate(win => ({ bounds: win.getBounds(), maximized: win.isMaximized() }));
+    try {
+      await ownerWindow.evaluate(win => { win.show(); win.maximize(); });
+      await poll(() => ownerWindow.evaluate(win => win.isMaximized()));
+      await windowAction(haru, 'focus'); await settleVisual(haru, false);
+      const identity = await app.evaluate(({ BrowserWindow }) => {
+        const windows = BrowserWindow.getAllWindows();
+        const mirror = windows.find(win => win.webContents.getURL().includes('desktopSurface=haru'));
+        const owner = windows.find(win => win !== mirror);
+        const nativeHandle = win => { const buffer = win.getNativeWindowHandle(); return (buffer.length === 8 ? buffer.readBigUInt64LE() : BigInt(buffer.readUInt32LE())).toString(); };
+        return { pid: process.pid, haruHandle: nativeHandle(mirror), ownerHandle: nativeHandle(owner) };
+      });
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-File', path.join(root, 'native-drag.ps1'),
+        '-Mode', 'Capture', '-WindowHandle', identity.haruHandle, '-OwnerWindowHandle', identity.ownerHandle,
+        '-OwnerProcessId', String(identity.pid)], { timeout: 15000 });
+      const capture = JSON.parse(stdout.trim());
+      assert.equal(capture.nativeScreenCapture, true); assert.equal(capture.imageEdited, false); assert.equal(capture.ownWindowSamples, 25); assert.ok(capture.haruWindowSamples > 0);
+      const bytes = await readFile(path.join(evidence, capture.file));
+      assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+      report.nativeOsCompositionCaptured = true;
+      report.osComposition = { ...capture, sha256: createHash('sha256').update(bytes).digest('hex'),
+        scope: 'Unedited Windows compositor capture limited to Haru bounds over the real owned AppShell; visual alpha review still required' };
+    } finally {
+      await ownerWindow.evaluate((win, previous) => { if (!previous.maximized) { win.unmaximize(); win.setBounds(previous.bounds); } }, previous);
+      await poll(() => ownerWindow.evaluate((win, previous) => {
+        if (win.isMaximized() !== previous.maximized) return false;
+        const bounds = win.getBounds(); return Object.keys(previous.bounds).every(key => Math.abs(bounds[key] - previous.bounds[key]) <= 1);
+      }, previous));
+      await ownerWindow.dispose(); await windowAction(haru, 'focus');
+    }
   });
   report.audit = await app.evaluate(() => globalThis.haruNativeAudit);
   assert.deepEqual(report.audit.denied, [], 'Unknown fixture API or disallowed network request');
