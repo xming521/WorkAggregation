@@ -157,15 +157,21 @@ try {
     await haru.getByRole('button', { name: '打开 OfferPilot 主窗口', exact: true }).click();
     await owner.waitForURL(url => url.searchParams.get('view') === 'pilot');
     await owner.locator('.op-pilot-page-host').waitFor({ state: 'visible' });
-    await owner.getByRole('button', { name: '打开对话：原生窗口合成会话', exact: true }).click();
+    await owner.getByRole('button', { name: '打开对话：原生窗口合成会话', exact: true })
+      .getByText('原生窗口合成会话', { exact: true }).click();
     await poll(async () => (await bridgeState()).snapshot?.conversationId === 101);
-    await owner.locator('[data-pilot-surface-host] textarea').fill(draft);
+    await owner.locator('.op-pilot-page-host textarea:visible').fill(draft);
     await capture('native-owner-pilot-selected', owner);
   });
   await check('real-theme-toggle-and-repeat-retain-drafts', async () => {
     const haruDraft = '【原生Haru草稿】保留';
     await haru.getByLabel('给 Haru 发消息', { exact: true }).fill(haruDraft);
     for (const theme of ['dark', 'light']) {
+      // Immersive Pilot deliberately has no Sidebar. Use its real exit control
+      // before changing the theme, then return through Haru's native handoff.
+      await owner.getByRole('button', { name: '退出沉浸模式，返回原页面', exact: true }).click();
+      await owner.waitForURL(url => url.searchParams.get('view') === 'dashboard');
+      await owner.getByRole('navigation', { name: '主导航', exact: true }).waitFor({ state: 'visible' });
       if (await owner.locator('html').getAttribute('data-theme') !== theme) await owner.getByRole('button', { name: '切换明暗模式', exact: true }).click();
       await haru.waitForFunction(value => document.querySelector('.desktop-haru')?.getAttribute('data-theme') === value, theme);
       await capture(`native-expanded-${theme}`, haru, true, theme);
@@ -174,11 +180,15 @@ try {
       await haru.getByRole('button', { name: '展开 Haru 对话', exact: true }).click();
       await settleVisual(haru, true);
       assert.equal(await haru.getByLabel('给 Haru 发消息', { exact: true }).inputValue(), haruDraft);
-      assert.equal(await owner.locator('[data-pilot-surface-host] textarea').inputValue(), draft);
+      await haru.getByRole('button', { name: '打开 OfferPilot 主窗口', exact: true }).click();
+      await owner.waitForURL(url => url.searchParams.get('view') === 'pilot');
+      await owner.locator('.op-pilot-page-host').waitFor({ state: 'visible' });
+      assert.equal((await bridgeState()).snapshot.conversationId, 101);
+      assert.equal(await owner.locator('.op-pilot-page-host textarea:visible').inputValue(), draft);
     }
   });
   for (const mode of ['minimized', 'hidden-after-close', 'background']) await check(`restore-${mode}-to-pilot-with-draft`, async () => {
-    await owner.getByRole('navigation', { name: '主导航', exact: true }).getByRole('button', { name: '今日', exact: true }).click();
+    await owner.getByRole('button', { name: '退出沉浸模式，返回原页面', exact: true }).click();
     await owner.waitForURL(url => url.searchParams.get('view') === 'dashboard');
     if (mode === 'minimized') { await windowAction(owner, 'minimize'); await poll(async () => (await windowState(owner)).minimized); }
     else if (mode === 'hidden-after-close') { await windowAction(owner, 'close'); await poll(async () => !(await windowState(owner)).visible); }
@@ -190,7 +200,7 @@ try {
     await poll(async () => { const state = await windowState(owner); return state.visible && !state.minimized && state.focused; });
     assert.equal((await bridgeState()).generation, generation);
     assert.equal((await bridgeState()).snapshot.conversationId, 101);
-    assert.equal(await owner.locator('[data-pilot-surface-host] textarea').inputValue(), draft);
+    assert.equal(await owner.locator('.op-pilot-page-host textarea:visible').inputValue(), draft);
     report.checks.push({ mode, before, after: await windowState(owner), conversationId: 101, draftPreserved: true });
     await capture(`native-restored-${mode}`, owner);
   });
@@ -198,7 +208,7 @@ try {
     for (let n = 0; n < 3; n++) await haru.getByRole('button', { name: '打开 OfferPilot 主窗口', exact: true }).click();
     assert.equal(new URL(owner.url()).searchParams.get('view'), 'pilot');
     assert.equal((await bridgeState()).snapshot.conversationId, 101);
-    assert.equal(await owner.locator('[data-pilot-surface-host] textarea').inputValue(), draft);
+    assert.equal(await owner.locator('.op-pilot-page-host textarea:visible').inputValue(), draft);
   });
   await haru.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
   await settleVisual(haru, false);
