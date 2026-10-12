@@ -135,10 +135,15 @@ function sessionImages(page, theme) {
   const main = page.document.querySelector('main[aria-label="Haru 桌面小窗"]');
   main.attributes['data-theme'] = theme;
   const portrait = main.add('.desktop-haru-static-portrait', new Node({ tag: 'img' }));
-  const avatar = page.surface.add('article[data-role="assistant"] .desktop-haru-message-avatar img',
-    new Node({ tag: 'img', attributes: { alt: 'Haru 头像' } }));
+  const frame = page.surface.add('article[data-role="assistant"] .desktop-haru-message-avatar',
+    new Node({ attributes: { class: 'desktop-haru-message-avatar' } }));
+  const avatar = frame.add('img', new Node({ tag: 'img', attributes: { alt: 'Haru 头像' } }));
+  page.surface.selectors.set('article[data-role="assistant"] .desktop-haru-message-avatar img', [avatar]);
+  frame.rect = { left: 20, top: 300, right: 47, bottom: 327, width: 27, height: 27 };
+  frame.style.overflowX = frame.style.overflowY = 'hidden';
+  avatar.rect = { left: 5.625, top: 299, right: 59.375, bottom: 352.75, width: 53.75, height: 53.75 };
   for (const image of [portrait, avatar]) Object.assign(image, { complete: true, naturalWidth: 1586, naturalHeight: 992 });
-  return { main, portrait, avatar };
+  return { main, portrait, avatar, frame };
 }
 async function setup(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mock-screens-test-'));

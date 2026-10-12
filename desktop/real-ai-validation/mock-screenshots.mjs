@@ -37,14 +37,17 @@ async function safeScreen({ screenId, stage, tokens, visual = false }) {
     const one = (selector, root = document) => shown(selector, root).length === 1;
     const hasText = (selector, pattern, root = document) => shown(selector, root)
       .some(node => pattern.test(node.textContent || ''));
-    const readable = async (nodes, every = false) => {
+    const readable = async (nodes, every = false, visibleFrames = new Map()) => {
       if (!visual) return 'PASSED';
       const targets = every ? nodes : nodes.slice(-1);
       // All measurements and text remain inside the renderer. Inspect the
       // message's ancestors too: opRise animates the row, not its text bubble.
       const sample = target => {
         if (!target?.isConnected || !visible(target)) return { reason: 'RESULT_NOT_VISIBLE' };
-        const rect = target.getBoundingClientRect();
+        const ownRect = target.getBoundingClientRect();
+        const frame = visibleFrames.get(target);
+        if (frame && !visible(frame)) return { reason: 'RESULT_NOT_VISIBLE' };
+        const rect = frame ? frame.getBoundingClientRect() : ownRect;
         let left = Math.max(0, rect.left), top = Math.max(0, rect.top);
         let right = Math.min(window.innerWidth, rect.right), bottom = Math.min(window.innerHeight, rect.bottom);
         const chain = [];
@@ -67,7 +70,13 @@ async function safeScreen({ screenId, stage, tokens, visual = false }) {
         // A sliver or merely an offscreen generated heading is not evidence.
         if (rect.width <= 0 || rect.height <= 0 || right - left < Math.min(120, rect.width) ||
           bottom - top < Math.min(32, rect.height)) return { reason: 'RESULT_NOT_VISIBLE' };
-        return { signature: [target.textContent, target.value, rect.left, rect.top, rect.right, rect.bottom, left, top, right, bottom], chain };
+        // A cropped portrait uses its entire visible avatar frame. Its scaled
+        // image still participates in opacity, animation and position checks.
+        if (frame && (rect.width < 20 || rect.height < 20 || right - left < rect.width - 0.5
+          || bottom - top < rect.height - 0.5
+          || Math.min(right, ownRect.right) - Math.max(left, ownRect.left) < rect.width - 2
+          || Math.min(bottom, ownRect.bottom) - Math.max(top, ownRect.top) < rect.height - 2)) return { reason: 'RESULT_NOT_VISIBLE' };
+        return { signature: [target.textContent, target.value, ownRect.left, ownRect.top, ownRect.right, ownRect.bottom, rect.left, rect.top, rect.right, rect.bottom, left, top, right, bottom], chain };
       };
       const before = targets.map(sample);
       if (before.some(value => value.reason)) return before.find(value => value.reason).reason;
@@ -181,10 +190,14 @@ async function safeScreen({ screenId, stage, tokens, visual = false }) {
       const portrait = shown('.desktop-haru-static-portrait', main);
       const avatars = shown('article[data-role="assistant"] .desktop-haru-message-avatar img', root);
       const avatar = avatars.at(-1);
+      const frame = avatar?.parentElement;
       if (main?.getAttribute('data-theme') !== theme || all('canvas', main).length || portrait.length !== 1
-        || !avatar || avatar.getAttribute('alt') !== 'Haru 头像'
+        || !avatar || !frame?.getAttribute('class')?.split(/\s+/).includes('desktop-haru-message-avatar')
+        || avatar.getAttribute('alt') !== 'Haru 头像'
         || [portrait[0], avatar].some(node => node.complete !== true || node.naturalWidth <= 0 || node.naturalHeight <= 0)) return 'HARU_SURFACE';
-      return results.length > 0 ? readable([results.at(-1), portrait[0], avatar], true) : 'RESULT_MISSING';
+      // The long reply needs a readable excerpt, not a full-message fit. The
+      // separate session reader proves full DOM/snapshot text equality.
+      return results.length > 0 ? readable([results.at(-1), portrait[0], avatar], true, new Map([[avatar, frame]])) : 'RESULT_MISSING';
     }
     return results.length > 0 ? readable(results) : 'RESULT_MISSING';
   } catch { return 'GUARD_EXCEPTION'; }
@@ -261,7 +274,7 @@ export function createMockScreenshots({ directory, mode } = {}) {
           const haru = screenId.startsWith('haru-');
           const scope = page.locator(haru ? 'section[aria-label="Haru 对话"]' : '.op-pilot-page-host [data-onboarding-target="pilot"]');
           target = screenId === 'haru-session-light' || screenId === 'haru-session-dark'
-            ? scope.locator('article[data-role="assistant"] .desktop-haru-message-avatar img')
+            ? scope.locator('article[data-role="assistant"] .desktop-haru-message-avatar')
             : stage === 'pilot-cancel' ? scope.locator('[role="status"]').filter({ hasText: /停止/ })
             : scope.locator(haru ? 'article[data-role="assistant"] p' : '[class*="bubbleAssistant"], [data-operation-id]')
               .filter({ hasText: stage === 'pilot-hitl-reject' ? /拒绝|未执行|已取消这次操作/ : /\S/ });
