@@ -51,5 +51,5 @@ export async function probeIdleMotion({ app, haru, capture, label, reducedMotion
     frames.push({ ...frame, digest: createHash('sha256').update(bitmap).digest('hex') });
   }
   await record({ phase: 'frames', frames, expectedReducedMotion: reducedMotion, animationOff });
-  return { ...verifyFrameSequence(frames, reducedMotion || animationOff), systemReducedMotion: reducedMotion, animationOff };
+  return { ...verifyFrameSequence(frames, reducedMotion || animationOff), rendererReducedMotion: reducedMotion, animationOff };
 }

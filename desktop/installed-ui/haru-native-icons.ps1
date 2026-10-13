@@ -52,7 +52,8 @@ $large = [IntPtr]::Zero; $small = [IntPtr]::Zero
 try {
   $phase = 'extract-pe-group'
   $extractedCount = [HaruNativeIcons]::ExtractIconEx($exe, 0, [ref]$large, [ref]$small, 1)
-  if ($extractedCount -ne 1) { throw 'PE icon group extraction failed' }
+  # Both one-large and one-small handles were requested: success extracts two icons.
+  if ($extractedCount -ne 2) { throw 'PE icon pair extraction failed' }
   $phase = 'save-pe-small'
   Save-OwnedIcon $small 'pe-small'
   $phase = 'save-pe-normal'

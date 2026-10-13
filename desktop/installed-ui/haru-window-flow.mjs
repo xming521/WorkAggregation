@@ -172,17 +172,21 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
     catch (error) { if (!animationFailure) animationFailure = error; }
   };
   try {
+    // Playwright's initial default and the underlying system preference can differ.
+    // Isolate the explicit app setting using only this renderer's media override.
+    await recordMotion('setting-test-media', { before: await haru.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), emulatedReducedMotion: false, osPreferenceModified: false });
+    await haru.emulateMedia({ reducedMotion: 'no-preference' });
     await selectVisibleOption(page, animationSelect, '关闭');
     await waitUntil(async () => (await state()).snapshot.animationLevel === 'off');
     await button(haru, '收起 Haru 对话').click();
     await frame('explicit-animation-off', false);
     setStage('haru-probe-explicit-animation-off');
-    result.explicitAnimationOff = await probeIdleMotion({ app, haru, capture, label: 'preference-off', reducedMotion: initialReducedMotion, animationOff: true,
+    result.explicitAnimationOff = await probeIdleMotion({ app, haru, capture, label: 'preference-off', reducedMotion: false, animationOff: true,
       record: details => recordMotion('off', details) });
     await selectVisibleOption(page, animationSelect, '完整');
     await waitUntil(async () => (await state()).snapshot.animationLevel === 'full');
     setStage('haru-probe-explicit-animation-restored');
-    result.explicitAnimationResumed = await probeIdleMotion({ app, haru, capture, label: 'preference-restored', reducedMotion: initialReducedMotion,
+    result.explicitAnimationResumed = await probeIdleMotion({ app, haru, capture, label: 'preference-restored', reducedMotion: false,
       record: details => recordMotion('restored', details) });
   } catch (error) {
     animationFailure = error;
@@ -197,6 +201,10 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
       if (!animationFailure) animationFailure = error;
       await noteAnimation('restore-original', { phase: 'failed', errorClass: ['AssertionError', 'TimeoutError'].includes(error?.name) ? error.name : 'OtherError' });
     }
+    try {
+      await haru.emulateMedia({ reducedMotion: null });
+      await noteAnimation('restore-media', { phase: 'completed', observedReducedMotion: await haru.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), osPreferenceModified: false });
+    } catch (error) { if (!animationFailure) animationFailure = error; }
   }
   if (animationFailure) throw animationFailure;
   await button(haru, '展开 Haru 对话').click();
