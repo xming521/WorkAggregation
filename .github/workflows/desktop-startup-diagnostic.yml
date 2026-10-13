@@ -1,0 +1,46 @@
+name: Bounded Windows desktop startup diagnostic
+on:
+  push:
+    branches: [test/20261013-desktop-startup-diagnostic]
+    paths:
+      - tests/_desktop_startup_diagnostic.py
+      - tests/test_desktop.py
+      - .github/workflows/desktop-startup-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  original-startup-node:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    env:
+      LITELLM_LOCAL_MODEL_COST_MAP: 'True'
+      PYTHONUTF8: '1'
+      PYTHONUNBUFFERED: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.19'
+      - name: Install exact frozen dependencies
+        run: |
+          uv sync --frozen
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen install failed' }
+      - name: Observe original readiness and persistence node
+        run: |
+          New-Item -ItemType Directory -Force diagnostic-evidence | Out-Null
+          uv run --frozen pytest -v -s tests/test_desktop.py::test_process_ready_security_persistence_and_parent_eof --durations=1 --junitxml=diagnostic-evidence/result.xml 2>&1 | Tee-Object diagnostic-evidence/startup.log
+          if ($LASTEXITCODE -ne 0) { throw 'Original startup node failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-startup-diagnostic-${{ github.sha }}-${{ github.run_attempt }}
+          path: diagnostic-evidence/
+          if-no-files-found: warn
+          retention-days: 7

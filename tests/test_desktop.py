@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -147,16 +148,18 @@ def test_desktop_auth_is_independent_of_editable_web_auth(tmp_path, static_dir, 
 def _backend(data_dir, static_dir, *, token=TOKEN, port=0, env_only=False, extra_env=None):
     env = os.environ.copy()
     env[TOKEN_ENV] = token
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    root = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = os.pathsep.join((str(root), str(root / "src")))
     if extra_env:
         env.update(extra_env)
-    command = [sys.executable, "-m", "offerpilot.desktop", "--port", str(port)]
+    command = [sys.executable, "-m", "tests._desktop_startup_diagnostic", "--port", str(port)]
     if env_only:
         env["OFFERPILOT_DESKTOP_DATA_DIR"] = str(data_dir)
         env["OFFERPILOT_DESKTOP_STATIC_DIR"] = str(static_dir)
     else:
         command.extend(["--data-dir", str(data_dir), "--static-dir", str(static_dir)])
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stderr:
+        started = time.monotonic()
         process = subprocess.Popen(
             command, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=stderr, text=True, encoding="utf-8",
@@ -164,8 +167,11 @@ def _backend(data_dir, static_dir, *, token=TOKEN, port=0, env_only=False, extra
         messages = queue.Queue()
 
         def read_protocol():
-            for line in process.stdout:
-                messages.put(line)
+            try:
+                for line in process.stdout:
+                    messages.put(line)
+            finally:
+                messages.put(None)
 
         threading.Thread(target=read_protocol, daemon=True).start()
         try:
@@ -173,17 +179,28 @@ def _backend(data_dir, static_dir, *, token=TOKEN, port=0, env_only=False, extra
                 line = messages.get(timeout=40)
             except queue.Empty:
                 stderr.seek(0)
-                pytest.fail(f"No desktop protocol message; stderr={stderr.read()}")
+                pytest.fail(f"No desktop protocol message; poll={process.poll()}; "
+                            f"elapsed={time.monotonic() - started:.3f}; stderr={stderr.read()}")
+            if line is None:
+                stderr.seek(0)
+                pytest.fail(f"Desktop protocol EOF before ready; poll={process.poll()}; "
+                            f"elapsed={time.monotonic() - started:.3f}; stderr={stderr.read()}")
             assert token not in line or not token
             yield process, json.loads(line), messages, stderr
         finally:
+            forced_kill = False
             if process.stdin and not process.stdin.closed:
                 process.stdin.close()
             try:
                 process.wait(timeout=20)
             except subprocess.TimeoutExpired:
+                forced_kill = True
                 process.kill()
                 process.wait(timeout=5)
+            print(f"desktop-diagnostic cleanup returncode={process.returncode} "
+                  f"forced_kill={forced_kill} elapsed={time.monotonic() - started:.3f}")
+            stderr.seek(0)
+            print(stderr.read())
             process.stdout.close()
 
 
