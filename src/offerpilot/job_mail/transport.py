@@ -13,10 +13,13 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from .extraction import MAX_RAW_BYTES, ParsedMail, parse_mail
+from .diagnostics import ReadDiagnostics, error_code, uid_number
 
 
 class TransportUnavailable(RuntimeError):
-    pass
+    def __init__(self, code: str, *, diagnostics: ReadDiagnostics | None = None) -> None:
+        super().__init__(code)
+        self.diagnostics = diagnostics
 
 
 class SecretReader(Protocol):
@@ -29,6 +32,7 @@ class FolderBatch:
     messages: list[ParsedMail]
     last_uid: int
     has_more: bool
+    diagnostics: ReadDiagnostics | None = None
 
 
 class MailTransport(Protocol):
@@ -307,11 +311,18 @@ class QQIMAPTransport:
     def read(self, folder: str, uidvalidity: str, after_uid: int,
              *, limit: int = 50, since: datetime | None = None,
              until: datetime | None = None) -> FolderBatch:
-        client = self._open()
+        diagnostic = ReadDiagnostics(stage="connect")
+        client = None
         try:
+            client = self._open()
+            diagnostic.stage = "select"
             self._check_cancelled()
             validity, highest = self._select(client, folder)
             after = after_uid if validity == uidvalidity else 0
+            diagnostic.server_uidvalidity = uid_number(validity)
+            diagnostic.server_uidnext = uid_number(highest + 1)
+            diagnostic.effective_after_uid = after
+            diagnostic.uidvalidity_reset = validity != uidvalidity
             criteria = ["UID", f"{after + 1}:*"]
             if since is not None:
                 cutoff = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since.astimezone(timezone.utc)
@@ -319,16 +330,24 @@ class QQIMAPTransport:
                 # before fetching BODY, so the earlier same-day mail is not read.
                 criteria.extend(["SINCE", cutoff.strftime("%d-%b-%Y")])
             self._check_cancelled()
+            diagnostic.stage = "search"
             status, result = client.uid("search", *criteria)
             self._check_cancelled()
             if status != "OK":
                 raise TransportUnavailable("folder_search_failed")
-            ids = sorted(int(item) for item in (result[0] or b"").split()
-                         if int(item) > after)
+            returned_ids = [int(item) for item in (result[0] or b"").split()]
+            ids = sorted(uid for uid in returned_ids if uid > after)
+            diagnostic.search_returned = len(returned_ids)
+            diagnostic.uid_filtered = len(returned_ids) - len(ids)
+            diagnostic.eligible_uids = len(ids)
+            diagnostic.batch_limit_deferred = max(0, len(ids) - max(1, min(limit, 50)))
+            diagnostic.metadata_checked = diagnostic.before_since = 0
+            diagnostic.after_until_observed = diagnostic.body_fetched = 0
             messages: list[ParsedMail] = []
             last = after
             for uid in ids[:max(1, min(limit, 50))]:
                 self._check_cancelled()
+                diagnostic.stage = "metadata"
                 status, size_result = client.uid("fetch", str(uid), "(RFC822.SIZE INTERNALDATE)")
                 size_text = b" ".join(item for item in size_result if isinstance(item, bytes))
                 size_match = re.search(rb"RFC822.SIZE (\d+)", size_text)
@@ -338,17 +357,21 @@ class QQIMAPTransport:
                 if not date:
                     raise TransportUnavailable("message_date_missing")
                 received = datetime.strptime(date.group(1).decode("ascii"), "%d-%b-%Y %H:%M:%S %z")
+                diagnostic.metadata_checked += 1
                 upper = until.replace(tzinfo=timezone.utc) if until and until.tzinfo is None else until
                 if upper is not None and received > upper:
                     # Preserve this UID for the next run. A manual sync must
                     # not expand its scope as newer mail arrives during work.
+                    diagnostic.after_until_observed += 1
                     break
                 if since is not None and received < cutoff:
+                    diagnostic.before_since += 1
                     last = uid
                     continue
                 if int(size_match.group(1)) > MAX_RAW_BYTES:
                     raise TransportUnavailable("message_too_large")
                 self._check_cancelled()
+                diagnostic.stage = "body"
                 status, data = client.uid("fetch", str(uid), "(INTERNALDATE BODY.PEEK[])")
                 self._check_cancelled()
                 if status != "OK":
@@ -356,16 +379,27 @@ class QQIMAPTransport:
                 literal = next((item for item in data if isinstance(item, tuple)), None)
                 if literal is None:
                     raise TransportUnavailable("message_fetch_failed")
+                diagnostic.body_fetched += 1
+                diagnostic.stage = "parse"
                 messages.append(parse_mail(literal[1], uid=uid, uidvalidity=validity,
                                            folder=folder, received_at=received))
                 last = uid
-            return FolderBatch(validity, messages, last, last < highest)
-        except TransportUnavailable:
-            raise
+            diagnostic.stage = "complete"
+            diagnostic.messages_returned = len(messages)
+            diagnostic.last_uid = last
+            diagnostic.has_more = last < highest
+            return FolderBatch(validity, messages, last, last < highest, diagnostic)
+        except TransportUnavailable as exc:
+            # Only a fixed code, never arbitrary exception text, leaves read().
+            code = error_code(exc.args[0] if exc.args else None)
+            diagnostic.error_code = code
+            raise TransportUnavailable(code, diagnostics=diagnostic) from None
         except Exception:
-            raise TransportUnavailable("mail_read_failed") from None
+            diagnostic.error_code = "mail_read_failed"
+            raise TransportUnavailable("mail_read_failed", diagnostics=diagnostic) from None
         finally:
-            self._close(client)
+            if client is not None:
+                self._close(client)
 
 
 class FakeIMAPTransport:

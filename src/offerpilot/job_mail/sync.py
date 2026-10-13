@@ -12,6 +12,7 @@ from uuid import uuid4
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from .diagnostics import ReadDiagnostics, error_code, number, uid_number, utc
 from .extraction import ParsedMail, clean_text, recognize, Candidate
 from .model_adapter import Extractor, OfflineRuleExtractor
 from .models import JobMailConnection, JobMailSyncRun, JobMailExtractionAttempt
@@ -291,7 +292,7 @@ class JobMailSyncService:
                 if not fenced:
                     return
                 folders = json.loads(fenced[1].folders_json)
-            for folder in folders:
+            for folder_index, folder in enumerate(folders):
                 with self.sessions() as session:
                     _transaction(session)
                     fenced = self._fenced(session, run_id)
@@ -300,15 +301,35 @@ class JobMailSyncService:
                     cursor = json.loads(fenced[1].cursor_json).get(folder, {"uidvalidity": "", "uid": 0})
                     since = fenced[1].start_at
                     until = fenced[0].started_at
+                    progress = json.loads(fenced[0].progress_json)
+                    # Directory indices avoid copying possibly sensitive folder names.
+                    # Settings admit <=20 folders; bound even corrupted legacy state.
+                    if folder_index < 20:
+                        progress.setdefault("read_diagnostics", []).append({
+                            "folder_index": folder_index,
+                            "since_utc": utc(since), "until_utc": utc(until),
+                            "cursor_uidvalidity": uid_number(cursor["uidvalidity"]),
+                            "cursor_before": number(cursor["uid"]), "cursor_after": number(cursor["uid"]),
+                            "read": ReadDiagnostics().safe_dict(),
+                            "outcomes": {"scanned": 0, "not_job_related": 0,
+                                         "before_since": 0, "duplicates": 0, "budget_deferred": 0},
+                        })
+                        fenced[0].progress_json = json.dumps(progress)
                     session.commit()
                 try:
                     batch = transport.read(folder, cursor["uidvalidity"], cursor["uid"], limit=50, since=since, until=until)
                 except TransportUnavailable as exc:
-                    self._folder_failed(run_id, folder, str(exc))
+                    self._record_read(run_id, folder_index, exc.diagnostics,
+                                      failure=error_code(exc.args[0] if exc.args else None))
+                    self._folder_failed(run_id, folder)
                     continue
+                except Exception:
+                    self._record_read(run_id, folder_index, None, failure="mail_read_failed")
+                    raise
+                self._record_read(run_id, folder_index, batch.diagnostics)
                 deferred = False
                 for mail in batch.messages:
-                    outcome = self._process_mail(run_id, mail)
+                    outcome = self._process_mail(run_id, mail, folder_index)
                     if outcome == "stop":
                         return
                     if outcome == "budget":
@@ -323,6 +344,11 @@ class JobMailSyncService:
                         cursors = json.loads(fenced[1].cursor_json)
                         cursors[folder] = {"uidvalidity": batch.uidvalidity, "uid": batch.last_uid}
                         fenced[1].cursor_json = json.dumps(cursors)
+                        progress = json.loads(fenced[0].progress_json)
+                        records = progress.get("read_diagnostics", [])
+                        if folder_index < len(records):
+                            records[folder_index]["cursor_after"] = number(batch.last_uid)
+                            fenced[0].progress_json = json.dumps(progress)
                         session.commit()
                 if batch.has_more:
                     with self.sessions() as session:
@@ -339,13 +365,44 @@ class JobMailSyncService:
             # Exceptions may contain provider/body content. Store only a fixed code.
             self._finish(run_id, error="sync_failed")
 
+    def _record_read(self, run_id: str, index: int, diagnostic: ReadDiagnostics | None,
+                     *, failure: str | None = None) -> None:
+        with self.sessions() as session:
+            _transaction(session)
+            fenced = self._fenced(session, run_id)
+            if not fenced:
+                return
+            progress = json.loads(fenced[0].progress_json)
+            records = progress.get("read_diagnostics", [])
+            if index >= len(records):
+                return
+            observation = (ReadDiagnostics.safe_dict(diagnostic) if type(diagnostic) is ReadDiagnostics
+                           else ReadDiagnostics().safe_dict())
+            if failure is not None:
+                observation["error_code"] = error_code(failure)
+            records[index]["read"] = observation
+            fenced[0].progress_json = json.dumps(progress)
+            session.commit()
+
+    @staticmethod
+    def _observe_outcome(progress: dict[str, Any], index: int, reason: str,
+                         *, scanned: bool = False, cursor: int | None = None) -> None:
+        records = progress.get("read_diagnostics", [])
+        if 0 <= index < len(records):
+            outcomes = records[index]["outcomes"]
+            outcomes[reason] += 1
+            if scanned:
+                outcomes["scanned"] += 1
+            if cursor is not None:
+                records[index]["cursor_after"] = number(cursor)
+
     @staticmethod
     def _advance(connection: JobMailConnection, mail: ParsedMail) -> None:
         cursors = json.loads(connection.cursor_json)
         cursors[mail.folder] = {"uidvalidity": mail.uidvalidity, "uid": mail.uid}
         connection.cursor_json = json.dumps(cursors)
 
-    def _process_mail(self, run_id: str, mail: ParsedMail) -> str:
+    def _process_mail(self, run_id: str, mail: ParsedMail, folder_index: int = -1) -> str:
         # Only a bounded source excerpt is retained while a provider result is
         # unknown. Long/multi-part evidence is explicitly review-only.
         mail = replace(mail, body_text=mail.body_text[:12000],
@@ -362,6 +419,8 @@ class JobMailSyncService:
             candidate = (connection.start_at is None or received >= connection.start_at) and bool(recognize(mail))
             if not candidate:
                 progress["scanned"] += 1
+                reason = "before_since" if connection.start_at is not None and received < connection.start_at else "not_job_related"
+                self._observe_outcome(progress, folder_index, reason, scanned=True, cursor=mail.uid)
                 self._advance(connection, mail)
                 run.progress_json = json.dumps(progress)
                 session.commit()
@@ -380,6 +439,7 @@ class JobMailSyncService:
                                      scope_version=connection.scope_version)
                 progress["duplicates"] += 1
                 progress["scanned"] += 1
+                self._observe_outcome(progress, folder_index, "duplicates", scanned=True, cursor=mail.uid)
                 self._advance(connection, mail)
                 run.progress_json = json.dumps(progress)
                 session.commit()
@@ -387,6 +447,7 @@ class JobMailSyncService:
             budget = self._budget(connection)
             if int(budget["used"]) >= DAILY_LIMIT:
                 progress["deferred"] += 1
+                self._observe_outcome(progress, folder_index, "budget_deferred")
                 run.progress_json = json.dumps(progress)
                 session.commit()
                 return "budget"
@@ -427,6 +488,9 @@ class JobMailSyncService:
             progress["scanned"] += 1
             progress["candidates"] += len(candidates) if not result["deduplicated"] else 0
             progress["duplicates"] += int(result["deduplicated"])
+            self._observe_outcome(progress, folder_index,
+                                  "duplicates" if result["deduplicated"] else "scanned",
+                                  scanned=bool(result["deduplicated"]), cursor=mail.uid)
             if failed:
                 progress["recognition_failed"] = progress.get("recognition_failed", 0) + 1
             self._advance(connection, mail)
@@ -451,7 +515,7 @@ class JobMailSyncService:
         attempt.payload_json = "{}"
         attempt.finished_at = _now()
 
-    def _folder_failed(self, run_id: str, folder: str, code: str) -> None:
+    def _folder_failed(self, run_id: str, folder: str) -> None:
         with self.sessions() as session:
             _transaction(session)
             fenced = self._fenced(session, run_id)

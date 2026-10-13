@@ -83,11 +83,47 @@ export interface JobMailImportInput {
   body_text: string;
 }
 
+// Local run observations only. Null means not observed, never an inferred zero.
+export interface JobMailReadDiagnostic {
+  folder_index: number;
+  since_utc: string | null;
+  until_utc: string | null;
+  cursor_uidvalidity: number | null;
+  cursor_before: number | null;
+  cursor_after: number | null;
+  read: {
+    stage: 'read' | 'connect' | 'select' | 'search' | 'metadata' | 'body' | 'parse' | 'complete';
+    error_code: string | null;
+    server_uidvalidity: number | null;
+    server_uidnext: number | null;
+    effective_after_uid: number | null;
+    uidvalidity_reset: boolean | null;
+    search_returned: number | null;
+    uid_filtered: number | null;
+    eligible_uids: number | null;
+    batch_limit_deferred: number | null;
+    metadata_checked: number | null;
+    before_since: number | null;
+    after_until_observed: number | null;
+    body_fetched: number | null;
+    messages_returned: number | null;
+    last_uid: number | null;
+    has_more: boolean | null;
+  };
+  outcomes: {
+    scanned: number;
+    not_job_related: number;
+    before_since: number;
+    duplicates: number;
+    budget_deferred: number;
+  };
+}
+
 export interface JobMailRun {
   id: string;
   status: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   trigger: string;
-  progress: { scanned: number; candidates: number; duplicates: number; deferred: number; failed_folders: string[] };
+  progress: { scanned: number; candidates: number; duplicates: number; deferred: number; failed_folders: string[]; read_diagnostics?: JobMailReadDiagnostic[] };
   error_code: string | null;
 }
 export interface JobMailConnection {
