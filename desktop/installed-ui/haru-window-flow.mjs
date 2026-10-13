@@ -42,7 +42,7 @@ export function assertRestoredWindow(before, after, mode) {
 
 // Installed production main/backend/renderer only. No controller replacement,
 // backend fixtures, synthetic history publication or credential configuration.
-export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUntil, nativeInput, capture, checkpoint, setStage }) {
+export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUntil, nativeInput, capture, checkpoint, setStage, recordMotion = async () => {} }) {
   const result = { realInstalledWindows: true, realOsPointer: false, themeChecks: [], restores: [],
     historyAndDrafts: 'deferred-to-same-exe-offline-mock', nativeOsCompositionCaptured: false,
     osAlphaCompositionRequiresHumanReview: true };
@@ -166,16 +166,39 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
   const animationSelect = page.getByRole('combobox', { name: 'Haru 动画级别', exact: true });
   const previousAnimation = await animationSelect.evaluate(element => element.closest('.ant-select')?.querySelector('.ant-select-selection-item')?.getAttribute('title'));
   assert.ok(['完整', '简洁', '关闭'].includes(previousAnimation));
+  let animationFailure;
+  const noteAnimation = async (policy, details) => {
+    try { await recordMotion(policy, details); }
+    catch (error) { if (!animationFailure) animationFailure = error; }
+  };
   try {
     await selectVisibleOption(page, animationSelect, '关闭');
     await waitUntil(async () => (await state()).snapshot.animationLevel === 'off');
     await button(haru, '收起 Haru 对话').click();
     await frame('explicit-animation-off', false);
-    result.explicitAnimationOff = await probeIdleMotion({ app, haru, capture, label: 'preference-off', reducedMotion: initialReducedMotion, animationOff: true });
+    setStage('haru-probe-explicit-animation-off');
+    result.explicitAnimationOff = await probeIdleMotion({ app, haru, capture, label: 'preference-off', reducedMotion: initialReducedMotion, animationOff: true,
+      record: details => recordMotion('off', details) });
     await selectVisibleOption(page, animationSelect, '完整');
     await waitUntil(async () => (await state()).snapshot.animationLevel === 'full');
-    result.explicitAnimationResumed = await probeIdleMotion({ app, haru, capture, label: 'preference-restored', reducedMotion: initialReducedMotion });
-  } finally { await selectVisibleOption(page, animationSelect, previousAnimation); }
+    setStage('haru-probe-explicit-animation-restored');
+    result.explicitAnimationResumed = await probeIdleMotion({ app, haru, capture, label: 'preference-restored', reducedMotion: initialReducedMotion,
+      record: details => recordMotion('restored', details) });
+  } catch (error) {
+    animationFailure = error;
+    await noteAnimation('probe-failure', { errorClass: ['AssertionError', 'TimeoutError'].includes(error?.name) ? error.name : 'OtherError' });
+  } finally {
+    await noteAnimation('restore-original', { phase: 'begin' });
+    try {
+      await selectVisibleOption(page, animationSelect, previousAnimation);
+      await noteAnimation('restore-original', { phase: 'completed' });
+    }
+    catch (error) {
+      if (!animationFailure) animationFailure = error;
+      await noteAnimation('restore-original', { phase: 'failed', errorClass: ['AssertionError', 'TimeoutError'].includes(error?.name) ? error.name : 'OtherError' });
+    }
+  }
+  if (animationFailure) throw animationFailure;
   await button(haru, '展开 Haru 对话').click();
   await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('button', { name: '今日', exact: true }).click();
   await page.waitForURL(url => url.searchParams.get('view') === 'dashboard');

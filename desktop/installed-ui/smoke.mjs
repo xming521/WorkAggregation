@@ -373,6 +373,11 @@ try {
     report.installedIcons.icons.push({ size: item.size, dimensions: item.dimensions, file, sha256: await hash(path.join(evidence, file)) });
   }
   await checkpoint(stage, report.installedIcons);
+  stage = 'installed-haru-native-icon-read';
+  report.nativeIcons = JSON.parse(await command('pwsh.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'haru-native-icons.ps1')], { ...environment, UI_EVIDENCE_DIR: evidence }, 15000));
+  assert.equal(report.nativeIcons.extraction, 'Windows-native-read-only');
+  assert.equal(report.nativeIcons.icons.length, 6);
+  await writeReport();
   stage = 'haru-observed-startup-reload';
   const haruRuntime = observeRuntime(first.haru);
   await first.haru.reload({ waitUntil: 'domcontentloaded' });
@@ -406,6 +411,10 @@ try {
   await checkpoint(stage);
   stage = 'haru-installed-window-flow';
   report.haruWindows = await probeInstalledHaruWindows({ ...first, waitUntil, capture: haruCapture,
+    recordMotion: async (policy, details) => {
+      (report.haruMotionObservations ||= []).push({ policy, ...details });
+      await writeReport();
+    },
     setStage: name => { stage = name; },
     checkpoint: async (name, details) => { stage = name; await checkpoint(name, details); },
     nativeInput: async (mode, handles, point = {}) => {

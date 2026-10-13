@@ -29,10 +29,14 @@ export function verifyFrameSequence(frames, staticExpected) {
   return { frameCount: frames.length, changes, staticExpected, frames };
 }
 
-export async function probeIdleMotion({ app, haru, capture, label, reducedMotion, animationOff = false }) {
+export async function probeIdleMotion({ app, haru, capture, label, reducedMotion, animationOff = false, record = async () => {} }) {
+  await record({ phase: 'await-ready', expectedReducedMotion: reducedMotion, animationOff });
   await haru.locator('.desktop-haru.collapsed .desktop-haru-portrait[data-runtime-state="ready"] canvas').waitFor();
-  assert.equal(await haru.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), reducedMotion);
-  assert.equal(await haru.locator('.desktop-haru-chat, .desktop-haru img').count(), 0);
+  const observedReducedMotion = await haru.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const unexpectedNodes = await haru.locator('.desktop-haru-chat, .desktop-haru img').count();
+  await record({ phase: 'preconditions', expectedReducedMotion: reducedMotion, observedReducedMotion, animationOff, unexpectedNodes });
+  assert.equal(observedReducedMotion, reducedMotion);
+  assert.equal(unexpectedNodes, 0);
   const frames = [];
   for (let index = 0; index < 6; index++) {
     await new Promise(resolve => setTimeout(resolve, 400));
@@ -46,5 +50,6 @@ export async function probeIdleMotion({ app, haru, capture, label, reducedMotion
     assert.equal(bitmap.length, frame.width * frame.height * 4);
     frames.push({ ...frame, digest: createHash('sha256').update(bitmap).digest('hex') });
   }
+  await record({ phase: 'frames', frames, expectedReducedMotion: reducedMotion, animationOff });
   return { ...verifyFrameSequence(frames, reducedMotion || animationOff), systemReducedMotion: reducedMotion, animationOff };
 }
