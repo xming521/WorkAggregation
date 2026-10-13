@@ -3,6 +3,7 @@ import { verifyHaruVisual } from './haru-visual.mjs';
 import { selectVisibleOption } from './select-option.mjs';
 import { probeIdleMotion } from './haru-idle-motion.mjs';
 import { invokeTrayAction } from './haru-probes.mjs';
+import { button as visibleButton } from './ui-locators.mjs';
 
 const button = (page, name) => page.getByRole('button', { name, exact: true });
 export async function readNativeWindow(app, page) {
@@ -137,6 +138,7 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
   try {
     await input.press('Enter');
     for (const mode of ['minimized', 'hidden-after-close']) {
+      setStage(`haru-missing-ai-restore-${mode}`);
       await actWindow(app, page, mode === 'minimized' ? 'minimize' : 'close');
       await waitUntil(async () => { const value = await readNativeWindow(app, page); return mode === 'minimized' ? value.minimized : !value.visible; });
       await button(haru, '去配置 AI').click();
@@ -144,7 +146,9 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
       await waitUntil(async () => { const value = await readNativeWindow(app, page); return value.visible && !value.minimized && value.focused; });
       assert.equal(await input.inputValue(), draft);
       await capture(`missing-ai-settings-${mode}`, page);
-      await button(page, '返回设置').click();
+      setStage(`haru-missing-ai-return-${mode}`);
+      await visibleButton(page.getByRole('region', { name: 'AI 设置', exact: true }), '返回设置').click();
+      setStage(`haru-missing-ai-dashboard-${mode}`);
       await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('button', { name: '今日', exact: true }).click();
       await page.waitForURL(url => url.searchParams.get('view') === 'dashboard');
     }
