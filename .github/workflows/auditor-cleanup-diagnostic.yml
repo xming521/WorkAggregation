@@ -1,0 +1,51 @@
+name: Bounded Windows auditor cleanup diagnostic
+on:
+  push:
+    branches: [test/20261013-auditor-cleanup-diagnostic]
+    paths:
+      - desktop/auditor-cleanup-diagnostic/**
+      - .github/workflows/auditor-cleanup-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  original-auditor-node:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    env:
+      LITELLM_LOCAL_MODEL_COST_MAP: 'True'
+      PYTHONUTF8: '1'
+      PYTHONUNBUFFERED: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.19'
+      - name: Install exact frozen dependencies
+        run: |
+          uv sync --frozen
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen install failed' }
+      - name: Collect original auditor failure phases
+        run: |
+          python desktop/auditor-cleanup-diagnostic/run.py
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic incomplete; inspect preserved phases' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auditor-cleanup-diagnostic-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            desktop/auditor-cleanup-diagnostic/evidence/report.json
+            desktop/auditor-cleanup-diagnostic/evidence/harness-cleanup.jsonl
+            desktop/auditor-cleanup-diagnostic/evidence/node.*
+            desktop/auditor-cleanup-diagnostic/evidence/offline-guards/*.json
+          if-no-files-found: warn
+          retention-days: 7
