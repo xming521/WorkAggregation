@@ -36,7 +36,9 @@ vi.mock('@/services/offers', () => ({ getOffer: chatState.getOffer }));
 vi.mock('@/services/onboarding', () => ({ ONBOARDING_QUERY_KEY: ['onboarding'] }));
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-  useQuery: () => ({ data: [], isLoading: false }),
+  useQuery: ({ queryKey }: { queryKey?: readonly unknown[] }) => ({
+    data: queryKey?.[0] === 'settings' ? { image_capability: { enabled: true } } : [], isLoading: false,
+  }),
 }));
 vi.mock('@/features/pilot/PilotAttachmentContext', () => ({
   usePilotAttachments: () => ({
@@ -175,6 +177,57 @@ it('uses Offer-specific Chinese status labels in the editor and change summary',
 });
 
 describe('deterministic Pilot JD confirmation card', () => {
+  it('reuses the original request identity when sending an unaccepted image draft again', async () => {
+    let owner!: PilotConversationController;
+    function Observe() { owner = usePilotConversationController(); return null; }
+    chatState.streamChat.mockRejectedValueOnce(new Error('受理状态未知'))
+      .mockImplementationOnce(async (_message, _conversationId, _context, options) => {
+        options.onAccepted({ conversationId: 501, turnId: 'image-turn' });
+        return { type: 'message', conversation_id: 501, message: '看到了图片' };
+      });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<AntApp><AssistantSurfaceProvider><Observe /><ChatPanel open variant="page" onClose={vi.fn()} /></AssistantSurfaceProvider></AntApp>));
+    act(() => owner.imageDrafts.reference({ id: 'img_test', sha256: 'hash', mime_type: 'image/png',
+      size_bytes: 10, width: 2, height: 2, normalization_version: 'image-normalize-v1' }, {}, 'new:workspace:'));
+    await act(async () => container?.querySelector<HTMLButtonElement>('[data-testid="mock-pilot-send"]')?.click());
+    expect(owner.imageDrafts.drafts).toHaveLength(1);
+    expect(owner.lastSubmissionRef.current?.message).toBe('');
+    await act(async () => container?.querySelector<HTMLButtonElement>('[data-testid="mock-pilot-send"]')?.click());
+    expect(chatState.streamChat).toHaveBeenCalledTimes(2);
+    const [first, retry] = chatState.streamChat.mock.calls;
+    expect(retry[3].requestId).toBe(first[3].requestId);
+    expect(retry[2].image_attachment_ids).toEqual(['img_test']);
+    expect(owner.imageDrafts.drafts).toHaveLength(0);
+    expect(owner.lastSubmissionRef.current).toBeNull();
+  });
+
+  it('recovers an accepted request after a stream error without offering a duplicate resend', async () => {
+    let owner!: PilotConversationController;
+    function Observe() { owner = usePilotConversationController(); return null; }
+    chatState.streamChat.mockImplementationOnce(async (_message, _conversationId, _context, options) => {
+      options.onAccepted({ conversationId: 501, turnId: 'accepted-turn' });
+      throw new Error('已受理后连接中断');
+    });
+    chatState.getConversation.mockResolvedValue([{ id: 9, conversation_id: 501, role: 'user', content: '原请求' }]);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<AntApp><AssistantSurfaceProvider><Observe /><ChatPanel open variant="page" onClose={vi.fn()} /></AssistantSurfaceProvider></AntApp>));
+    act(() => owner.setComposerDraft('原请求'));
+    await act(async () => { await owner.sendMessage('原请求'); });
+    expect(owner.lastError).toBe('已受理后连接中断');
+    expect(owner.lastFailedText).toBe('');
+    expect(owner.lastSubmissionRef.current).toBeNull();
+    expect(owner.composerDraft).toBe('');
+    expect(owner.turns.some((turn) => turn.content === '原请求')).toBe(true);
+    expect(container.textContent).toContain('已受理后连接中断');
+    expect(container.textContent).not.toContain('重新发送');
+    await act(async () => owner.retryLastMessage());
+    expect(chatState.streamChat).toHaveBeenCalledTimes(1);
+  });
+
   it('retries an unknown submission with its original page context after navigation', async () => {
     let owner!: PilotConversationController;
     function Observe() { owner = usePilotConversationController(); return null; }

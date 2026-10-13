@@ -74,6 +74,15 @@ def init_database(db_path: Path) -> SessionFactory:
     mock_interview_migration_needed = _prepare_event_bound_mock_interview_migration(engine)
     _reset_knowledge_legacy_tables(engine, db_path.parent)
     Base.metadata.create_all(engine)
+    _ensure_column(engine, "chat_messages", "image_refs_json", "TEXT NOT NULL DEFAULT '[]'")
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS chat_attachment_immutable
+            BEFORE UPDATE OF id, sha256, mime_type, size_bytes, width, height,
+                             normalization_version, context_type, context_ref ON chat_attachments
+            BEGIN SELECT RAISE(ABORT, 'immutable image resource'); END
+        """))
+    _record_migration(engine, "0034_chat_image_messages", "Add immutable image resources and message references")
     runtime_columns_changed = [
         _ensure_column(engine, "pilot_executions", "protocol", "TEXT NOT NULL DEFAULT 'legacy'"),
         _ensure_column(engine, "pilot_executions", "runtime_epoch", "TEXT"),

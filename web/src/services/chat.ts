@@ -34,6 +34,7 @@ export async function interruptPilotExecution(target: PilotExecution, commandId:
 }
 
 export interface ChatContextInput {
+  image_attachment_ids?: string[];
   context_type?: 'workspace' | 'application' | 'global' | string;
   context_ref?: string | number;
   mode?: string;
@@ -111,6 +112,7 @@ export async function sendChat(
       ...(context?.mode ? { mode: context.mode } : {}),
       ...(context?.page_context !== undefined ? { page_context: context.page_context } : {}),
       ...(context?.attachments !== undefined ? { attachments: context.attachments } : {}),
+      ...(context?.image_attachment_ids?.length ? { image_attachment_ids: context.image_attachment_ids } : {}),
       ...(context?.pilot_action !== undefined ? { pilot_action: context.pilot_action } : {}),
     },
     { signal: options?.signal },
@@ -426,6 +428,7 @@ export async function updateConversation(
 }
 
 export interface Settings {
+  image_capability?: import('./chatImages').ImageCapability;
   version: string;
   data_dir: string;
   chat_auto_approve_writes: boolean;
@@ -455,6 +458,7 @@ export interface LogsPage {
 }
 
 export interface AIProviderProfile {
+  supports_vision?: boolean;
   id: string;
   label: string;
   provider: string;

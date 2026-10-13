@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input, Button } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
+import { SendOutlined, PictureOutlined } from '@ant-design/icons';
 import type { Capability } from './capabilities';
 import SlashMenu from './SlashMenu';
 import styles from './ChatPanel.module.css';
 import type { SendMessageOutcome } from '@/features/assistantSurface/usePilotConversationController';
+import type { ChatImageDraft } from '@/features/assistantSurface/useChatImageDrafts';
+import ChatImagePreview from './ChatImagePreview';
 
 interface Props {
   capabilities: Capability[];
@@ -17,6 +19,11 @@ interface Props {
   suggestions?: string[];
   onSuggestionSelect?: (question: string) => void;
   onboardingFocusToken?: number;
+  imageDrafts?: ChatImageDraft[];
+  imageDisabledReason?: string;
+  onAddImages?: (files: File[]) => void;
+  onRemoveImage?: (key: string) => void;
+  onRetryImage?: (draft: ChatImageDraft) => void;
   onSend: (text: string) => void | boolean | SendMessageOutcome | Promise<void | boolean | SendMessageOutcome>;
 }
 
@@ -35,12 +42,20 @@ export default function Composer({
   suggestions,
   onSuggestionSelect,
   onboardingFocusToken,
+  imageDrafts = [],
+  imageDisabledReason,
+  onAddImages,
+  onRemoveImage,
+  onRetryImage,
   onSend,
 }: Props) {
   const [localValue, setLocalValue] = useState('');
   const [sel, setSel] = useState(0);
   const [onboardingFocusActive, setOnboardingFocusActive] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageBlocked = imageDrafts.some((item) => item.status !== 'ready')
+    || (imageDrafts.length > 0 && Boolean(imageDisabledReason));
   const controlled = draftValue !== undefined;
   const value = controlled ? draftValue : localValue;
   const setValue = (next: string) => {
@@ -99,7 +114,7 @@ export default function Composer({
 
   async function submit() {
     const text = value.trim();
-    if (!text || disabled) return;
+    if ((!text && !imageDrafts.length) || disabled || imageBlocked) return;
     const sent = await onSend(text);
     if (shouldClearAfterSend(sent)) {
       setValue('');
@@ -111,6 +126,15 @@ export default function Composer({
     <div
       ref={composerRef}
       className={`${styles.composer} ${onboardingFocusActive ? styles.composerOnboardingFocus : ''}`}
+      onDragOver={(event) => {
+        if (onAddImages && event.dataTransfer.types.includes('Files')) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!onAddImages || !event.dataTransfer.files.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!disabled && !imageDisabledReason) onAddImages(Array.from(event.dataTransfer.files));
+      }}
     >
       {quickQuestions.length > 0 ? (
         <div className={styles.quickQuestions} aria-label="快捷提问">
@@ -134,12 +158,38 @@ export default function Composer({
       {menuOpen && items.length > 0 && (
         <SlashMenu items={items} selected={sel} onSelect={pickCapability} onHover={setSel} />
       )}
+      {imageDrafts.length ? <div className={styles.imageRail} aria-label="待发送图片" aria-live="polite">
+        {imageDrafts.map((draft, imageIndex) => <div key={draft.key} className={styles.imageDraft}>
+          <ChatImagePreview image={draft.reference} localUrl={draft.previewUrl} label={`图片 ${imageIndex + 1}`} />
+          <span className={styles.imageName} title={draft.name}>{draft.name}</span>
+          {draft.status === 'uploading' ? <span role="status">上传中…</span> : null}
+          {draft.error ? <span role="alert" className={styles.imageError}>{draft.error}</span> : null}
+          <div>
+            {draft.status === 'error' ? <Button size="small" type="text" disabled={disabled} onClick={() => onRetryImage?.(draft)}>重试</Button> : null}
+            <Button size="small" type="text" disabled={disabled} aria-label={`移除${draft.name}`} onClick={() => onRemoveImage?.(draft.key)}>移除</Button>
+          </div>
+        </div>)}
+      </div> : null}
       <div className={styles.composerBox}>
+        {onAddImages ? <>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden
+            onChange={(event) => { onAddImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
+          <Button type="text" icon={<PictureOutlined />} aria-label="添加图片"
+            title={imageDisabledReason || '选择、粘贴或拖入图片（最多 4 张）'}
+            disabled={disabled || Boolean(imageDisabledReason)} onClick={() => fileInputRef.current?.click()} />
+        </> : null}
         <Input.TextArea
           value={value}
           onChange={(e) => {
             setValue(e.target.value);
             setSel(0);
+          }}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
+            if (!files.length || !onAddImages || disabled || imageDisabledReason) return;
+            // Mixed clipboard text follows the browser's normal paste behavior.
+            if (!event.clipboardData.getData('text/plain')) event.preventDefault();
+            onAddImages(files);
           }}
           onKeyDown={(e) => {
             if (menuOpen && items.length > 0) {
@@ -178,12 +228,13 @@ export default function Composer({
           type="primary"
           className="op-ai-btn"
           icon={<SendOutlined />}
-          disabled={disabled || !value.trim()}
+          disabled={disabled || imageBlocked || (!value.trim() && !imageDrafts.length)}
           onClick={() => void submit()}
           aria-label="发送"
         />
       </div>
       <div className={styles.hint}>
+        {onAddImages && imageDisabledReason ? <span>{imageDisabledReason}</span> : null}
         {disabledReason ? (
           <span>{disabledReason}</span>
         ) : (

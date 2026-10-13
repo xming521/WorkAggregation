@@ -1,4 +1,5 @@
 import ConversationSummaryControl from '../ConversationSummaryControl';
+import type { ChatImageReference } from '@/services/chatImages';
 import ConversationReadinessControl from '../ConversationReadinessControl';
 import { useEffect, useReducer, useRef, useState, createElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -456,6 +457,26 @@ function ChatPanelView({
     queryFn: getSettings,
     enabled: conversationSurfaceActive,
   });
+  const imageScopeContext = buildRequestContext({ conversationId: convID, draftContext,
+    offerApplicationId: offer?.application_id, offerId,
+    pageContext: convID === undefined ? activePageContext : pinnedContext, attachments: [] });
+  const imageScope = { conversation_id: convID, context_type: imageScopeContext.context_type,
+    context_ref: imageScopeContext.context_ref };
+  const imageScopeKey = convID === undefined
+    ? `new:${imageScope.context_type ?? 'workspace'}:${imageScope.context_ref ?? ''}` : `conversation:${convID}`;
+  const imageDrafts = controller.imageDrafts.drafts.filter((item) => item.scopeKey === imageScopeKey);
+  const imageCapability = settingsQuery.data?.image_capability;
+  const imageDisabledReason = imageCapability?.enabled ? undefined : imageCapability?.reason ?? '正在检查图片输入能力';
+  function addImages(files: File[]) {
+    if (imageDisabledReason) { toast.info(imageDisabledReason); return; }
+    const error = controller.imageDrafts.add(files, imageScope, imageScopeKey);
+    if (error) toast.error(error);
+  }
+  function referenceImage(image: ChatImageReference) {
+    if (imageDisabledReason) { toast.info(imageDisabledReason); return; }
+    const error = controller.imageDrafts.reference(image, imageScope, imageScopeKey);
+    if (error) toast.error(error);
+  }
 
   useEffect(() => {
     if (!onboardingFocusToken || !conversationSurfaceActive || onboardingFocusToken === consumedOnboardingFocusTokenRef.current) return;
@@ -1018,17 +1039,22 @@ function ChatPanelView({
     }
   }
 
-  async function sendMessage(text: string, retry?: ChatSubmission): Promise<SendMessageOutcome> {
+  async function sendMessage(text: string, retry?: ChatSubmission, includeImageDrafts = false): Promise<SendMessageOutcome> {
     const trimmed = text.trim();
-    if (!trimmed || loading || activePending || controller.executionControl.execution?.state === 'running') return 'ignored';
-    if (onOpenInterviewStoryLibrary && isInterviewStoryPilotIntent(trimmed)) {
+    const sentImages = includeImageDrafts || retry ? imageDrafts.flatMap((item) => item.reference ? [item.reference] : []) : [];
+    const imageIds = retry?.context.image_attachment_ids ?? sentImages.map((item) => item.id);
+    if ((!trimmed && !imageIds.length) || loading || activePending || controller.executionControl.execution?.state === 'running') return 'ignored';
+    if (imageIds.length && imageDisabledReason) { toast.info(imageDisabledReason); return 'ignored'; }
+    if (includeImageDrafts && !retry && imageDrafts.some((item) => item.status !== 'ready')) return 'ignored';
+    const sentDraftKeys = imageDrafts.filter((item) => item.reference && imageIds.includes(item.reference.id)).map((item) => item.key);
+    if (!imageIds.length && onOpenInterviewStoryLibrary && isInterviewStoryPilotIntent(trimmed)) {
       // This is a local navigation intent.  It must not create a Chat message,
       // call a Provider, or make a Story-domain write before the user selects
       // original sources and confirms the later Story action.
       onOpenInterviewStoryLibrary();
       return 'sent';
     }
-    if (onOpenVoiceCoachingGrowth && isVoiceCoachingPilotIntent(trimmed)) {
+    if (!imageIds.length && onOpenVoiceCoachingGrowth && isVoiceCoachingPilotIntent(trimmed)) {
       // Local read-only navigation: no Chat message, Provider call, or domain write.
       onOpenVoiceCoachingGrowth();
       return 'sent';
@@ -1044,27 +1070,36 @@ function ChatPanelView({
     setConfirmError(null);
     setConfirmPhase('idle');
     setLoadingLabel('正在理解你的问题');
-    setTurns((t) => [...t, { id: `transient:${convID ?? 'new'}:${visibleRequestGeneration}:user`, role: 'user', content: trimmed }]);
+    setTurns((t) => [...t, { id: `transient:${convID ?? 'new'}:${visibleRequestGeneration}:user`, role: 'user', content: trimmed, image_attachments: sentImages }]);
     streamingAssistantActiveRef.current = false;
     setHasStreamingAssistantContent(false);
     const requestPageContext = retry ? retry.context.page_context : convID === undefined ? activePageContext : pinnedContext;
     setRequestContextSnapshot(requestPageContext);
     let streamConversationId = convID;
+    let accepted = false;
     try {
       const isNew = convID === undefined;
-      const requestContext = retry?.context ?? buildRequestContext({
+      const requestContext = retry?.context ?? { ...buildRequestContext({
         conversationId: convID,
         draftContext,
         offerApplicationId: offer?.application_id,
         offerId,
         pageContext: requestPageContext,
         attachments,
-      });
-      const submission = retry ?? createChatSubmission(trimmed, convID, requestContext);
+      }), ...(imageIds.length ? { image_attachment_ids: imageIds } : {}) };
+      const previousSubmission = controller.lastSubmissionRef.current;
+      const sameSubmission = previousSubmission?.message === trimmed
+        && previousSubmission.conversationId === convID
+        && JSON.stringify(previousSubmission.context) === JSON.stringify(requestContext);
+      const submission = retry ?? (sameSubmission ? previousSubmission : null) ?? createChatSubmission(trimmed, convID, requestContext);
       controller.lastSubmissionRef.current = submission;
       const resp = await streamChatRequest(requestLease, trimmed, convID, requestContext, {
         requestId: submission.requestId,
         onAccepted: (identity) => {
+          accepted = true;
+          controller.imageDrafts.remove(sentDraftKeys);
+          setComposerDraft((draft) => draft.trim() === trimmed ? '' : draft);
+          if (controller.lastSubmissionRef.current?.requestId === submission.requestId) controller.lastSubmissionRef.current = null;
           streamConversationId = identity.conversationId;
           if (isCurrentVisibleRequest(visibleRequestGeneration) && isNew) {
             setConvID(identity.conversationId);
@@ -1148,10 +1183,12 @@ function ChatPanelView({
         await syncConversationAfterAbort(streamConversationId, visibleRequestGeneration);
         return 'stopped';
       }
-      if (e instanceof RuntimeSubscriptionError || e instanceof RuntimeEndedError) {
-        await syncConversationAfterAbort(e.target.conversation_id, visibleRequestGeneration);
+      if (accepted || e instanceof RuntimeSubscriptionError || e instanceof RuntimeEndedError) {
+        const targetConversationId = e instanceof RuntimeSubscriptionError || e instanceof RuntimeEndedError
+          ? e.target.conversation_id : streamConversationId;
+        await syncConversationAfterAbort(targetConversationId, visibleRequestGeneration);
         if (!isCurrentVisibleRequest(visibleRequestGeneration)) return 'ignored';
-        setLastError(e.message);
+        setLastError(e?.message ?? '连接中断，已同步原任务状态。');
         setLastFailedText('');
         return 'ignored';
       }
@@ -1197,7 +1234,7 @@ function ChatPanelView({
   }
 
   function retryLastMessage() {
-    if (!lastFailedText || loading || activePending) return;
+    if ((!lastFailedText && !controller.lastSubmissionRef.current?.context.image_attachment_ids?.length) || loading || activePending) return;
     const retryText = lastFailedText;
     const submission = controller.lastSubmissionRef.current;
     if (!submission || submission.message !== retryText) return;
@@ -1657,6 +1694,7 @@ function ChatPanelView({
                     turn={turn}
                     index={i}
                     onOpenEvidence={onOpenEvidence}
+                    onReferenceImage={referenceImage}
                     actionsDisabled={composerDisabled}
                     onAction={(action) => void sendMessage(`继续处理：${action}`)}
                   />
@@ -1821,12 +1859,14 @@ function ChatPanelView({
                 )}
               </div>
             )}
-            {lastError && lastFailedText ? (
+            {lastError ? (
               <div className={styles.retryNotice}>
                 <span>{lastError}</span>
-                <button type="button" onClick={retryLastMessage} disabled={composerDisabled}>
-                  重新发送
-                </button>
+                {controller.lastSubmissionRef.current && (lastFailedText || controller.lastSubmissionRef.current.context.image_attachment_ids?.length) ? (
+                  <button type="button" onClick={retryLastMessage} disabled={composerDisabled}>
+                    重新发送
+                  </button>
+                ) : null}
                 <button type="button" onClick={clearLastFailure}>
                   关闭提示
                 </button>
@@ -1851,9 +1891,14 @@ function ChatPanelView({
                 resetKey={composerResetKey}
                 draftValue={composerDraft}
                 onDraftChange={setComposerDraft}
+                imageDrafts={imageDrafts}
+                imageDisabledReason={imageDisabledReason}
+                onAddImages={addImages}
+                onRemoveImage={(key) => controller.imageDrafts.remove([key])}
+                onRetryImage={(draft) => { void controller.imageDrafts.retry(draft); }}
                 suggestions={attachmentSuggestions}
                 onboardingFocusToken={onboardingFocusEventToken}
-                onSend={sendMessage}
+                onSend={(text) => sendMessage(text, undefined, true)}
               />
           </section>
 

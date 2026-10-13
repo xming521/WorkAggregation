@@ -2288,3 +2288,22 @@
     transform: none;
   }
 }
+.imageRail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+}
+.imageDraft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 112px;
+  padding: 8px;
+  border: 1px solid var(--op-border, #d9d9d9);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.imagePreview { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.imageName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imageError { color: var(--op-danger, #b42318); overflow-wrap: anywhere; }

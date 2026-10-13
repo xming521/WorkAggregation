@@ -61,6 +61,7 @@ export interface ToolStep {
 }
 
 export interface UITurn {
+  image_attachments?: import('@/services/chatImages').ChatImageReference[];
   id?: string;
   action?: import('@/features/actionPresentation/contracts').ActionPresentationV1;
   role: 'user' | 'assistant';
@@ -565,7 +566,7 @@ export function buildTurns(stored: ChatMessage[]): UITurn[] {
   let pendingMessageId: number | undefined;
   for (const m of stored) {
     if (m.role === 'user') {
-      turns.push({ id: `message:${m.id}`, role: 'user', content: m.content });
+      turns.push({ id: `message:${m.id}`, role: 'user', content: m.content, image_attachments: m.image_attachments });
       latestUserContent = m.content;
       pending = [];
       nextFallbackToolIndex = 0;

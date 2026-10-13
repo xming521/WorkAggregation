@@ -1,3 +1,4 @@
+import { useChatImageDrafts } from './useChatImageDrafts';
 import {
   useCallback,
   useEffect,
@@ -148,6 +149,9 @@ const unavailableActions: PilotConversationActions = {
 };
 
 export function usePilotConversationControllerState(observationEnabled = true) {
+  const imageDrafts = useChatImageDrafts();
+  const imageDraftsRef = useRef(imageDrafts);
+  imageDraftsRef.current = imageDrafts;
   const [turns, setTurns] = useState<UITurn[]>([]);
   const [conversationId, setConversationId] = useState<number>();
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -235,6 +239,12 @@ export function usePilotConversationControllerState(observationEnabled = true) {
         // Another task's completion must not hide a newer error or offer a
         // misleading resend after this request has already succeeded.
         const recoveredSubmission = lastSubmissionRef.current;
+        if (recoveredRequestId && recoveredSubmission?.requestId === recoveredRequestId) {
+          const images = imageDraftsRef.current;
+          images.remove(images.drafts.filter((item) => item.reference && recoveredSubmission.context.image_attachment_ids?.includes(item.reference.id)).map((item) => item.key));
+          setComposerDraft((draft) => draft === recoveredSubmission.message ? '' : draft);
+          lastSubmissionRef.current = null;
+        }
         if (['completed', 'waiting_confirmation'].includes(target.state)
           && recoveredRequestId && recoveredSubmission?.requestId === recoveredRequestId) {
           setLastError(null);
@@ -692,6 +702,7 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     setComposerResetKey,
     composerDraft,
     setComposerDraft,
+    imageDrafts,
     followingContext,
     setFollowingContext,
     pinnedContext,
@@ -772,6 +783,7 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     composerResetKey,
     composerDraft,
     confirmError,
+    imageDrafts,
     confirmPhase,
     contextChangeNotice,
     conversationId,
