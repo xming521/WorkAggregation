@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("auditor_diagnostic", Path(__file__).with_name("run.py"))
@@ -34,6 +35,17 @@ class InstrumentationTests(unittest.TestCase):
         changed = self.source.replace("      throw 'Forced browser auditor startup cleanup failure.'", "      throw 'changed'")
         with self.assertRaises(ValueError):
             MODULE.instrument(self.helper, changed)
+
+    def test_windows_checkout_text_normalizes_anchors_without_changing_original_bytes(self):
+        raw = b'\xef\xbb\xbf' + self.source.replace('\n', '\r\n').encode()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'harness.ps1'
+            path.write_bytes(raw)
+            with self.assertRaises(ValueError):
+                MODULE.instrument(self.helper, raw.decode('utf-8-sig'))
+            result = MODULE.instrument(self.helper, path.read_text(encoding='utf-8-sig'))
+            self.assertIn("Write-CleanupDiagnostic 'auditor.forced_failure'", result)
+            self.assertEqual(path.read_bytes(), raw)
 
     def test_scope_stays_exact_original_node_with_original_timeout(self):
         self.assertTrue(MODULE.NODE.endswith("::test_story_browser_harness_cleans_all_local_resources_when_auditor_startup_fails"))

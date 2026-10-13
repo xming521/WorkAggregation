@@ -157,13 +157,17 @@ def main():
     evidence.mkdir(exist_ok=False)
     original = repo / helper.HARNESS_RELATIVE
     before = original.read_bytes()
-    instrumented = instrument(helper, before.decode("utf-8-sig"))
+    # Git's Windows checkout may use CRLF; normalize source text for the
+    # reviewed LF anchors while retaining original bytes for identity checks.
+    instrumented = instrument(helper, original.read_text(encoding="utf-8-sig"))
     temporary = original.with_name(f".auditor-cleanup-diagnostic-{uuid.uuid4().hex}.ps1")
     result = None
     guard_coverage = None
     errors = []
     try:
-        temporary.write_text(instrumented, encoding="utf-8-sig")
+        temporary.write_text(instrumented, encoding="utf-8-sig", newline="\n")
+        if temporary.read_bytes() != instrumented.encode("utf-8-sig"):
+            raise RuntimeError("Executed diagnostic bytes differ from recorded source hash")
         env = helper.prepare_offline_environment(repo, evidence, temporary)
         result = helper.bounded_run([
             str(repo / ".venv/Scripts/python.exe"), "-m", "pytest", "-p", "story_cleanup_probe_plugin",
