@@ -4,11 +4,10 @@ import vm from 'node:vm';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { createRequire } from 'node:module';
 import { readInstalledIcons, validateInstalledIcon, verifyShortcutIdentity } from '../haru-installed-icons.mjs';
 
 test('installed icon extraction is bounded to the verified executable and its fixed desktop shortcut', async () => {
-  const read = vm.runInNewContext(`(${readInstalledIcons.toString()})`, { require: createRequire(import.meta.url) });
+  const read = vm.runInNewContext(`(${readInstalledIcons.toString()})`, {});
   const requested = [];
   const exe = path.resolve('fixture', 'OfferPilot Desktop.exe');
   const desktop = path.resolve('fixture', 'Desktop');
@@ -17,12 +16,16 @@ test('installed icon extraction is bounded to the verified executable and its fi
     requested.push({ filename, size });
     return { isEmpty: () => false, getSize: () => ({ width: 32, height: 32 }), toPNG: () => Buffer.from('synthetic') };
   } };
-  const shell = { readShortcutLink: filename => { assert.equal(filename, path.join(desktop, 'OfferPilot Desktop.lnk')); return shortcut; } };
+  const shell = { readShortcutLink: filename => { assert.equal(path.normalize(filename), path.join(desktop, 'OfferPilot Desktop.lnk')); return shortcut; } };
   const result = await read({ app, shell });
+  assert.equal(result.ok, true);
   assert.equal(result.exe, exe);
   assert.equal(result.shortcut, shortcut);
   assert.equal(requested.length, 2);
   assert.deepEqual(requested.map(item => item.size), ['small', 'normal']);
+  shell.readShortcutLink = () => { throw new Error('private path must not be returned'); };
+  const failed = await read({ app, shell });
+  assert.equal(JSON.stringify(failed), JSON.stringify({ ok: false, phase: 'desktop-shortcut-read', errorClass: 'Error' }));
 
 });
 

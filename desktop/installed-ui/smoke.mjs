@@ -361,6 +361,9 @@ try {
   stage = 'installed-haru-icon-and-shortcut';
   await fs.mkdir(path.join(evidence, 'screens'), { recursive: true });
   const installedIcons = await first.app.evaluate(readInstalledIcons);
+  report.installedIconRead = installedIcons.ok ? { ok: true } : installedIcons;
+  await writeReport();
+  assert.equal(installedIcons.ok, true, 'Installed icon extraction must succeed');
   const shortcutTargetVerified = verifyShortcutIdentity(installedIcons, exe);
   report.installedIcons = { shortcutTargetVerified, shortcutIconIndex: installedIcons.shortcut.iconIndex, icons: [], visualReviewRequired: true };
   for (const item of installedIcons.icons) {

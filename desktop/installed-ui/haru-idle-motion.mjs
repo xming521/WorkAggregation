@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 // Decode the exact saved PNG using Electron's native decoder. No model/ticker
 // replacement, canvas painting, forced frame progression or screenshot editing.
@@ -6,11 +7,12 @@ export function describeNativeFrame({ nativeImage }, base64) {
   const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
   if (image.isEmpty()) throw new Error('Empty native frame');
   const size = image.getSize();
+  if (![size.width, size.height].every(value => Number.isInteger(value) && value > 0 && value <= 2048)) throw new Error('Unexpected frame dimensions');
   const bitmap = image.toBitmap();
   if (bitmap.length !== size.width * size.height * 4) throw new Error('Unexpected bitmap layout');
   let opaque = 0;
   for (let offset = 3; offset < bitmap.length; offset += 4) if (bitmap[offset] > 32) opaque++;
-  return { ...size, opaque, digest: require('node:crypto').createHash('sha256').update(bitmap).digest('hex') };
+  return { ...size, opaque, bitmapBase64: bitmap.toString('base64') };
 }
 
 export function verifyFrameSequence(frames, staticExpected) {
@@ -38,7 +40,11 @@ export async function probeIdleMotion({ app, haru, capture, label, reducedMotion
     // frame must follow real runtime readiness, not a formerly ready canvas.
     await haru.locator('.desktop-haru.collapsed .desktop-haru-portrait[data-runtime-state="ready"] canvas').waitFor();
     const bytes = await capture(`${label}-${index}`, haru, { omitBackground: true });
-    frames.push(await app.evaluate(describeNativeFrame, bytes.toString('base64')));
+    const { bitmapBase64, ...frame } = await app.evaluate(describeNativeFrame, bytes.toString('base64'));
+    const bitmap = Buffer.from(bitmapBase64, 'base64');
+    assert.ok(bitmap.length <= 2048 * 2048 * 4);
+    assert.equal(bitmap.length, frame.width * frame.height * 4);
+    frames.push({ ...frame, digest: createHash('sha256').update(bitmap).digest('hex') });
   }
   return { ...verifyFrameSequence(frames, reducedMotion || animationOff), systemReducedMotion: reducedMotion, animationOff };
 }

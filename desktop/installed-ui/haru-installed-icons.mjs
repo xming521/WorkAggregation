@@ -6,16 +6,25 @@ import { sameWindowsPath } from './contract.mjs';
 // Run in the already verified installed main process. Read only its own PE
 // icon and the shortcut whose fixed name was created by this installation.
 export async function readInstalledIcons({ app, shell }) {
-  const path = require('node:path');
+  let phase = 'own-exe-path';
+  try {
   const exe = app.getPath('exe');
-  const shortcut = shell.readShortcutLink(path.join(app.getPath('desktop'), 'OfferPilot Desktop.lnk'));
+  // Electron evaluate receives the Electron module, not a CommonJS require.
+  // Windows accepts this separator; the basename is fixed, never user input.
+  phase = 'desktop-shortcut-read';
+  const shortcut = shell.readShortcutLink(`${app.getPath('desktop')}/OfferPilot Desktop.lnk`);
   const icons = [];
   for (const size of ['small', 'normal']) {
+    phase = `exe-icon-${size}`;
     const icon = await app.getFileIcon(exe, { size });
     if (icon.isEmpty()) throw new Error('Installed executable has no readable icon');
     icons.push({ size, dimensions: icon.getSize(), png: icon.toPNG().toString('base64') });
   }
-  return { exe, shortcut, icons };
+  return { ok: true, exe, shortcut, icons };
+  } catch (error) {
+    // Fixed phases/classes only: never serialize paths, metadata or raw errors.
+    return { ok: false, phase, errorClass: ['Error', 'TypeError', 'ReferenceError'].includes(error?.name) ? error.name : 'OtherError' };
+  }
 }
 
 export function verifyShortcutIdentity(result, expectedExe) {
