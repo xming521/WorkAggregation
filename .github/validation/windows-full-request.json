@@ -1,76 +1,63 @@
 {
   "repository": "offercontext/offerPilot",
   "branch": "feat/20261005-windows-desktop-validation",
-  "parentCommit": "44d3b8a2d3fa8a68d0ddaf414f1ed80668b6a603",
+  "parentCommit": "a1009e8064588f6f2a4bc77b29172594de968463",
   "productBaseline": {
-    "commit": "ae98002d73f3477b5d72de4f8ca2dc841856ecd5",
-    "tree": "087b0b3a9c6b8e3538153394006bc1e71f84c62e"
+    "commit": "a1009e8064588f6f2a4bc77b29172594de968463",
+    "tree": "26efd6a60ca601c6c416420a21a87ee2e3cbdfcc"
   },
-  "reason": "同一已通过完整Windows门禁的EXE在免费MOCK验收中暴露面试准备首次打开时岗位资料迟到竞态。本次仅合入已审JD来源补全修复及15项前端回归，随后重新执行普通完整门禁并生成新EXE。旧完整门禁通过不替代新提交或同包UI验收。",
+  "reason": "对已完成且失败的 Windows 验收执行一次普通完整恢复。保留原失败；两项有界诊断未复现，根因尚未确认。本次仅更新本请求记录，产品、依赖锁、测试、工作流及超时均不变。",
   "previousFullGate": {
-    "run": 38084680213,
-    "attempt": 2,
-    "url": "https://github.com/offercontext/offerPilot/actions/runs/38084680213",
-    "commit": "ae98002d73f3477b5d72de4f8ca2dc841856ecd5",
-    "outcome": "success",
+    "run": 38344457267,
+    "attempt": 1,
+    "url": "https://github.com/offercontext/offerPilot/actions/runs/38344457267",
+    "outcome": "failure",
+    "startedAt": "2026-10-13T04:01:24Z",
+    "finishedAt": "2026-10-13T11:57:02Z",
     "pytest": {
       "nodes": 6771,
-      "passed": 6758,
+      "passed": 6757,
       "skipped": 13,
-      "failed": 0
+      "failed": 1
     },
-    "postGate": "ruff、完整mypy（205源文件）、前端2616项、build、真实CLI/HTTP smoke、local verify、install gate全部通过；package及validation-status成功。"
-  },
-  "previousSameExeMock": {
-    "run": 38123852919,
-    "url": "https://github.com/offercontext/offerPilot/actions/runs/38123852919",
-    "helperCommit": "44d3b8a2d3fa8a68d0ddaf414f1ed80668b6a603",
-    "passed": 3,
-    "failed": 1,
-    "blocked": 3,
-    "finding": "面试准备抽屉先于current-JD查询完成挂载，首次状态未吸收迟到的JD。该真实产品竞态尚须在修复后的新EXE上重验；失败与blocked不算通过。"
+    "failures": [
+      {
+        "job": 115122498834,
+        "node": "tests/test_desktop.py::test_process_ready_security_persistence_and_parent_eof",
+        "observed": "首次后端启动未在原40秒内提供ready协议；stderr为空。58项通过、1项失败，尚未构建EXE。",
+        "sameRunEvidence": "同一未修改节点在原完整回归第2组通过，call39.69105秒；不替代package检查。",
+        "diagnostic": {
+          "run": 38346615702,
+          "outcome": "1 passed",
+          "callSeconds": 30.67,
+          "meaning": "未复现；不能声称根因已修复。"
+        }
+      },
+      {
+        "job": 115123055395,
+        "node": "tests/test_interview_story_browser_harness.py::test_story_browser_harness_cleans_all_local_resources_when_auditor_startup_fails",
+        "observed": "PowerShell在原180秒上限超时，stdout/stderr为空；该组564通过、1失败。",
+        "diagnostic": {
+          "run": 38349121431,
+          "commit": "2de50d70e5a61d6f4b63766e47e6c6131b8a8dfe",
+          "outcome": "1 passed",
+          "callSeconds": 32.029,
+          "meaning": "239条连续阶段记录、6个离线guard记录及4个根进程退出已核；未复现原超时，不替代完整分组证据。"
+        }
+      }
+    ],
+    "postGate": "full-release因分组失败关闭；最终validation-status因package和full失败关闭，未通过其余后置验收。"
   },
   "change": {
-    "reviewedCommit": "e69eba21b35b39ea0cd5db6ca1fd8378d1c658ca",
     "files": [
-      "web/src/components/InterviewPreparationProposalDrawer.tsx",
-      "web/src/components/InterviewPreparationProposalDrawer.interaction.test.tsx",
-      "web/src/components/ApplicationDetail.interviewHydration.test.tsx"
+      ".github/validation/windows-full-request.json"
     ],
-    "behavior": "JD文本与版本成对保存；仅在抽屉打开、非busy、结果已知且来源完全为空时吸收迟到的current JD。保留已选版本、简历选择、用户断言、证据和未知结果尝试；草稿持久化实际result_unknown状态。",
-    "scope": "除上述三个文件及本请求JSON外，所有跟踪文件与实际parent相同。后端、依赖锁、BUGS、工作流及验收helper不变；保留parent全部祖先产品修复。",
-    "localEvidence": "三个文件逐字节复用已审e69修复：73项相关测试、前端build及独立审查已通过。引用既有相同源码证据，不冒充本候选新执行或Windows完整通过。"
-  },
-  "windowsPlatformPreflight": {
-    "outcome": "success",
-    "run": 38125386099,
-    "url": "https://github.com/offercontext/offerPilot/actions/runs/38125386099",
-    "job": 114428555778,
-    "commit": "2251b3473ec82c2bc1cefa8c20f201df91cc3bc7",
-    "tree": "eb391ba7247733aa8d6896f9ea1e685abdde999a",
-    "artifact": 11696852440,
-    "artifactSha256": "b5b9154a14cb602070c85b6c72f766930811cbea0711b85dd89bb7f7c828227b",
-    "environment": "windows-2022；Node 22.23.3；npm 10.9.9；web和helper锁文件与原锁的Windows CRLF字节精确一致。",
-    "frontend": "2631项全部通过，无failed/pending/todo。按文件和fullName多重集合核验原2616项全部保留，新增15项JD回归。",
-    "helper": "672项中670通过、2项原Windows平台skip，无失败；原671项名称全部保留，新增1项ASAR回归。skip不算pass。",
-    "performance": "原30000ms审计断言通过；Vitest整case时长25803.799ms，不冒充内层纯审计时长。",
-    "build": "tsc -b && vite build退出0，Vite构建16.01秒；helper/frontend/build阶段实际退出码均0。",
-    "scope": "此结果是独立提交的Windows平台预检，不是本候选完整门禁、安装包或provider验收。预检专用工作流和ASAR helper修复不合入此产品候选；新EXE生成后再统一helper PIN并完成同包验收。"
-  },
-  "testCollection": {
-    "backendExpectedNodes": 6771,
-    "backendAddedNodes": 0,
-    "backendRemovedNodes": 0,
-    "frontendPreviousTests": 2616,
-    "frontendExpectedTests": 2631,
-    "frontendAddedTests": 15,
-    "frontendRemovedTests": 0,
-    "verification": "最终按新run实际manifest和前端结果核对；13个旧skip及理由单列，skip不算pass。后端夹具与既有隔离审查源字节不变，不改review hash。"
+    "scope": "除本请求记录外，所有跟踪文件逐字节保持parent；不引入诊断脚本、邮件功能或跨attempt证据协议。"
   },
   "workflowRouting": {
     "workflow": ".github/workflows/desktop-windows.yml",
     "mode": "ordinary-full",
-    "activation": "最终提交推送到validation分支后，四个改动路径均不在paths-ignore内；提交标题不使用windows-package-only或real-AI请求前缀。本JSON是可读请求记录，不是工作流输入。",
+    "activation": "本路径不在paths-ignore中，提交标题不含package-only或real-AI激活前缀。JSON仅是可读请求记录，不是工作流输入。",
     "shards": 12,
     "maxParallel": 2,
     "failFast": false,
@@ -82,14 +69,13 @@
       "validation-package",
       "validation-status"
     ],
-    "postGate": "全部manifest/shards成功后执行release-gate.ps1 -Install -PytestEvidence pytest-evidence：严格聚合、ruff、完整mypy、全部前端测试/build、真实CLI/HTTP smoke、local verify和install gate。package与full-regression均须成功。",
-    "aiOffline": false,
-    "paid": false,
-    "aiRouting": "精确四文件不触及real-ai helper/workflow/docs，classifyPush应返回offline=false；提交标题不匹配real-AI请求前缀。预期只运行secret-free route，MOCK/offline、preflight和paid jobs均跳过；推送后核实际jobs。"
+    "paid": false
   },
   "requiredAcceptance": [
-    "最终请求提交的新普通Windows完整门禁全部通过并生成新EXE；失败、取消、超时、跳过或仅有安装包不算完整通过。",
-    "按最终提交、run/attempt、artifact及EXE SHA256重新固定新包，统一helper PIN后对同一EXE完成免费non-AI及全部7项MOCK；不得提前触发旧包UI或借用旧包结果。",
-    "本次不启动付费模型。后续受限live仍需当日官方价格、既有累计费用、专用凭据和独立人工审批；累计10元预算不重置，跨UTC日期重新核价。"
+    "新提交的完整门禁、安装包及后置检查均需成功；不以旧提交或诊断结果代替。",
+    "产包后固定新source、run、attempt、artifact和EXE SHA256；helper独审及全测试归零后可并行同包免费non-AI与7项MOCK，最终结论仍等待完整门禁。",
+    "实装验证Haru连续动态帧、全局动画设置及系统减少动态效果、无key可编辑草稿和模型配置跳转、图标与已有窗口交互。",
+    "仅此一次普通完整恢复；若相同失败复发，保留阶段证据并调查根因，不再无修改全量重跑。",
+    "不启动真实AI或配置凭据；累计10元预算不重置，后续安全配置及精确激活独立处理。"
   ]
 }
