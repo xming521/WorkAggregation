@@ -7,6 +7,8 @@ export interface DesktopHaruSnapshot {
   contextLabel: string;
   loading: boolean;
   hasPending: boolean;
+  animationLevel?: 'full' | 'minimal' | 'off';
+  aiConfigured?: boolean;
   canSend: boolean;
   canStop: boolean;
   stopping: boolean;
@@ -24,13 +26,14 @@ export interface DesktopHaruState {
 export type DesktopHaruResult = { ok: true } | { ok: false; reason: 'unavailable' | 'busy' | 'stale' | 'uncertain' };
 export type DesktopHaruRequest = { action: 'send' | 'stop' | 'open-pending'; version: number; generation: number; text?: string };
 export type DesktopHaruCommand = Omit<DesktopHaruRequest, 'generation'> & { id: number };
-export type DesktopHaruWindowAction = 'show-main' | 'show-haru' | 'hide-haru' | 'toggle-top' | 'expand' | 'collapse';
+export type DesktopHaruWindowAction = 'show-main' | 'show-ai-settings' | 'show-haru' | 'hide-haru' | 'toggle-top' | 'expand' | 'collapse';
 interface DesktopHaruBridge {
   role: 'owner' | 'haru';
   getState(): Promise<DesktopHaruState | null>;
   onState(listener: (state: DesktopHaruState) => void): () => void;
   windowAction(action: DesktopHaruWindowAction): Promise<boolean>;
   dragWindow?(phase: 'start' | 'move' | 'end' | 'cancel'): Promise<boolean>;
+  onShowAISettings?(listener: () => void): () => void;
   onShowPilot?(listener: () => void): () => void;
   publish?(snapshot: DesktopHaruSnapshot): void;
   disconnect?(): void;

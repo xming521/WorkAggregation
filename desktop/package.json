@@ -29,8 +29,10 @@
       { "from": "../web/dist", "to": "web" },
       { "from": "../LICENSE", "to": "LICENSE" }
     ],
-    "win": { "target": [{"target": "nsis", "arch": ["x64"]}], "artifactName": "OfferPilot-Desktop-${version}-win-${arch}-setup.${ext}" },
+    "win": { "icon": "assets/haru-icon.ico", "target": [{"target": "nsis", "arch": ["x64"]}], "artifactName": "OfferPilot-Desktop-${version}-win-${arch}-setup.${ext}" },
     "nsis": {
+      "installerIcon": "assets/haru-icon.ico",
+      "uninstallerIcon": "assets/haru-icon.ico",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

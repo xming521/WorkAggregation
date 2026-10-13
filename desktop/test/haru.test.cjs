@@ -16,6 +16,10 @@ test('snapshot copies only bounded prose, booleans and theme enum; never credent
   assert.equal(value.error.length, 1200);
   assert(!JSON.stringify(value).includes('secret'));
   assert(!('pending' in value));
+  for (const animationLevel of ['full', 'minimal', 'off']) assert.equal(sanitizeSnapshot({ ...view, animationLevel }).animationLevel, animationLevel);
+  for (const animationLevel of [undefined, true, { level: 'off' }, null, 'invalid']) assert(!('animationLevel' in sanitizeSnapshot({ ...view, animationLevel })));
+  for (const aiConfigured of [true, false]) assert.equal(sanitizeSnapshot({ ...view, aiConfigured }).aiConfigured, aiConfigured);
+  for (const aiConfigured of [undefined, 'false', { api_key: 'secret' }, null]) assert(!('aiConfigured' in sanitizeSnapshot({ ...view, aiConfigured })));
   assert.equal(sanitizeSnapshot({ ...view, version: NaN }), null);
   assert.equal(sanitizeSnapshot({ ...view, taskState: 'approved' }), null);
   for (const theme of ['dark', 'light']) assert.equal(sanitizeSnapshot({ ...view, theme }).theme, theme);
@@ -298,6 +302,7 @@ test('hostile senders cannot open Pilot or move Haru; destroyed and quitting own
     { sender: h.mirror.webContents, senderFrame: { url: origin + '/' } },
   ]) {
     assert.equal(windowHandler(event, 'show-main'), false);
+    assert.equal(windowHandler(event, 'show-ai-settings'), false);
     assert.equal(dragHandler(event, 'start'), false);
   }
   h.mirror.webContents.mainFrame.url = 'https://hostile.example/';
@@ -413,10 +418,29 @@ test('preload exposes drag only to Haru and payload-free Pilot subscription only
       off();
       ipc.emit(CHANNEL + 'show-pilot', {});
       assert.equal(received, 1);
+      const offSettings = bridge.onShowAISettings(() => { received++; });
+      ipc.emit(CHANNEL + 'show-ai-settings', {});
+      offSettings();
+      ipc.emit(CHANNEL + 'show-ai-settings', {});
+      assert.equal(received, 2);
     } else {
       assert.equal(bridge.onShowPilot, undefined);
+      assert.equal(bridge.onShowAISettings, undefined);
       assert.equal(await bridge.dragWindow('start'), true);
       assert.deepEqual(invoked, [[CHANNEL + 'drag', 'start']]);
     }
   }
+});
+
+test('AI settings intent restores the owner and is delivered once without changing conversation', t => {
+  const h = harness(t);
+  h.main.minimized = true;
+  assert.equal(h.invoke(h.mirror, 'window', 'show-ai-settings'), true);
+  assert.deepEqual(h.main.calls, ['restore', 'show', 'focus']);
+  assert.equal(h.main.webContents.sent.length, 0);
+  h.publish(view);
+  h.publish(view);
+  assert.deepEqual(h.main.webContents.sent, [{ channel: CHANNEL + 'show-ai-settings', value: undefined }]);
+  assert.equal(h.invoke(h.mirror, 'state').snapshot.conversationId, 7);
+  assert.equal(h.invoke(h.mirror, 'window', 'show-ai-settings?url=evil'), false);
 });

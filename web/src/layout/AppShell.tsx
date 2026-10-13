@@ -1058,6 +1058,8 @@ function AppShellContent() {
     }
   }, [coreTaskController]);
   const [view, setView] = useState<ViewMode>(readInitialWorkspaceView);
+  const [desktopAISettingsRequest, setDesktopAISettingsRequest] = useState(0);
+  useEffect(() => { if (view !== 'settings') setDesktopAISettingsRequest(0); }, [view]);
   const isPilotView = view === 'pilot';
   const lastNonPilotViewRef = useRef<ViewMode>(isPilotView ? 'dashboard' : view);
   const [applicationViewState, setApplicationViewState] = useState<ApplicationViewState>(
@@ -1633,6 +1635,15 @@ function AppShellContent() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isPilotView, navigateToView, pilotController.confirmPhase, pilotController.pending]);
+
+  useEffect(() => {
+    const bridge = window.offerpilotDesktop;
+    if (bridge?.role !== 'owner') return;
+    return bridge.onShowAISettings?.(() => {
+      navigateToView('settings');
+      setDesktopAISettingsRequest(value => value + 1);
+    });
+  }, [navigateToView]);
 
   const previousAssistantSurfaceRef = useRef(assistantSurface.surface);
   useEffect(() => {
@@ -2613,6 +2624,7 @@ function AppShellContent() {
           )}
           {view === 'settings' && (
             <SettingsView
+              aiSettingsRequest={desktopAISettingsRequest}
               pilotMascotVisible={pilotMascotVisible}
               onPilotMascotVisibleChange={setPilotMascotPreference}
               pilotMascotZoom={pilotMascotZoom}

@@ -118,6 +118,7 @@ async function start() {
     });
   }
   window = new BrowserWindow({
+    icon: path.join(__dirname, 'assets', 'haru-icon.ico'),
     width: 1280, height: 850, minWidth: 900, minHeight: 600, show: false,
     title: 'OfferPilot Desktop', autoHideMenuBar: true,
     webPreferences: {

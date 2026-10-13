@@ -95,14 +95,14 @@ it('owner loss disables sends and pending actions open owner without confirmatio
   await act(async () => button('到 Pilot 查看并确认').click());
   expect(request).toHaveBeenCalledWith({ action: 'open-pending', version: 2, generation: 3 });
 });
-it('collapsed idle is single-frame, hiding disposes runtime and expanded stop uses no Live2D', async () => {
+it('collapsed idle stays animated, hiding disposes runtime and expanded stop uses no Live2D', async () => {
   state = { ...state, expanded: false };
   await mount();
-  expect(live2dPilotMascotRuntime.mount).toHaveBeenCalledWith(expect.anything(), expect.any(AbortSignal), 'off');
+  expect(live2dPilotMascotRuntime.mount).toHaveBeenCalledWith(expect.anything(), expect.any(AbortSignal), 'full');
   await act(async () => update({ ...state, visible: false }));
   expect(dispose).toHaveBeenCalledTimes(1);
   await act(async () => update({ ...state, snapshot: { ...state.snapshot!, taskState: 'running', canStop: true, loading: true } }));
-  expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'minimal');
+  expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'full');
   await act(async () => update({ ...state, expanded: true, snapshot: { ...state.snapshot!, taskState: 'running', canStop: true, loading: true } }));
   expect(host.querySelector('canvas')).toBeNull();
   request.mockResolvedValue({ ok: true });
@@ -303,4 +303,69 @@ it('keeps the native portrait toggle and close behavior separate from stopping a
   await act(async () => host.querySelector<HTMLButtonElement>('.desktop-haru-avatar')!.click());
   expect(windowAction).toHaveBeenLastCalledWith('expand');
   expect(request).not.toHaveBeenCalled();
+});
+
+it('missing AI configuration permits drafts, blocks sends and opens settings without losing the conversation', async () => {
+  state = { ...state, snapshot: { ...state.snapshot!, aiConfigured: false, canSend: false } };
+  await mount();
+  expect(host.textContent).toContain('尚未配置 AI');
+  expect(host.querySelector('textarea')!.disabled).toBe(false);
+  type('保留这份草稿');
+  await act(async () => button('发送').click());
+  expect(request).not.toHaveBeenCalled();
+  await act(async () => button('去配置 AI').click());
+  expect(windowAction).toHaveBeenCalledWith('show-ai-settings');
+  expect(host.querySelector('textarea')!.value).toBe('保留这份草稿');
+  await act(async () => update({ ...state, snapshot: { ...state.snapshot!, aiConfigured: true, canSend: true, version: 3 } }));
+  expect(host.textContent).not.toContain('尚未配置 AI');
+  expect(button('发送').disabled).toBe(false);
+  expect(host.textContent).toContain('Current answer');
+  expect(host.querySelector('textarea')!.value).toBe('保留这份草稿');
+});
+
+it('rebuilds the original runtime when system reduced motion changes and removes the listener on expansion', async () => {
+  const original = window.matchMedia;
+  let changed!: () => void;
+  const remove = vi.fn();
+  const media = { matches: false, addEventListener: vi.fn((_event, callback) => { changed = callback; }), removeEventListener: remove };
+  window.matchMedia = vi.fn().mockReturnValue(media);
+  try {
+    state = { ...state, expanded: false };
+    await mount();
+    expect(window.matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+    await act(async () => { media.matches = true; changed(); });
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(live2dPilotMascotRuntime.mount).toHaveBeenCalledTimes(2);
+    await act(async () => { media.matches = false; changed(); });
+    expect(dispose).toHaveBeenCalledTimes(2);
+    expect(live2dPilotMascotRuntime.mount).toHaveBeenCalledTimes(3);
+    await act(async () => update({ ...state, expanded: true }));
+    expect(remove).toHaveBeenCalledWith('change', changed);
+    expect(dispose).toHaveBeenCalledTimes(3);
+    expect(host.querySelector('canvas')).toBeNull();
+  } finally { window.matchMedia = original; }
+});
+
+it('honors owner animation off and resumes only after an explicit preference change', async () => {
+  state = { ...state, expanded: false, snapshot: { ...state.snapshot!, animationLevel: 'off' } };
+  await mount();
+  expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'off');
+  for (const level of ['minimal', 'full', 'off'] as const) {
+    await act(async () => update({ ...state, snapshot: { ...state.snapshot!, animationLevel: level } }));
+    expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), level);
+  }
+  expect(dispose).toHaveBeenCalledTimes(3);
+});
+
+it('retains explicit animation off during owner loss and only resumes on a later full preference', async () => {
+  state = { ...state, expanded: false, snapshot: { ...state.snapshot!, animationLevel: 'off' } };
+  await mount();
+  await act(async () => update({ ...state, connected: false, snapshot: null }));
+  expect(live2dPilotMascotRuntime.mount).toHaveBeenCalledTimes(1);
+  expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'off');
+  await act(async () => update(state));
+  expect(live2dPilotMascotRuntime.mount).toHaveBeenCalledTimes(1);
+  await act(async () => update({ ...state, snapshot: { ...state.snapshot!, animationLevel: 'full' } }));
+  expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'full');
+  expect(dispose).toHaveBeenCalledTimes(1);
 });

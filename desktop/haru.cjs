@@ -13,7 +13,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   let generation = 0;
   let saveTimer;
   let drag = null;
-  let pilotRequested = false;
+  let ownerDestination = null;
   const pending = new Map();
   const stateFile = path.join(userData, 'haru-window.json');
   let saved;
@@ -49,14 +49,15 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     mainWindow.focus();
     return true;
   };
-  const publishPilotIntent = () => {
+  const publishOwnerIntent = () => {
     // A snapshot is published after the owner installs its listeners. Keep one
     // startup/reload intent; never reload the document or select a conversation.
-    if (!pilotRequested || !snapshot || isQuitting() || mainWindow.isDestroyed()) return;
+    if (!ownerDestination || !snapshot || isQuitting() || mainWindow.isDestroyed()) return;
     const contents = mainWindow.webContents;
     if (!isTrustedFrame({ sender: contents, senderFrame: contents.mainFrame }, contents, origin)) return;
-    pilotRequested = false;
-    contents.send(CHANNEL + 'show-pilot');
+    const destination = ownerDestination;
+    ownerDestination = null;
+    contents.send(CHANNEL + destination);
   };
   const refreshMenu = () => {
     if (!tray || tray.isDestroyed()) return;
@@ -87,6 +88,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     if (!liveHaru()) {
       expanded = false;
       haru = new BrowserWindow({
+        icon: path.join(__dirname, 'assets', 'haru-icon.ico'),
         ...clampBounds({ ...saved, width: 260, height: 340 }, workAreas()),
         show: false, frame: false, transparent: true, backgroundColor: '#00000000',
         resizable: false, maximizable: false, fullscreenable: false,
@@ -122,9 +124,9 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     state: event => trustedOwner(event) || trustedHaru(event) ? state() : null,
     window: (event, action) => {
       if ((!trustedOwner(event) && !trustedHaru(event)) || isQuitting()) return false;
-      if (action === 'show-main') {
+      if (action === 'show-main' || action === 'show-ai-settings') {
         if (!showMain()) return false;
-        if (trustedHaru(event)) { pilotRequested = true; publishPilotIntent(); }
+        if (trustedHaru(event)) { ownerDestination = action === 'show-ai-settings' ? 'show-ai-settings' : 'show-pilot'; publishOwnerIntent(); }
       }
       else if (action === 'show-haru') showHaru();
       else if (action === 'hide-haru' && liveHaru()) haru.hide();
@@ -188,7 +190,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     const clean = sanitizeSnapshot(value);
     if (!clean) return;
     snapshot = clean;
-    publishPilotIntent();
+    publishOwnerIntent();
     if (liveHaru() && haru.isVisible()) publishState();
   };
   const onDisconnect = event => { if (trustedOwner(event)) invalidateOwner(); };
@@ -227,7 +229,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     showHaru,
     dispose() {
       cancelDrag();
-      pilotRequested = false;
+      ownerDestination = null;
       savePosition();
       invalidateOwner();
       if (tray && !tray.isDestroyed()) tray.destroy();

@@ -16,6 +16,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 const AISettingsDrawer = lazy(() => import('./AISettingsDrawer'));
 
 interface Props {
+  aiSettingsRequest?: number;
   pilotMascotVisible: boolean;
   onPilotMascotVisibleChange: (visible: boolean) => void;
   pilotMascotZoom?: number;
@@ -29,6 +30,7 @@ interface Props {
 const LOG_PAGE_SIZE = 20;
 
 export default function SettingsView({
+  aiSettingsRequest = 0,
   pilotMascotVisible,
   onPilotMascotVisibleChange,
   pilotMascotZoom = 1,
@@ -43,6 +45,7 @@ export default function SettingsView({
   const [logPage, setLogPage] = useState(1);
   const [lastLogsPage, setLastLogsPage] = useState<LogsPage>();
   const [aiSettingsOpen, setAISettingsOpen] = useState(false);
+  useEffect(() => { if (aiSettingsRequest > 0) setAISettingsOpen(true); }, [aiSettingsRequest]);
   const logOffset = (logPage - 1) * LOG_PAGE_SIZE;
   const settingsQuery = useQuery({
     queryKey: ['settings-summary'],

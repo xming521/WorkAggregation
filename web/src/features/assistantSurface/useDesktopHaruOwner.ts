@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PilotConversationController } from './usePilotConversationController';
 import type { DesktopHaruCommand, DesktopHaruSnapshot } from './desktopHaru';
 import { compactMessageText } from './assistantPresentation';
+import { readPilotMascotAnimationLevel, PILOT_MASCOT_ANIMATION_KEY, PILOT_MASCOT_ANIMATION_CHANGED } from '@/features/pilotMascot/pilotMascotPreference';
 import { useThemeMode } from '@/theme/ThemeContext';
 
 export function desktopHaruSnapshot(controller: PilotConversationController): Omit<DesktopHaruSnapshot, 'version'> {
@@ -25,6 +26,7 @@ export function desktopHaruSnapshot(controller: PilotConversationController): Om
     contextLabel: contextLabel.slice(0, 400),
     loading: controller.loading,
     hasPending: Boolean(controller.pending),
+    aiConfigured: controller.hasKey,
     canSend: controller.isActionOwnerReady() && controller.hasKey && !controller.loading && !controller.pending && !controller.activeRequestRef.current && controller.activeConversationSelectionRef.current === null && !controller.activePendingRef.current && controller.executionControl.execution?.state !== 'running',
     canStop: controller.executionControl.canStop,
     stopping: controller.executionControl.stopping,
@@ -35,7 +37,7 @@ export function desktopHaruSnapshot(controller: PilotConversationController): Om
 
 function controlSignature(controller: PilotConversationController) {
   const data = desktopHaruSnapshot(controller);
-  return JSON.stringify([data.conversationId, data.canSend, data.canStop, data.stopping, data.hasPending,
+  return JSON.stringify([data.conversationId, data.aiConfigured, data.canSend, data.canStop, data.stopping, data.hasPending,
     controller.pending?.operation_id, controller.followingContext, controller.pinnedContext,
     controller.requestContextSnapshot, controller.draftContext, controller.attachments,
     controller.executionControl.execution, controller.activeConversationSelectionRef.current]);
@@ -45,9 +47,21 @@ export function useDesktopHaruOwner(controller: PilotConversationController, ope
   const { mode } = useThemeMode();
   const bridge = window.offerpilotDesktop;
   const isOwner = bridge?.role === 'owner';
+  const [animationLevel, setAnimationLevel] = useState(readPilotMascotAnimationLevel);
+  useEffect(() => {
+    if (!isOwner) return;
+    const changed = (event: Event) => {
+      const level: unknown = (event as CustomEvent).detail;
+      if (level === 'full' || level === 'minimal' || level === 'off') setAnimationLevel(level);
+    };
+    const storageChanged = (event: StorageEvent) => { if (event.key === PILOT_MASCOT_ANIMATION_KEY || event.key === null) setAnimationLevel(readPilotMascotAnimationLevel()); };
+    window.addEventListener(PILOT_MASCOT_ANIMATION_CHANGED, changed);
+    window.addEventListener('storage', storageChanged);
+    return () => { window.removeEventListener(PILOT_MASCOT_ANIMATION_CHANGED, changed); window.removeEventListener('storage', storageChanged); };
+  }, [isOwner]);
   const current = useRef({ controller, openPending });
   current.current = { controller, openPending };
-  const data = isOwner ? { ...desktopHaruSnapshot(controller), theme: mode } : null;
+  const data = isOwner ? { ...desktopHaruSnapshot(controller), theme: mode, animationLevel } : null;
   const signature = JSON.stringify(data);
   const controls = isOwner ? controlSignature(controller) : "";
   const controlRef = useRef({ controls: '', request: controller.activeRequestRef.current });

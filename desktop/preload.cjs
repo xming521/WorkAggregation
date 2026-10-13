@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('offerpilotDesktop', Object.freeze(role === 'own
   publish: snapshot => ipcRenderer.send(prefix + 'publish', snapshot),
   disconnect: () => ipcRenderer.send(prefix + 'disconnect'),
   onCommand: listener => subscribe('command', listener),
+  onShowAISettings: listener => subscribe('show-ai-settings', listener),
   onShowPilot: listener => subscribe('show-pilot', listener),
   reply: (id, result) => ipcRenderer.send(prefix + 'reply', { id, result }),
 } : {

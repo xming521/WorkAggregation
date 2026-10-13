@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writePilotMascotAnimationLevel, PILOT_MASCOT_ANIMATION_CHANGED, PILOT_MASCOT_ANIMATION_KEY } from '@/features/pilotMascot/pilotMascotPreference';
 import { desktopHaruSnapshot, useDesktopHaruOwner } from './useDesktopHaruOwner';
 import type { DesktopHaruCommand, DesktopHaruSnapshot } from './desktopHaru';
 import type { PilotConversationController } from './usePilotConversationController';
@@ -33,6 +34,7 @@ function render() { act(() => root.render(<Harness />)); }
 function latest(): DesktopHaruSnapshot { return publish.mock.calls[publish.mock.calls.length - 1][0]; }
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.removeItem(PILOT_MASCOT_ANIMATION_KEY);
   theme = 'light';
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   window.offerpilotDesktop = { role: 'owner', publish, reply, onShowPilot: handler => { showPilot = handler; return offShowPilot; }, onCommand: handler => { command = handler; return vi.fn(); }, disconnect: vi.fn(), windowAction, getState: vi.fn(), onState: vi.fn() };
@@ -69,7 +71,7 @@ describe('desktop Haru owner', () => {
   it('publishes an application draft label before a conversation exists without a provider', () => {
     controller = { ...controller, hasKey: false, draftContext: applicationDraft };
     render();
-    expect(latest()).toMatchObject({ conversationId: null, contextLabel: applicationDraft.context_label, canSend: false });
+    expect(latest()).toMatchObject({ conversationId: null, contextLabel: applicationDraft.context_label, aiConfigured: false, canSend: false });
     expect(controller.sendMessage).not.toHaveBeenCalled();
   });
   it.each([true, false])('keeps the frozen request label ahead of draft/conversation context (entity: %s)', withEntity => {
@@ -220,4 +222,28 @@ describe('desktop Haru owner', () => {
     act(() => root.render(null));
     expect(window.offerpilotDesktop!.disconnect).toHaveBeenCalledOnce();
   });
+});
+
+it('shares only the animation enum and updates it without revoking the conversation command version', () => {
+  render();
+  expect(latest().animationLevel).toBe('full');
+  const version = latest().version;
+  for (const level of ['off', 'minimal', 'full'] as const) {
+    act(() => writePilotMascotAnimationLevel(level));
+    expect(latest().animationLevel).toBe(level);
+    expect(latest().version).toBe(version);
+    expect(latest().canSend).toBe(true);
+  }
+  expect(controller.sendMessage).not.toHaveBeenCalled();
+});
+
+it('honors an explicit session preference when storage fails and rejects non-enum event payloads', () => {
+  render();
+  const storage = { setItem: vi.fn(() => { throw new Error('storage blocked'); }) };
+  act(() => writePilotMascotAnimationLevel('off', storage));
+  expect(latest().animationLevel).toBe('off');
+  for (const detail of [null, { level: 'full' }, 'invalid', true]) {
+    act(() => window.dispatchEvent(new CustomEvent(PILOT_MASCOT_ANIMATION_CHANGED, { detail })));
+    expect(latest().animationLevel).toBe('off');
+  }
 });

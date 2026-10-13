@@ -162,6 +162,7 @@ describe('createLive2dPilotMascotRuntime', () => {
   it.each([
     { animationLevel: 'off' as const, reducedMotion: false },
     { animationLevel: 'full' as const, reducedMotion: true },
+    { animationLevel: 'minimal' as const, reducedMotion: true },
   ])('initializes mutually exclusive Haru arm parts before the first static frame ($animationLevel, reduced motion $reducedMotion)', async ({ animationLevel, reducedMotion }) => {
     const fixture = runtimeDependencies({ prefersReducedMotion: () => reducedMotion });
     const pose = cubismPoseFixture();
