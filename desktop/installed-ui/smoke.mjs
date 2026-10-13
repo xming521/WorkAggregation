@@ -18,6 +18,7 @@ import { probeInstalledClipboard } from './clipboard-probe.mjs';
 import { DESKTOP_SOURCE_FILES } from './desktop-source-manifest.mjs';
 import { probeInstalledOfflineOrt } from './offline-ort-probe.mjs';
 import { probeSettingsExport } from './settings-export-probes.mjs';
+import { readInstalledIcons, validateInstalledIcon, verifyShortcutIdentity } from './haru-installed-icons.mjs';
 import { probeInstalledHaruWindows } from './haru-window-flow.mjs';
 import { verifyApplicationDetail } from './detail-ui.mjs';
 import { createCoverage, observeRuntime } from './coverage-recorder.mjs';
@@ -324,8 +325,10 @@ try {
     assert.equal(normalizeSourceText(extractFile(path.join(installDir, 'resources', 'app.asar'), name)),
       normalizeSourceText(await fs.readFile(path.join(source, 'desktop', name))), 'packaged desktop source differs from pin');
   }
-  assert.deepEqual(extractFile(path.join(installDir, 'resources', 'app.asar'), 'assets/haru-tray.png'),
-    await fs.readFile(path.join(source, 'desktop/assets/haru-tray.png')), 'packaged tray asset differs from pin');
+  for (const asset of ['haru-tray.png', 'haru-icon.png', 'haru-icon.ico']) {
+    assert.deepEqual(extractFile(path.join(installDir, 'resources', 'app.asar'), `assets/${asset}`),
+      await fs.readFile(path.join(source, 'desktop/assets', asset)), 'packaged icon asset differs from pin');
+  }
   assert.equal(await hash(path.join(installDir, 'resources', 'LICENSE')), await hash(path.join(source, 'LICENSE')));
   stage = 'packaged-version-identity';
   const packageJson = JSON.parse(extractFile(path.join(installDir, 'resources', 'app.asar'), 'package.json').toString());
@@ -349,11 +352,24 @@ try {
     assert.match(name, /^[a-z0-9-]{1,80}$/);
     await fs.mkdir(path.join(evidence, 'screens'), { recursive: true });
     const omitBackground = options.omitBackground ?? (page === first.haru && await page.locator('.desktop-haru.collapsed').count() === 1);
-    await page.screenshot({ path: path.join(evidence, 'screens', `haru-${name}.png`), omitBackground, timeout: 15000 });
+    const bytes = await page.screenshot({ path: path.join(evidence, 'screens', `haru-${name}.png`), omitBackground, timeout: 15000 });
     (report.haruScreenshots ||= []).push({ file: `screens/haru-${name}.png`, omitBackground,
       surface: page === first.haru ? 'haru' : 'owner', ...(options.visual ? { visual: options.visual } : {}) });
     await writeReport();
+    return bytes;
   };
+  stage = 'installed-haru-icon-and-shortcut';
+  await fs.mkdir(path.join(evidence, 'screens'), { recursive: true });
+  const installedIcons = await first.app.evaluate(readInstalledIcons);
+  const shortcutTargetVerified = verifyShortcutIdentity(installedIcons, exe);
+  report.installedIcons = { shortcutTargetVerified, shortcutIconIndex: installedIcons.shortcut.iconIndex, icons: [], visualReviewRequired: true };
+  for (const item of installedIcons.icons) {
+    const bytes = validateInstalledIcon(item);
+    const file = `screens/haru-installed-icon-${item.size}.png`;
+    await fs.writeFile(path.join(evidence, file), bytes);
+    report.installedIcons.icons.push({ size: item.size, dimensions: item.dimensions, file, sha256: await hash(path.join(evidence, file)) });
+  }
+  await checkpoint(stage, report.installedIcons);
   stage = 'haru-observed-startup-reload';
   const haruRuntime = observeRuntime(first.haru);
   await first.haru.reload({ waitUntil: 'domcontentloaded' });

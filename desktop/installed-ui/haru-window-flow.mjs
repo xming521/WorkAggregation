@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { verifyHaruVisual } from './haru-visual.mjs';
+import { selectVisibleOption } from './select-option.mjs';
+import { probeIdleMotion } from './haru-idle-motion.mjs';
 import { invokeTrayAction } from './haru-probes.mjs';
 
 const button = (page, name) => page.getByRole('button', { name, exact: true });
@@ -65,6 +67,18 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
     await waitUntil(async () => { const value = await readNativeWindow(app, page); return value.visible && !value.minimized && value.focused; });
   };
   await frame('collapsed-live2d', false);
+  const initialReducedMotion = await haru.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  result.originalMotionPolicy = await probeIdleMotion({ app, haru, capture, label: 'idle-original-policy', reducedMotion: initialReducedMotion });
+  try {
+    // Browser media emulation affects only this test renderer, never OS preferences.
+    await haru.emulateMedia({ reducedMotion: 'no-preference' });
+    result.idleMotion = await probeIdleMotion({ app, haru, capture, label: 'idle-motion', reducedMotion: false });
+    await haru.emulateMedia({ reducedMotion: 'reduce' });
+    result.reducedMotion = await probeIdleMotion({ app, haru, capture, label: 'idle-reduced-motion', reducedMotion: true });
+    await haru.emulateMedia({ reducedMotion: 'no-preference' });
+    result.resumedMotion = await probeIdleMotion({ app, haru, capture, label: 'idle-resumed-motion', reducedMotion: false });
+  } finally { await haru.emulateMedia({ reducedMotion: null }); }
+  await checkpoint('haru-live-reduced-motion-change', { original: result.originalMotionPolicy, animated: result.idleMotion, reduced: result.reducedMotion, resumed: result.resumedMotion, browserMediaEmulationOnly: true, osPreferenceModified: false });
   const beforeDrag = await readNativeWindow(app, haru);
   const avatar = await haru.locator('.desktop-haru-avatar').boundingBox();
   assert.ok(avatar);
@@ -109,6 +123,59 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
   if (await page.locator('html').getAttribute('data-theme') !== originalTheme) await button(page, '切换明暗模式').click();
   await haru.waitForFunction(theme => document.querySelector('.desktop-haru')?.getAttribute('data-theme') === theme, originalTheme);
   await checkpoint('haru-installed-themes-and-three-states', { themeChecks: result.themeChecks });
+
+  setStage('haru-missing-ai-configuration');
+  await waitUntil(async () => (await state()).snapshot?.aiConfigured === false);
+  const draft = '安装验证：配置后继续这份草稿';
+  const input = haru.locator('#desktop-haru-input');
+  assert.equal(await input.isEnabled(), true);
+  assert.equal(await button(haru, '发送').isDisabled(), true);
+  await input.fill(draft);
+  let chatPosts = 0;
+  const observeRequest = request => { if (request.method() === 'POST' && /\/api\/chat(?:\/|$)/.test(new URL(request.url()).pathname)) chatPosts++; };
+  page.on('request', observeRequest);
+  try {
+    await input.press('Enter');
+    for (const mode of ['minimized', 'hidden-after-close']) {
+      await actWindow(app, page, mode === 'minimized' ? 'minimize' : 'close');
+      await waitUntil(async () => { const value = await readNativeWindow(app, page); return mode === 'minimized' ? value.minimized : !value.visible; });
+      await button(haru, '去配置 AI').click();
+      await page.getByRole('region', { name: 'AI 设置', exact: true }).waitFor();
+      await waitUntil(async () => { const value = await readNativeWindow(app, page); return value.visible && !value.minimized && value.focused; });
+      assert.equal(await input.inputValue(), draft);
+      await capture(`missing-ai-settings-${mode}`, page);
+      await button(page, '返回设置').click();
+      await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('button', { name: '今日', exact: true }).click();
+      await page.waitForURL(url => url.searchParams.get('view') === 'dashboard');
+    }
+    await frame('missing-ai-guidance-and-draft', true);
+    assert.equal(await input.inputValue(), draft);
+    assert.equal(chatPosts, 0, 'No-key Enter must not submit a provider request');
+    assert.equal((await state()).snapshot.aiConfigured, false);
+    await input.fill('');
+    result.missingAI = { draftEditable: true, sendDisabled: true, chatPosts, settingsRestores: ['minimized', 'hidden-after-close'], draftPreserved: true, credentialsConfigured: false };
+    await checkpoint('haru-missing-ai-real-settings-navigation', result.missingAI);
+  } finally { page.off('request', observeRequest); }
+
+  setStage('haru-explicit-animation-preference');
+  await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('button', { name: '设置', exact: true }).click();
+  const animationSelect = page.getByRole('combobox', { name: 'Haru 动画级别', exact: true });
+  const previousAnimation = await animationSelect.evaluate(element => element.closest('.ant-select')?.querySelector('.ant-select-selection-item')?.getAttribute('title'));
+  assert.ok(['完整', '简洁', '关闭'].includes(previousAnimation));
+  try {
+    await selectVisibleOption(page, animationSelect, '关闭');
+    await waitUntil(async () => (await state()).snapshot.animationLevel === 'off');
+    await button(haru, '收起 Haru 对话').click();
+    await frame('explicit-animation-off', false);
+    result.explicitAnimationOff = await probeIdleMotion({ app, haru, capture, label: 'preference-off', reducedMotion: initialReducedMotion, animationOff: true });
+    await selectVisibleOption(page, animationSelect, '完整');
+    await waitUntil(async () => (await state()).snapshot.animationLevel === 'full');
+    result.explicitAnimationResumed = await probeIdleMotion({ app, haru, capture, label: 'preference-restored', reducedMotion: initialReducedMotion });
+  } finally { await selectVisibleOption(page, animationSelect, previousAnimation); }
+  await button(haru, '展开 Haru 对话').click();
+  await page.getByRole('navigation', { name: '主导航', exact: true }).getByRole('button', { name: '今日', exact: true }).click();
+  await page.waitForURL(url => url.searchParams.get('view') === 'dashboard');
+  await checkpoint('haru-owner-animation-setting', { off: result.explicitAnimationOff, restored: result.explicitAnimationResumed, preferenceRestored: true });
 
   const baseline = await state();
   await enterPilot();

@@ -1185,9 +1185,9 @@ async function pilotSettingsFlows(qa, page, record) {
       await select(page, zoom, '80%');
       await select(page, animation, '关闭');
       await captureWidths(qa, page, 'settings-haru-preference-small-static');
-      // These legacy in-page preferences currently do not configure the desktop
-      // Haru window. Verify only control readback, never infer renderer effects.
-      qa.observed('local appearance controls toggle and read back selected values; standalone Haru effects are not asserted');
+      // Size/visibility remain legacy in-page preferences. Animation effects
+      // are separately proved by the installed Haru window flow.
+      qa.observed('appearance controls read back values; this case alone does not prove standalone effects');
     } finally {
       if (qa.canProceed()) {
         await select(page, zoom, originalZoom);
