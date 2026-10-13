@@ -4,6 +4,20 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$snapshotClock = [Diagnostics.Stopwatch]::StartNew()
+$snapshotPhaseSequence = 0
+function Write-SnapshotPhase([string]$Phase) {
+  if ($Mode -eq 'snapshot') {
+    $script:snapshotPhaseSequence++
+    try {
+      $value = @{ mode='snapshot'; sequence=$script:snapshotPhaseSequence; phase=$Phase; elapsedMs=[long]$snapshotClock.ElapsedMilliseconds } | ConvertTo-Json -Compress
+      [IO.File]::WriteAllText($env:UI_SNAPSHOT_PHASE_FILE, $value, [Text.UTF8Encoding]::new($false))
+    } catch {
+      # Evidence is best-effort; never prevent the original query or cleanup.
+    }
+  }
+}
+Write-SnapshotPhase 'script-entry'
 
 if ($Mode -eq 'install') {
   if (Test-Path -LiteralPath $env:UI_INSTALL_DIR) { throw 'Install destination is not fresh' }
@@ -24,20 +38,25 @@ if ($Mode -eq 'install') {
   exit 0
 }
 
+Write-SnapshotPhase 'process-query-begin'
 $processes = @(Get-CimInstance Win32_Process | Where-Object {
   $_.ExecutablePath -and ($_.ExecutablePath -ieq $env:UI_EXE -or $_.ExecutablePath -ieq $env:UI_BACKEND)
 } | ForEach-Object {
   @{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId;
     path = $_.ExecutablePath; created = $_.CreationDate.ToUniversalTime().ToString('o') }
 })
+Write-SnapshotPhase 'process-query-end'
 if ($Mode -eq 'snapshot') {
   $ids = @($processes | ForEach-Object { $_.pid })
+  Write-SnapshotPhase 'listener-query-begin'
   $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object {
     $ids -contains [int]$_.OwningProcess
   } | ForEach-Object {
     @{ pid = [int]$_.OwningProcess; address = $_.LocalAddress; port = [int]$_.LocalPort }
   })
+  Write-SnapshotPhase 'listener-query-end'
   @{ processes = $processes; listeners = $listeners } | ConvertTo-Json -Depth 5 -Compress
+  Write-SnapshotPhase 'serialize-end'
   exit 0
 }
 

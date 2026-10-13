@@ -50,6 +50,7 @@ let installDir;
 let environment;
 let fatalNetwork = false;
 let coverage;
+let snapshotSequence = 0;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function exists(filename) { try { await fs.access(filename); return true; } catch { return false; } }
 async function writeReport() {
@@ -82,8 +83,27 @@ async function command(command, args, env = process.env, timeout = 240000) {
   });
 }
 async function windows(mode, extra = {}) {
-  return JSON.parse(await command('pwsh.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows.ps1'), '-Mode', mode],
-    { ...environment, ...extra }, mode === 'install' ? 210000 : 30000));
+  const phaseFile = path.join(path.dirname(installDir), `windows-snapshot-${++snapshotSequence}.json`);
+  try {
+    return JSON.parse(await command('pwsh.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'windows.ps1'), '-Mode', mode],
+      { ...environment, ...extra, ...(mode === 'snapshot' ? { UI_SNAPSHOT_PHASE_FILE: phaseFile } : {}) }, mode === 'install' ? 210000 : 30000));
+  } catch (error) {
+    if (mode === 'snapshot') {
+      try {
+        const bytes = await fs.readFile(phaseFile);
+        assert.ok(bytes.length <= 256);
+        const value = JSON.parse(bytes.toString('utf8'));
+        assert.deepEqual(Object.keys(value).sort(), ['elapsedMs', 'mode', 'phase', 'sequence']);
+        assert.equal(value.mode, 'snapshot');
+        const phases = ['script-entry', 'process-query-begin', 'process-query-end', 'listener-query-begin', 'listener-query-end', 'serialize-end'];
+        assert.ok(phases.includes(value.phase));
+        assert.equal(value.sequence, phases.indexOf(value.phase) + 1);
+        assert.ok(Number.isSafeInteger(value.elapsedMs) && value.elapsedMs >= 0 && value.elapsedMs <= 60000);
+        report.failedWindowsSnapshot ||= value;
+      } catch { report.failedWindowsSnapshot ||= { phase: 'unavailable' }; }
+    }
+    throw error;
+  }
 }
 async function waitUntil(callback, timeout = 30000) {
   const deadline = Date.now() + timeout;
@@ -148,6 +168,7 @@ async function launch(number) {
   assert.equal(origin.protocol, 'http:');
   assert.equal(origin.hostname, '127.0.0.1');
   assert.equal(Number(origin.port), port);
+  stage = `launch-${number}-process-and-listener-snapshot`;
   const snapshot = await windows('snapshot');
   stage = `launch-${number}-backend-ownership`;
   const processes = selectOwnedProcesses(snapshot.processes, identity.pid, exe, backend);
