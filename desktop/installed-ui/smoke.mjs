@@ -374,9 +374,28 @@ try {
   }
   await checkpoint(stage, report.installedIcons);
   stage = 'installed-haru-native-icon-read';
-  report.nativeIcons = JSON.parse(await command('pwsh.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'haru-native-icons.ps1')], { ...environment, UI_EVIDENCE_DIR: evidence }, 15000));
-  assert.equal(report.nativeIcons.extraction, 'Windows-native-read-only');
-  assert.equal(report.nativeIcons.icons.length, 6);
+  const nativeIcons = JSON.parse(await command('pwsh.exe', ['-NoProfile', '-NonInteractive', '-File', path.join(here, 'haru-native-icons.ps1')], { ...environment, UI_EVIDENCE_DIR: evidence }, 15000));
+  assert.equal(nativeIcons.extraction, 'Windows-native-read-only');
+  assert.equal(typeof nativeIcons.success, 'boolean');
+  if (!nativeIcons.success) {
+    assert.deepEqual(Object.keys(nativeIcons).sort(), ['extractedCount', 'extraction', 'phase', 'success']);
+    assert.ok(['validate-paths', 'load-drawing', 'compile-native-bindings', 'prepare-evidence-directory', 'extract-pe-group',
+      'save-pe-small', 'save-pe-normal', ...['read', 'save'].flatMap(action => ['exe', 'shortcut'].flatMap(target =>
+        ['small', 'normal'].map(size => `shell-${action}-${target}-${size}`)))].includes(nativeIcons.phase));
+    assert.ok(nativeIcons.extractedCount === null || (Number.isSafeInteger(nativeIcons.extractedCount)
+      && nativeIcons.extractedCount >= 0 && nativeIcons.extractedCount <= 0xffffffff));
+  } else {
+    assert.deepEqual(Object.keys(nativeIcons).sort(), ['extraction', 'icons', 'success', 'visualReviewRequired']);
+    assert.equal(nativeIcons.visualReviewRequired, true);
+    assert.deepEqual(nativeIcons.icons.map(item => item.name).sort(), ['pe-normal', 'pe-small', 'shell-exe-normal', 'shell-exe-small', 'shell-shortcut-normal', 'shell-shortcut-small']);
+    for (const item of nativeIcons.icons) {
+      assert.deepEqual(Object.keys(item).sort(), ['file', 'height', 'name', 'width']);
+      assert.equal(item.file, `screens/haru-native-icon-${item.name}.png`);
+      assert.ok(Number.isInteger(item.width) && item.width >= 16 && item.width <= 256);
+      assert.equal(item.height, item.width);
+    }
+  }
+  report.nativeIcons = nativeIcons;
   await writeReport();
   stage = 'haru-observed-startup-reload';
   const haruRuntime = observeRuntime(first.haru);
@@ -433,6 +452,9 @@ try {
     },
   });
   await checkpoint('haru-installed-window-flow');
+  stage = 'installed-haru-native-icon-result';
+  assert.equal(report.nativeIcons.success, true, 'Native icon diagnostics failed; observation cannot count as success');
+  assert.equal(report.nativeIcons.icons.length, 6);
   stage = 'desktop-capability-probes';
   report.capabilities = await probeInstalledCapabilities({ app: first.app, page: first.page,
     directory: path.join(scratch, 'synthetic-downloads'), setStage: value => { stage = `desktop-capability-${value}`; } });

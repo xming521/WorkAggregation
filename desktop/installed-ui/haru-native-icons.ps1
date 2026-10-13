@@ -1,5 +1,12 @@
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$phase = 'validate-paths'
+$extractedCount = $null
+trap {
+  # Only bounded, non-sensitive phase/API values leave the child process.
+  @{ extraction='Windows-native-read-only'; success=$false; phase=$phase; extractedCount=$extractedCount } | ConvertTo-Json -Compress
+  exit 0
+}
 $exe = [IO.Path]::GetFullPath($env:UI_EXE)
 $root = [IO.Path]::GetFullPath($env:UI_INSTALL_DIR).TrimEnd('\') + '\'
 if (-not $exe.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($exe) -ne 'OfferPilot Desktop.exe') { throw 'Unexpected installed executable' }
@@ -8,7 +15,9 @@ foreach ($file in @($exe, $shortcut)) {
   $item = Get-Item -LiteralPath $file -ErrorAction Stop
   if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Linked or missing icon source' }
 }
+$phase = 'load-drawing'
 Add-Type -AssemblyName System.Drawing
+$phase = 'compile-native-bindings'
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -24,6 +33,7 @@ public static class HaruNativeIcons {
 }
 '@
 $screens = Join-Path $env:UI_EVIDENCE_DIR 'screens'
+$phase = 'prepare-evidence-directory'
 [void][IO.Directory]::CreateDirectory($screens)
 $results = [Collections.Generic.List[object]]::new()
 function Save-OwnedIcon([IntPtr]$Handle, [string]$Name) {
@@ -40,8 +50,12 @@ function Save-OwnedIcon([IntPtr]$Handle, [string]$Name) {
 }
 $large = [IntPtr]::Zero; $small = [IntPtr]::Zero
 try {
-  if ([HaruNativeIcons]::ExtractIconEx($exe, 0, [ref]$large, [ref]$small, 1) -ne 1) { throw 'PE icon group extraction failed' }
+  $phase = 'extract-pe-group'
+  $extractedCount = [HaruNativeIcons]::ExtractIconEx($exe, 0, [ref]$large, [ref]$small, 1)
+  if ($extractedCount -ne 1) { throw 'PE icon group extraction failed' }
+  $phase = 'save-pe-small'
   Save-OwnedIcon $small 'pe-small'
+  $phase = 'save-pe-normal'
   Save-OwnedIcon $large 'pe-normal'
 } finally {
   if ($large -ne [IntPtr]::Zero) { [void][HaruNativeIcons]::DestroyIcon($large) }
@@ -51,11 +65,13 @@ foreach ($target in @(@{ name='exe'; path=$exe }, @{ name='shortcut'; path=$shor
   foreach ($size in @(@{ name='small'; flag=1 }, @{ name='normal'; flag=0 })) {
     $info = New-Object HaruNativeIcons+SHFILEINFO
     try {
+      $phase = 'shell-read-' + $target.name + '-' + $size.name
       # Read actual file icon; never request a generic extension icon with USEFILEATTRIBUTES.
       $ok = [HaruNativeIcons]::SHGetFileInfo($target.path, 0, [ref]$info, [Runtime.InteropServices.Marshal]::SizeOf($info), (0x100 -bor $size.flag))
       if ($ok -eq [IntPtr]::Zero) { throw 'Shell icon extraction failed' }
+      $phase = 'shell-save-' + $target.name + '-' + $size.name
       Save-OwnedIcon $info.hIcon ('shell-' + $target.name + '-' + $size.name)
     } finally { if ($info.hIcon -ne [IntPtr]::Zero) { [void][HaruNativeIcons]::DestroyIcon($info.hIcon) } }
   }
 }
-@{ extraction='Windows-native-read-only'; visualReviewRequired=$true; icons=@($results.ToArray()) } | ConvertTo-Json -Depth 5 -Compress
+@{ extraction='Windows-native-read-only'; success=$true; visualReviewRequired=$true; icons=@($results.ToArray()) } | ConvertTo-Json -Depth 5 -Compress
