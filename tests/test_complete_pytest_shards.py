@@ -279,11 +279,15 @@ def test_node_split_source_change_requires_a_new_isolation_review():
     # Re-reviewed short provider waits: perf_counter adds no shared state. The
     # coarse-clock regression owns its clock/iterator/list and function monkeypatch
     # restores only this module's time binding; process-wide time is untouched.
+    # Independently re-reviewed CAS/timeout probes: all counters are per-test
+    # closures; function monkeypatch restores the model, delivery and control
+    # methods. The provider exits via Future.result before timeout recovery;
+    # the busy SQLite writer is closed after finally rolling back its lock.
     # Include the shared helper, since its state is part of chat node isolation.
     # Normalize only checkout CRLF so the same reviewed source works on Windows.
     reviewed = {
         "tests/test_chat_api.py":
-            "dc0d709b149ff3ea8a6918bfd0e087d8c2400a3e183bf4cef1475209a4910d54",
+            "ad0021f743be5322e9ab5ea1fc4aae288411e572875f19171c806153cdf46fc9",
         "tests/_agent_timeout.py":
             "5bb1054018aeb6153bd6f0a0bb8e5fe3ace2203df1e8fa375c43d3dac9edd735",
         "tests/conftest.py":

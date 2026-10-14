@@ -4,6 +4,7 @@ import re
 import sqlite3
 import time
 from collections import Counter
+from contextlib import closing
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -85,6 +86,7 @@ from offerpilot.pilot_runtime.persistence import (
     PersistenceStatus,
 )
 from offerpilot.pilot_runtime.compensation import prepare_compensation_handler_components
+from offerpilot.pilot_control import PilotControlRepository
 from offerpilot.repositories.applications import ApplicationsRepository
 from offerpilot.repositories.agent_runs import AgentRunRepository, JournalConflictError
 from offerpilot.repositories.chat import ChatRepository, ConversationScopeMutationSnapshot
@@ -7684,7 +7686,39 @@ def test_chat_confirm_result_cas_loss_stays_stale_on_followup_failure(
         if failure_kind == "provider"
         else TimeoutAfterPendingModel(tool_call)
     )
-    _, client, _, pending = _create_status_confirmation(tmp_path, model, stable_journal=True)
+    app_client, client, application, pending = _create_status_confirmation(
+        tmp_path, model, stable_journal=True
+    )
+    followup_calls = []
+    original_complete = model.complete
+
+    def failing_followup(messages, tools):
+        followup_calls.append(messages)
+        return original_complete(messages, tools)
+
+    monkeypatch.setattr(model, "complete", failing_followup)
+    timeout_transitions = []
+    if failure_kind == "timeout":
+        original_try_finish = PilotControlRepository.try_finish
+
+        def settle_timeout(repository, lease, state):
+            if state != "interrupted" or timeout_transitions:
+                return original_try_finish(repository, lease, state)
+            # This case targets delivery CAS after the origin and provider have
+            # exited. Establish its durable timeout precondition explicitly:
+            # a zero-wait try_finish may lose to another SQLite writer and make
+            # the earlier delivery fence fail before lose_cas is ever called.
+            assert len(followup_calls) == 1
+            with repository.session_factory() as session:
+                operation = session.get(WriteOperation, pending["pending_action"]["operation_id"])
+                assert operation is not None and operation.status == "committed"
+            if not original_try_finish(repository, lease, state):
+                repository.finish(lease, state)
+            timeout_transitions.append(state)
+            return True
+
+        monkeypatch.setattr(PilotControlRepository, "try_finish", settle_timeout)
+    delivery_attempts = []
 
     def lose_cas(
         self,
@@ -7699,6 +7733,7 @@ def test_chat_confirm_result_cas_loss_stays_stale_on_followup_failure(
     ):
         del origin_tool_message, continuation, chained_pending, kwargs
         assert route_handle is None
+        delivery_attempts.append(ownership.operation_id)
         _force_replace_claimed_pending_for_cas_test(self._chat, conversation_id, newer)
         return PersistenceResult(
             PersistenceStatus.CAS_LOST,
@@ -7719,12 +7754,17 @@ def test_chat_confirm_result_cas_loss_stays_stale_on_followup_failure(
         },
     )
 
+    assert len(followup_calls) == 1, response.text
+    assert delivery_attempts == [pending["pending_action"]["operation_id"]], response.text
+    assert timeout_transitions == (["interrupted"] if failure_kind == "timeout" else [])
+    assert app_client.get(f"/api/applications/{application['id']}").json()["status"] == "offer"
     if endpoint.endswith("/stream"):
         error = _parse_sse_events(response.text)[-1]
         assert error["event"] == "error"
         assert error["data"]["data"]["code"] == "stale_pending_action"
     else:
         assert response.status_code == 409
+        assert response.json()["error_code"] == "stale_pending_action"
     conversation = client.get("/api/chat/conversations").json()[0]
     assert conversation["pending_action"]["args"]["closed_reason"] == "newer"
     runs, events, _ = _wait_for_journal_observation(
@@ -7758,6 +7798,78 @@ def test_chat_confirm_result_cas_loss_stays_stale_on_followup_failure(
         anomaly.startswith(("lifecycle_event_conflict", "segment_missing_finish"))
         for anomaly in trace.anomalies
     )
+
+
+@pytest.mark.parametrize("endpoint", ["/api/chat/confirm", "/api/chat/confirm/stream"])
+def test_chat_confirm_followup_timeout_busy_transition_preserves_original_pending(
+    tmp_path, monkeypatch, endpoint
+):
+    model = TimeoutAfterPendingModel(
+        ToolCall(
+            id="busy-timeout-transition",
+            name="update_application_status",
+            args=json.dumps({"id": 1, "status": "offer"}),
+        )
+    )
+    app_client, client, application, pending = _create_status_confirmation(
+        tmp_path, model, stable_journal=True
+    )
+    original_try_finish = PilotControlRepository.try_finish
+    busy_results = []
+
+    def finish_with_busy_writer(repository, lease, state):
+        if state != "interrupted" or busy_results:
+            return original_try_finish(repository, lease, state)
+        assert model.calls == 2
+        database = repository.session_factory.kw["bind"].url.database
+        with closing(sqlite3.connect(str(database))) as writer:
+            try:
+                writer.execute("BEGIN IMMEDIATE")
+                result = original_try_finish(repository, lease, state)
+                busy_results.append(result)
+                return result
+            finally:
+                writer.rollback()
+
+    delivery_attempts = []
+    original_delivery = ChatPersistenceCoordinator.persist_confirmation_delivery
+
+    def observe_delivery(self, *args, **kwargs):
+        delivery_attempts.append(True)
+        return original_delivery(self, *args, **kwargs)
+
+    monkeypatch.setattr(PilotControlRepository, "try_finish", finish_with_busy_writer)
+    monkeypatch.setattr(ChatPersistenceCoordinator, "persist_confirmation_delivery", observe_delivery)
+    response = client.post(
+        endpoint,
+        json={
+            "conversation_id": pending["conversation_id"],
+            "approved": True,
+            "confirmation_token": pending["pending_action"]["confirmation_token"],
+        },
+    )
+
+    assert model.calls == 2, response.text
+    assert busy_results == [False]
+    assert delivery_attempts == [], response.text
+    if endpoint.endswith("/stream"):
+        error = _parse_sse_events(response.text)[-1]
+        assert error["event"] == "error"
+        assert error["data"]["data"]["code"] == "stale_pending_action"
+    else:
+        assert response.status_code == 409
+        assert response.json()["error_code"] == "stale_pending_action"
+    conversation = client.get("/api/chat/conversations").json()[0]
+    for key in ("tool_name", "args", "operation_id", "confirmation_token"):
+        assert conversation["pending_action"][key] == pending["pending_action"][key]
+    assert conversation["last_write_undo"] is None
+    assert app_client.get(f"/api/applications/{application['id']}").json()["status"] == "offer"
+    stored = client.get(f"/api/chat/conversations/{pending['conversation_id']}").json()
+    assert sum(message["role"] == "tool" for message in stored) == 0
+    operations, _ = _ledger_rows(tmp_path)
+    assert len(operations) == 1
+    assert operations[0].status == "committed"
+    assert operations[0].delivery_status == "pending"
 
 
 @pytest.mark.parametrize("endpoint", ["/api/chat/confirm", "/api/chat/confirm/stream"])
