@@ -34,7 +34,7 @@ function renderer(role) {
   };
   const schedule = () => { const id = ++nextTimer; timers.add(id); return id; };
   class RendererDate extends Date { static now() { return Date.now(); } }
-  const context = vm.createContext({ Date: RendererDate, TextDecoder, AbortController, location: { origin: 'http://127.0.0.1:41000' },
+  const context = vm.createContext({ Date: RendererDate, TextDecoder, AbortController, URL, location: { origin: 'http://127.0.0.1:41000', href: 'http://127.0.0.1:41000/' },
     setTimeout: schedule, clearTimeout: id => timers.delete(id), setInterval: schedule, clearInterval: id => timers.delete(id),
     getComputedStyle: node => node.style,
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { mutations.add(this.fn); } disconnect() { mutations.delete(this.fn); } },
@@ -102,12 +102,22 @@ async function harness(t, { running = 'none', growth = 0, content = SECRET, dead
       url: options.url, body: { getReader() { return { async read() { if (options.never) return new Promise(() => {});
         if (consumed) return { done: true }; consumed = true; return { value: bytes, done: false }; }, async cancel() {} }; } } };
   }
+  let currentAdmissionResponse;
   owner.context.fetch = async (route, options) => {
+    if (options.method === 'POST') {
+      const response = currentAdmissionResponse;
+      return { status: response.status(), url: response.url(), redirected: false,
+        clone: () => ({ body: { getReader() { let read = false; return {
+          async read() { if (read) return { done: true }; read = true; return { done: false, value: await response.body() }; },
+          async cancel() {}, releaseLock() {},
+        }; } } }) };
+    }
     assert.equal(options.method, 'GET'); assert.equal(options.credentials, 'same-origin'); assert.equal(options.redirect, 'error');
     assert.ok(route === '/api/chat/conversations?include_archived=true' || route === `/api/pilot/runtime/v1/requests/${ID.request_id}`);
     const config = route.includes('conversations') ? transport.historyOptions : transport.statusOptions;
     return reply(route.includes('conversations') ? history : status, { url: `http://127.0.0.1:41000${route}`, ...config });
   };
+  owner.context.window.fetch = owner.context.fetch;
   owner.context.window.__offerpilotBoundedUiObserver = { summary: () => ({ installed: true, originalTargetConnected: true,
     originalTargetCurrent: true, currentPilotUnique: true, targetReplacementObserved: false, readFailed: false,
     originalGrowthWithStopCount: growth }) };
@@ -120,7 +130,9 @@ async function harness(t, { running = 'none', growth = 0, content = SECRET, dead
       headers: () => assert.fail('headers forbidden'), postData: () => assert.fail('postData forbidden') }),
       url: () => options.url ?? 'http://127.0.0.1:41000/api/pilot/runtime/v1/turns', status: () => options.status ?? 202,
       body: async () => options.body ?? Buffer.from(JSON.stringify(value)) };
+    currentAdmissionResponse = response;
     for (const listener of [...owner.responses]) listener(response);
+    if ((options.method ?? 'POST') === 'POST') void owner.context.window.fetch(response.url(), { method: 'POST' });
   };
   const broker = { snapshot: () => structuredClone(snapshot), cancelCase: () => assert.fail('proof cannot cancel'),
     armCase: () => assert.fail('proof cannot arm'), prepareCase: () => assert.fail('proof cannot prepare') };
@@ -524,15 +536,17 @@ test('strict offline proof results are MOCK-only and cannot carry LIVE-exclusive
 
 test('fixed five-second read bound fails before the independent 75-second observation deadline', async t => {
   const fake = await harness(t, { deadline: 75000 });
-  let entered;
+  let entered, didEnter = false;
   const reading = new Promise(resolve => { entered = resolve; });
   const evaluate = fake.owner.page.evaluate;
   fake.owner.page.evaluate = (fn, arg) => {
-    if (fn === readLivePilotJson && arg.requestId !== null) { entered(); return new Promise(() => {}); }
+    if (fn === readLivePilotJson && arg.requestId !== null) { didEnter = true; entered(); return new Promise(() => {}); }
     return evaluate(fn, arg);
   };
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const result = fake.prove().then(() => assert.fail('stalled read cannot pass'), error => error);
+  for (let n = 0; n < 50 && !didEnter; n += 1) { await flush(); t.mock.timers.tick(20); }
+  assert.equal(didEnter, true, 'clone admission must complete before timing the stalled status read');
   await reading; t.mock.timers.tick(5000);
   const error = await result;
   assert.equal(error.pilotProofDiagnostic.fault, 'OPERATION_TIMEOUT');
@@ -632,7 +646,7 @@ for (const sustained of [false, true]) test(`actual branded offline proof ${sust
 
 for (const [name, body, fault] of [
   ['invalid JSON', Buffer.from(SECRET), 'ADMISSION_INVALID'],
-  ['invalid UTF-8', Buffer.from([0xff]), 'ADMISSION_INVALID'],
+  ['invalid UTF-8', Buffer.from([0xff]), 'ADMISSION_READ_FAILED'],
 ]) test(`admission ${name} has a fixed safe failure reason`, async t => {
   const fake = await harness(t); fake.transport.admissionOptions.body = body;
   await assert.rejects(fake.prove(), error => {
@@ -657,7 +671,7 @@ for (const [message, category] of [
   let observed = {}, bodyReads = 0;
   const gate = observeLiveAdmission(page, origin, action => action(), value => {
     observed = { ...observed, ...value, ...(value.fault ? { fault: value.fault.proofFault } : {}) };
-  });
+  }, { body: response => response.body() });
   [...listeners][0]({ url: () => `${origin}/api/pilot/runtime/v1/turns`, status: () => 202,
     request: () => ({ method: () => 'POST', frame: () => frame, redirectedFrom: () => null }),
     body: async () => { bodyReads += 1; throw new Error(message); } });

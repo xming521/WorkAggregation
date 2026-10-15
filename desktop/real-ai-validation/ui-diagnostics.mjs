@@ -46,7 +46,7 @@ export function sanitizePilotProofDiagnostic(value) {
     admissionValid: nullableBool(value?.admissionValid), naturalCompletionProven: nullableBool(value?.naturalCompletionProven),
     admissionHttpStatus: Number.isSafeInteger(value?.admissionHttpStatus) && value.admissionHttpStatus >= 100 && value.admissionHttpStatus <= 599
       ? value.admissionHttpStatus : null,
-    admissionBodyOutcome: ['OK', 'CDP_RESOURCE_UNAVAILABLE', 'BODY_UNAVAILABLE', 'TARGET_CLOSED', 'REQUEST_ABORTED', 'OTHER'].includes(value?.admissionBodyOutcome)
+    admissionBodyOutcome: ['OK', 'CDP_RESOURCE_UNAVAILABLE', 'BODY_UNAVAILABLE', 'TARGET_CLOSED', 'REQUEST_ABORTED', 'CAPTURE_INVALID', 'OTHER'].includes(value?.admissionBodyOutcome)
       ? value.admissionBodyOutcome : null,
     lastValidState: ['queued', 'running', 'completed'].includes(value?.lastValidState) ? value.lastValidState : null,
     workerDone: nullableBool(value?.workerDone), actualWorkerAlive: nullableBool(value?.actualWorkerAlive),

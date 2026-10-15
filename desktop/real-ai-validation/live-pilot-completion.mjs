@@ -3,6 +3,7 @@
 import { POLICY, CASES, Ledger, usageCost } from './broker-core.cjs';
 import { readMirrorObservation, isRunningMirrorProven } from './mirror-observer.mjs';
 import { sanitizePilotProofDiagnostic } from './ui-diagnostics.mjs';
+import { installAdmissionCapture } from './admission-capture.mjs';
 
 const CASE = 'pilot-stream';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -117,7 +118,7 @@ export async function readLivePilotJson({ origin, requestId, deadline, diagnosti
   finally { clearTimeout(timer); controller.abort(); try { await reader?.cancel(); } catch { /* No raw errors. */ } }
 }
 
-export function observeLiveAdmission(page, origin, within, observe = () => {}) {
+export function observeLiveAdmission(page, origin, within, observe = () => {}, capture = null) {
   let closed = false, count = 0, admitted = null, firstFault = null;
   const note = value => { try { observe(value); } catch { /* Diagnostics cannot alter the proof. */ } };
   const invalidate = (error = proofError('ADMISSION_READ_FAILED')) => {
@@ -139,14 +140,15 @@ export function observeLiveAdmission(page, origin, within, observe = () => {}) {
     void within(async () => {
       let bytes;
       note({ admissionHttpStatus: response.status() });
-      try { bytes = await response.body(); note({ admissionBodyOutcome: 'OK' }); }
+      try { bytes = await capture.body(response); note({ admissionBodyOutcome: 'OK' }); }
       catch (error) {
         // The raw Playwright/CDP error can contain URLs. Keep only a fixed
         // category and never refetch/replay this state-changing admission.
         let outcome = 'OTHER';
         try {
           const message = typeof error?.message === 'string' ? error.message : '';
-          if (/No resource with given identifier found|No data found for resource with given identifier/.test(message)) outcome = 'CDP_RESOURCE_UNAVAILABLE';
+          if (message === 'ADMISSION_CAPTURE_INVALID') outcome = 'CAPTURE_INVALID';
+          else if (/No resource with given identifier found|No data found for resource with given identifier/.test(message)) outcome = 'CDP_RESOURCE_UNAVAILABLE';
           else if (/Response body is unavailable|Response body is not available/.test(message)) outcome = 'BODY_UNAVAILABLE';
           else if (/Target page, context or browser has been closed|Target closed|Session closed/.test(message)) outcome = 'TARGET_CLOSED';
           else if (/net::ERR_ABORTED/.test(message)) outcome = 'REQUEST_ABORTED';
@@ -275,7 +277,7 @@ export async function proveLivePilotCompletion(args) {
 export async function observePilotCompletion({ mode, page, haru, broker, requestCountBefore, send, deadlineMs, ctx }) {
   requireProof(['live', 'mock'].includes(mode) && (mode === 'live' ? broker?.mode !== 'MOCK' : broker?.mode === 'MOCK')
     && page !== haru && typeof send === 'function' && Number.isFinite(deadlineMs), 'HARNESS_INVALID');
-  let alive = true, admission, primaryFailure;
+  let alive = true, admission, capture, primaryFailure;
   const started = performance.now();
   const diagnostic = { pollCount: 0 };
   const remember = (error, stage = diagnostic.lastReadStage) => {
@@ -312,7 +314,10 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
         timer = setTimeout(() => reject(proofError(remaining <= 5000 ? 'OBSERVE_DEADLINE' : 'OPERATION_TIMEOUT', stage)), left);
       })]);
       requireProof(alive && Date.now() < deadlineMs, 'OBSERVE_DEADLINE'); return value;
-    } catch (error) { remember(error, stage); throw error; }
+    } catch (error) {
+      if (error?.captureInvalid === true) { diagnostic.admissionValid = false; diagnostic.admissionBodyOutcome = 'CAPTURE_INVALID'; }
+      remember(error, stage); throw error;
+    }
     finally { clearTimeout(timer); }
   };
   try {
@@ -327,13 +332,14 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
       && v.currentTaskState === 'idle' && v.loading === false && v.hasPending === false), 'FRESH_MIRROR_INVALID');
     const history = readback(await within(() => page.evaluate(readLivePilotJson, { origin, requestId: null, deadline: deadlineMs, diagnostics: true }), 'HISTORY_READ'));
     requireProof(Array.isArray(history) && history.length === 0, 'HISTORY_INVALID');
+    capture = await installAdmissionCapture(page, origin, within);
     admission = observeLiveAdmission(page, origin, within, value => {
       if (value.admissionObserved === true) diagnostic.admissionObserved = true;
       if (typeof value.admissionValid === 'boolean') diagnostic.admissionValid = value.admissionValid;
       if (value.admissionHttpStatus !== undefined) diagnostic.admissionHttpStatus = value.admissionHttpStatus;
       if (value.admissionBodyOutcome !== undefined) diagnostic.admissionBodyOutcome = value.admissionBodyOutcome;
       if (value.fault) remember(value.fault, 'ADMISSION_READ');
-    });
+    }, capture);
     ctx.mark(mode === 'live' ? 'LIVE_SEND_OBSERVE' : 'MOCK_PILOT_PROOF_SEND');
     await within(send, 'SEND');
     ctx.mark(mode === 'live' ? 'LIVE_TERMINAL_OBSERVE' : 'MOCK_PILOT_PROOF_OBSERVE');
@@ -344,6 +350,7 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
         readMirrorObservation(page, haru),
         page.evaluate(() => window.__offerpilotBoundedUiObserver?.summary?.() ?? null),
         admitted ? page.evaluate(readLivePilotJson, { origin, requestId: admitted.request_id, deadline: deadlineMs, diagnostics: true }) : null,
+        capture.assertValid(),
       ]), 'STATUS_AND_MIRROR_READ');
       requireProof(healthyMirror(pair), 'MIRROR_INVALID');
       admission.read();
@@ -378,6 +385,7 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
             && stream.originalTargetCurrent === true && stream.currentPilotUnique === true && stream.targetReplacementObserved === false
             && stream.readFailed === false && stream.originalGrowthWithStopCount >= 2;
           const running = v => v.bridgeRunningObserved === true && v.domRunningObserved === true && v.runningConversationId === admitted.conversation_id;
+          await within(() => capture.assertValid(true), 'ADMISSION_READ');
           return { code: sustained ? 'STREAMING_PROVEN' : 'COMPLETION_ONLY', checks: {
             sustainedStreamingObserved: sustained, incrementalAssistantRendering: sustained,
             ownerRunningTransitionObserved: running(after.owner), haruRunningTransitionObserved: running(after.haru),
@@ -394,7 +402,10 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
   } catch (error) { remember(error); primaryFailure = attach(proofError(diagnostic.fault, diagnostic.faultStage)); throw primaryFailure; }
   finally {
     alive = false;
-    try { admission?.dispose(); } catch {
+    let cleanupFailed = false;
+    try { admission?.dispose(); } catch { cleanupFailed = true; }
+    try { await capture?.dispose(); } catch { cleanupFailed = true; }
+    if (cleanupFailed) {
       if (!primaryFailure) { const error = proofError('ADMISSION_CLEANUP_FAILED', 'CLEANUP'); remember(error); throw attach(error); }
     }
   }
