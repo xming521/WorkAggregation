@@ -279,6 +279,24 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
   if (!['idle', 'running'].includes(s.taskState)) return result('UNSAFE', 'TASK_STATE');
   if (typeof s.loading !== 'boolean') return result('UNSAFE', 'LOADING');
   if (s.taskState === 'idle' && s.loading === false && s.canStop !== false) return result('UNSAFE', 'STOP_CONTROL');
+  // PIN haru-protocol publishes this bounded DTO. Its command version and
+  // presentation metadata can change without changing the completed reply.
+  const validSnapshot = value => value && Number.isSafeInteger(value.version) && value.version >= 1
+    && (!Object.hasOwn(value, 'theme') || ['light', 'dark'].includes(value.theme))
+    && (!Object.hasOwn(value, 'animationLevel') || ['full', 'minimal', 'off'].includes(value.animationLevel))
+    && (!Object.hasOwn(value, 'aiConfigured') || typeof value.aiConfigured === 'boolean')
+    && typeof value.contextLabel === 'string' && value.contextLabel.length <= 400
+    && ['loading', 'hasPending', 'canSend', 'canStop', 'stopping'].every(key => typeof value[key] === 'boolean')
+    && Array.isArray(value.messages) && value.messages.length <= 12 && value.messages.every(message => message
+      && ['user', 'assistant'].includes(message.role) && typeof message.content === 'string' && message.content.length <= 12000);
+  if (!validSnapshot(s)) return result('UNSAFE', 'SNAPSHOT');
+  const terminalProjection = value => {
+    const snapshot = value.snapshot;
+    return JSON.stringify([value.connected, value.generation, snapshot.conversationId, snapshot.taskState,
+      snapshot.loading, snapshot.hasPending, snapshot.canSend, snapshot.canStop, snapshot.stopping,
+      snapshot.error, snapshot.stopMessage, Object.hasOwn(snapshot, 'aiConfigured'), snapshot.aiConfigured,
+      snapshot.messages.map(message => [message.role, message.content])]);
+  };
   let opacityZero = false;
   const visible = (node, enteringRow = null) => {
     opacityZero = false;
@@ -312,6 +330,7 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
   const row = role === 'owner' ? nodes[0].parentElement?.parentElement : null;
   const animations = row?.getAnimations?.() ?? [];
   const active = animations.filter(animation => animation.pending || animation.playState === 'running');
+  let waitForEntrance = null;
   if (active.length) {
     const animation = active[0], timing = animation.effect?.getTiming?.();
     const pinnedName = /^_?opRise(?:_[A-Za-z0-9_]+)?$/.test(animation.animationName ?? '');
@@ -331,46 +350,56 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
     if (bodyTree.some(node => node.nodeType === 1 && !visible(node, row))) {
       return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'BODY_VISIBILITY');
     }
-    let changed = false, timer;
-    const note = (records = []) => {
-      if (records.some(record => [...record.removedNodes].some(node => retained.has(node)
-        || [...retained].some(original => node.contains?.(original))))) changed = true;
+    waitForEntrance = async (content, bridgeContent) => {
+      const frozenProjection = terminalProjection(state), frozenText = nodes[0].textContent;
+      const sameTerminal = (value, minimumVersion) => value?.connected === true && validSnapshot(value.snapshot)
+        && value.snapshot.version >= minimumVersion && terminalProjection(value) === frozenProjection;
+      let changed = false, timer;
+      const note = (records = []) => {
+        if (records.some(record => (record.type === 'characterData' && retained.has(record.target))
+          || [...(record.removedNodes ?? [])].some(node => retained.has(node)
+          || [...retained].some(original => node.contains?.(original))))) changed = true;
+      };
+      const observer = new MutationObserver(note);
+      observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+      const settled = () => {
+        const current = row.getAnimations(), style = getComputedStyle(row);
+        return current.length === 1 && current[0] === animation && !animation.pending
+          && animation.playState === 'finished' && Number(style.opacity) === 1
+          && ['none', 'blur(0px)'].includes(style.filter);
+      };
+      const unchanged = () => {
+        note(observer.takeRecords?.() ?? []);
+        const currentRoots = [...document.querySelectorAll('[data-onboarding-target="pilot"]')];
+        const currentBodies = [...root.querySelectorAll('[class*="bubbleAssistant"]')];
+        const currentTree = tree(nodes[0]);
+        return !changed && nodes[0].textContent === frozenText && currentRoots.length === 1 && currentRoots[0] === root
+          && currentBodies.length === 1 && currentBodies[0] === nodes[0]
+          && chain.every((node, index) => node.isConnected && node.parentElement === (chain[index + 1] ?? null))
+          && currentTree.length === bodyTree.length && currentTree.every((node, index) => node === bodyTree[index]);
+      };
+      try {
+        const left = Math.min(5000, deadline - Date.now());
+        if (left <= 0) return result('UNSAFE', 'OPACITY_ZERO');
+        const finished = await Promise.race([animation.finished.then(() => true, () => false),
+          new Promise(resolve => { timer = setTimeout(() => resolve(false), left); })]);
+        if (!finished || Date.now() >= deadline || !unchanged() || !settled()) return result('UNSAFE', 'BODY_VISIBILITY');
+        detail.rootVisible = visible(root); detail.bodyVisible = visible(nodes[0]);
+        const current = await bridge.getState();
+        if (!sameTerminal(current, s.version)) return result('UNSAFE', 'SNAPSHOT');
+        const observed = await readLiveTerminalRenderer({ role, deadline, diagnostics, expectedGeneration, expectedConversationId, entranceWaited: true });
+        if (observed.status !== 'READY' || observed.snapshotVersion < current.snapshot.version) return result('UNSAFE', 'SNAPSHOT');
+        const finalState = await bridge.getState();
+        if (!sameTerminal(finalState, observed.snapshotVersion)) return result('UNSAFE', 'SNAPSHOT');
+        return Date.now() < deadline && unchanged() && settled() && observed.status === 'READY'
+          && observed.content === content && observed.bridgeContent === bridgeContent
+          && observed.conversationId === identity.conversationId && observed.generation === identity.generation
+          ? observed : result('UNSAFE', 'BODY_VISIBILITY');
+      } catch { return result('UNSAFE', 'BODY_VISIBILITY'); }
+      finally { clearTimeout(timer); observer.disconnect(); }
     };
-    const observer = new MutationObserver(note);
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    const settled = () => {
-      const current = row.getAnimations(), style = getComputedStyle(row);
-      return current.length === 1 && current[0] === animation && !animation.pending
-        && animation.playState === 'finished' && Number(style.opacity) === 1
-        && ['none', 'blur(0px)'].includes(style.filter);
-    };
-    const unchanged = () => {
-      note(observer.takeRecords?.() ?? []);
-      const currentRoots = [...document.querySelectorAll('[data-onboarding-target="pilot"]')];
-      const currentBodies = [...root.querySelectorAll('[class*="bubbleAssistant"]')];
-      const currentTree = tree(nodes[0]);
-      return !changed && currentRoots.length === 1 && currentRoots[0] === root
-        && currentBodies.length === 1 && currentBodies[0] === nodes[0]
-        && chain.every((node, index) => node.isConnected && node.parentElement === (chain[index + 1] ?? null))
-        && currentTree.length === bodyTree.length && currentTree.every((node, index) => node === bodyTree[index]);
-    };
-    try {
-      const left = Math.min(5000, deadline - Date.now());
-      if (left <= 0) return result('UNSAFE', 'OPACITY_ZERO');
-      const finished = await Promise.race([animation.finished.then(() => true, () => false),
-        new Promise(resolve => { timer = setTimeout(() => resolve(false), left); })]);
-      if (!finished || Date.now() >= deadline || !unchanged() || !settled()) return result('UNSAFE', 'BODY_VISIBILITY');
-      const current = await bridge.getState();
-      if (current?.connected !== true || current.generation !== state.generation
-        || JSON.stringify(current.snapshot) !== JSON.stringify(s)) return result('UNSAFE', 'SNAPSHOT');
-      const observed = await readLiveTerminalRenderer({ role, deadline, diagnostics, expectedGeneration, expectedConversationId, entranceWaited: true });
-      return Date.now() < deadline && unchanged() && settled()
-        && observed.conversationId === identity.conversationId && observed.generation === identity.generation
-        ? observed : result('UNSAFE', 'BODY_VISIBILITY');
-    } catch { return result('UNSAFE', 'BODY_VISIBILITY'); }
-    finally { clearTimeout(timer); observer.disconnect(); }
   }
-  if (!detail.bodyVisible) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'BODY_VISIBILITY');
+  if (!detail.bodyVisible && !waitForEntrance) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'BODY_VISIBILITY');
   // PIN renders a plain response as Markdown div > p > text/BR in Pilot,
   // and literal p > text in Haru. No HTML stripping or Markdown guessing.
   // textContent preserves CJK soft breaks that CSS innerText may collapse.
@@ -390,12 +419,12 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
     if (children.length !== 1 || children[0].nodeType !== 1 || children[0].tagName !== 'DIV'
       || typeof children[0].className !== 'string' || !children[0].className.includes('markdown')) return result('UNSUPPORTED_FORMAT', 'OWNER_SHAPE');
     const markdown = children[0];
-    if (!visible(markdown)) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'MARKDOWN_VISIBILITY');
+    if (!visible(markdown, waitForEntrance ? row : null)) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'MARKDOWN_VISIBILITY');
     const parts = [];
     for (const child of markdown.childNodes) {
       if (child.nodeType === 3 && !child.textContent.trim()) continue;
       if (child.nodeType !== 1 || child.tagName !== 'P') return result('UNSUPPORTED_FORMAT', 'PARAGRAPH_SHAPE');
-      if (!visible(child)) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'PARAGRAPH_VISIBILITY');
+      if (!visible(child, waitForEntrance ? row : null)) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'PARAGRAPH_VISIBILITY');
       const text = plain(child); if (text === null) return result('UNSUPPORTED_FORMAT', 'INLINE_FORMAT'); parts.push(text);
     }
     if (!parts.length) return pending('PARAGRAPHS_MISSING');
@@ -407,7 +436,9 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
     || bridgeContent.length > 12000) return result('UNSAFE', 'TEXT_SHAPE');
   if (controlsPending) return pending('CONTROLS_PENDING');
   if (!content.trim() || !bridgeContent.trim()) return pending('EMPTY_TEXT');
-  return result('READY', 'READY', { content, bridgeContent, ...identity });
+  if (waitForEntrance) return waitForEntrance(content, bridgeContent);
+  // The version stays inside this in-memory comparison, never in proof output.
+  return result('READY', 'READY', { content, bridgeContent, snapshotVersion: s.version, ...identity });
 }
 
 export async function proveLivePilotCompletion(args) {

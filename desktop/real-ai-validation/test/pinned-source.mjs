@@ -9,6 +9,7 @@ import { PIN } from '../contract.mjs';
 
 const localRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const sourceFiles = new Set(['src/offerpilot/api.py', 'src/offerpilot/pilot_control.py',
+  'desktop/haru-protocol.cjs', 'web/src/features/assistantSurface/useDesktopHaruOwner.ts',
   'src/offerpilot/pilot_timeline.py', 'src/offerpilot/pilot_runtime/managed_execution.py',
   'web/src/services/pilotRuntime.ts', 'web/src/services/chat.ts',
   'web/src/components/ChatPanel/MessageBubble.tsx',

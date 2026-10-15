@@ -17,7 +17,8 @@ const SECRET = 'PRIVATE_SYNTHETIC_TERMINAL_CONTENT';
 const recoveryCarry = verifyPriorZip(await fs.readFile(new URL('./fixtures/prior-paid-38694575612.zip', import.meta.url)));
 const flush = async () => { for (let n = 0; n < 30; n += 1) await Promise.resolve(); };
 const state = (taskState = 'idle', conversationId = null) => ({ connected: true, generation: 0,
-  snapshot: { taskState, conversationId, loading: taskState === 'running', hasPending: false,
+  snapshot: { version: 1, theme: 'light', animationLevel: 'full', contextLabel: 'synthetic', aiConfigured: true,
+    taskState, conversationId, loading: taskState === 'running', hasPending: false,
     stopping: false, canStop: taskState === 'running', canSend: taskState === 'idle', error: '', stopMessage: '',
     messages: conversationId ? [{ role: 'assistant', content: SECRET }] : [] } });
 function renderer(role) {
@@ -1226,4 +1227,148 @@ for (const budget of [80, 10000]) test(`nonresolving finite entrance respects ${
   assert.equal(entrance.reads(), 1); assert.equal(typeof callback, 'function'); assert.ok(delay > 0 && delay <= Math.min(budget, 5000));
   f.context.Date.now = () => deadline; callback();
   assert.equal((await pending).status, 'UNSAFE'); assert.equal(cleared, true);
+});
+
+const presentationUpdates = {
+  version: s => { s.snapshot.version += 1; },
+  theme: s => { s.snapshot.theme = 'dark'; },
+  animationLevel: s => { s.snapshot.animationLevel = 'minimal'; },
+  contextLabel: s => { s.snapshot.contextLabel = 'updated synthetic label'; },
+};
+for (const field of [...Object.keys(presentationUpdates), 'all']) test(`entrance projection permits legal ${field} publication without freezing presentation metadata`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.alterState(s => { for (const update of field === 'all' ? Object.values(presentationUpdates) : [presentationUpdates[field]]) update(s); });
+  entrance.finish(); const result = await pending;
+  assert.equal(result.status, 'READY'); assert.equal(result.content, SECRET); assert.equal(result.bridgeContent, SECRET);
+});
+
+for (const [field, value] of [['version', 0], ['version', -1], ['version', NaN], ['version', Infinity], ['version', '1'],
+  ['theme', 'system'], ['animationLevel', 'arbitrary'], ['contextLabel', null], ['contextLabel', 'x'.repeat(401)]]) {
+  test(`entrance projection rejects invalid fixed DTO ${field}=${String(value).slice(0, 12)} before waiting`, async () => {
+    const f = renderer('owner'); await f.publish(state('idle', 73)); f.alterState(s => { s.snapshot[field] = value; });
+    let entrance; entrance = messageEntrance(f, () => entrance.finish());
+    assert.equal((await f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs())).status, 'UNSAFE');
+    assert.equal(entrance.reads(), 0);
+  });
+}
+for (const field of ['theme', 'animationLevel']) test(`entrance projection permits absent optional ${field}`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.alterState(s => { delete s.snapshot[field]; }); entrance.finish();
+  assert.equal((await pending).status, 'READY');
+});
+
+const terminalChanges = {
+  connection: s => { s.connected = false; }, generation: s => { s.generation++; },
+  conversation: s => { s.snapshot.conversationId++; }, taskState: s => { s.snapshot.taskState = 'running'; },
+  loading: s => { s.snapshot.loading = true; }, hasPending: s => { s.snapshot.hasPending = true; },
+  canSend: s => { s.snapshot.canSend = false; }, canStop: s => { s.snapshot.canStop = true; },
+  stopping: s => { s.snapshot.stopping = true; }, error: s => { s.snapshot.error = 'PRIVATE_ERROR'; },
+  stopMessage: s => { s.snapshot.stopMessage = 'PRIVATE_STOP'; }, aiConfigured: s => { s.snapshot.aiConfigured = false; },
+  content: s => { s.snapshot.messages[0].content = 'PRIVATE_CHANGED_TEXT'; },
+  role: s => { s.snapshot.messages[0].role = 'user'; }, duplicate: s => { s.snapshot.messages.push({ ...s.snapshot.messages[0] }); },
+  userMessage: s => { s.snapshot.messages.push({ role: 'user', content: 'PRIVATE_NEW_USER_TEXT' }); },
+};
+for (const [field, change] of Object.entries(terminalChanges)) test(`entrance projection rejects bound terminal ${field} mutation`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.alterState(change); entrance.finish(); const result = await pending;
+  assert.equal(result.status, 'UNSAFE'); assert.doesNotMatch(JSON.stringify(result.diagnostic), /PRIVATE|content|contextLabel/);
+});
+for (const field of ['aiConfigured', 'userMessage', 'canSend']) test(`entrance projection rechecks ${field} changed during the final full renderer read`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const getState = f.context.window.offerpilotDesktop.getState; let reads = 0;
+  f.context.window.offerpilotDesktop.getState = async () => { if (++reads === 3) f.alterState(terminalChanges[field]); return getState(); };
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush(); entrance.finish();
+  assert.equal((await pending).status, 'UNSAFE');
+});
+test('entrance projection rejects same-node DOM text mutation even when bridge text stays bound', async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.body.textContent = 'PRIVATE_CHANGED_DOM_TEXT'; entrance.finish();
+  assert.equal((await pending).status, 'UNSAFE');
+});
+for (const stage of ['after-animation', 'final-read']) test(`entrance projection rejects version rollback at ${stage}`, async () => {
+  const f = renderer('owner'); const initial = state('idle', 73); initial.snapshot.version = 2; await f.publish(initial);
+  const entrance = messageEntrance(f); const getState = f.context.window.offerpilotDesktop.getState; let reads = 0;
+  f.context.window.offerpilotDesktop.getState = async () => {
+    reads++; if (stage === 'final-read' && reads === 3) f.alterState(s => { s.snapshot.version = 2; });
+    return getState();
+  };
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.alterState(s => { s.snapshot.version = stage === 'after-animation' ? 1 : 3; }); entrance.finish();
+  assert.equal((await pending).status, 'UNSAFE');
+});
+
+for (const phase of ['running', 'loading', 'canSend']) test(`entrance projection leaves initial ${phase} pending and rereads before binding a terminal`, async () => {
+  const f = renderer('owner'); const initial = state('idle', 73);
+  if (phase === 'running') Object.assign(initial.snapshot, { taskState: 'running', loading: true, canSend: false, canStop: true });
+  if (phase === 'loading') Object.assign(initial.snapshot, { taskState: 'running', loading: true, canSend: false, canStop: false });
+  if (phase === 'canSend') initial.snapshot.canSend = false;
+  await f.publish(initial); let entrance; entrance = messageEntrance(f, () => {
+    f.alterState(s => { Object.assign(s.snapshot, { taskState: 'idle', loading: false, canSend: true, canStop: false }); }); entrance.finish();
+  });
+  const args = terminalReadArgs(), result = await f.page.evaluate(readLiveTerminalRenderer, args);
+  assert.equal(result.status, 'NOT_READY'); assert.equal(result.diagnostic.reason, 'CONTROLS_PENDING'); assert.equal(entrance.reads(), 0);
+  assert.equal(result.conversationId, 73); assert.equal(result.generation, 0);
+  f.alterState(s => { Object.assign(s.snapshot, { taskState: 'idle', loading: false, canSend: true, canStop: false }); });
+  entrance.finish(); assert.equal((await f.page.evaluate(readLiveTerminalRenderer, args)).status, 'READY');
+});
+for (const fault of ['inline-format', 'hidden-paragraph', 'duplicate-body']) test(`entrance projection pending controls do not conceal ${fault}`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); f.alterState(s => { s.snapshot.canSend = false; });
+  let entrance; entrance = messageEntrance(f, () => entrance.finish());
+  if (fault === 'inline-format') f.paragraph.childNodes = [{ ...f.paragraph, parentElement: f.paragraph, tagName: 'STRONG', childNodes: [] }];
+  if (fault === 'hidden-paragraph') f.paragraph.style.visibility = 'hidden';
+  if (fault === 'duplicate-body') f.hiddenLast();
+  assert.equal((await f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs())).status, fault === 'inline-format' ? 'UNSUPPORTED_FORMAT' : 'UNSAFE');
+  assert.equal(entrance.reads(), 0);
+});
+for (const mode of ['live', 'mock']) test(`entrance projection ${mode} orchestration rereads pending controls inside the original deadline with one request`, async t => {
+  const fake = await harness(t, { deadline: 1000 }); let entrance, reads = 0;
+  fake.transport.afterSend = () => { fake.owner.alterState(s => { s.snapshot.canSend = false; });
+    entrance = messageEntrance(fake.owner, () => { fake.owner.alterState(s => { s.snapshot.canSend = true; s.snapshot.version++; }); entrance.finish(); }); };
+  fake.transport.terminalHook = () => { if (++reads === 2) fake.owner.alterState(s => { s.snapshot.canSend = true; }); };
+  const outcome = await (mode === 'live' ? fake.prove() : observePilotCompletion(mockObservationArgs(fake)));
+  assert.equal(outcome.checks.terminalTextProven, true); assert.equal(reads, 2); assert.equal(fake.sends(), 1); assert.equal(entrance.reads(), 1);
+});
+
+test('entrance projection rejects version rollback after the final renderer read saw a newer publication', async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const getState = f.context.window.offerpilotDesktop.getState; let reads = 0;
+  f.context.window.offerpilotDesktop.getState = async () => {
+    if (++reads === 3) f.alterState(s => { s.snapshot.version = 4; });
+    if (reads === 4) f.alterState(s => { s.snapshot.version = 3; });
+    return getState();
+  };
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.alterState(s => { s.snapshot.version = 2; }); entrance.finish();
+  assert.equal((await pending).status, 'UNSAFE');
+});
+
+test('entrance projection contract uses the fixed published DTO and command lease revision', () => {
+  const protocol = readPinnedSource('desktop/haru-protocol.cjs');
+  const owner = readPinnedSource('web/src/features/assistantSurface/useDesktopHaruOwner.ts');
+  assert.match(protocol, /Number\.isSafeInteger\(value.version\).*value.version < 1/);
+  assert.match(protocol, /\['light', 'dark'\].includes\(value.theme\)/);
+  assert.match(protocol, /\['full', 'minimal', 'off'\].includes\(value.animationLevel\)/);
+  assert.match(protocol, /contextLabel: text\(value.contextLabel, 400\)/);
+  assert.match(protocol, /messages: Array.isArray\(value.messages\).*slice\(-12\).*\['user', 'assistant'\].*text\(item.content, 12000\)/);
+  assert.doesNotMatch(protocol.slice(protocol.indexOf('function sanitizeSnapshot'), protocol.indexOf('function validateRequest')), /updatedAt|updated_at/);
+  assert.match(owner, /version: \(snapshotRef.current.snapshot\?\.version \?\? 0\) \+ \(changedControls \? 1 : 0\)/);
+  assert.match(owner, /controller.executionControl.execution, controller.activeConversationSelectionRef.current/);
+  assert.match(owner, /bridge\?\.publish\?\.\(snapshotRef.current.snapshot\)/);
+});
+
+test('entrance projection rejects a same-node characterData change restored before the final read', async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.notifyMutation([{ type: 'characterData', target: f.paragraph.childNodes[0] }]); entrance.finish();
+  assert.equal((await pending).status, 'UNSAFE');
+});
+for (const field of ['theme', 'contextLabel']) test(`entrance projection rejects invalid ${field} publication after the animation`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+  f.alterState(s => { s.snapshot[field] = field === 'theme' ? 'system' : null; }); entrance.finish();
+  assert.equal((await pending).status, 'UNSAFE');
 });
