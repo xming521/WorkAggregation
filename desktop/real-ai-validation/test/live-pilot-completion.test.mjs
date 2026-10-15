@@ -10,7 +10,7 @@ import { PIN, CASES } from '../contract.mjs';
 import { safeResults, saveEvidence } from '../safe-evidence.mjs';
 import { installMirrorObservation, removeMirrorObservation } from '../mirror-observer.mjs';
 import { compactPlainMessage, normalizePlainText, projectAdmission, projectUiRequest, projectRequestExecution, projectTerminal, readLivePilotJson,
-  observeLiveAdmission, isLiveLedgerProven, proveLivePilotCompletion } from '../live-pilot-completion.mjs';
+  observeLiveAdmission, isLiveLedgerProven, proveLivePilotCompletion, readLiveTerminalRenderer, observePilotCompletion } from '../live-pilot-completion.mjs';
 // Offline synthetic mechanism tests. No EXE, real provider or release claim.
 const SECRET = 'PRIVATE_SYNTHETIC_TERMINAL_CONTENT';
 const flush = async () => { for (let n = 0; n < 30; n += 1) await Promise.resolve(); };
@@ -907,4 +907,97 @@ test('PIN plain renderer templates preserve Markdown text nodes and literal Haru
   assert.match(haru, /<p>\{message.content\}<\/p>/);
   const css = readPinnedSource('web/src/features/assistantSurface/DesktopHaruWindow.css');
   assert.match(css, /\.desktop-haru-chat p \{[^}]*white-space: pre-wrap/);
+});
+
+
+for (const [name, mutate, expected] of [
+  ['missing bridge', f => { f.context.window.offerpilotDesktop = null; }, 'BRIDGE'],
+  ['disconnected', f => f.alterState(s => { s.connected = false; }), 'CONNECTION'],
+  ['invalid generation', f => f.alterState(s => { s.generation = -1; }), 'GENERATION'],
+  ['missing snapshot', f => f.alterState(s => { s.snapshot = null; }), 'SNAPSHOT'],
+  ['invalid conversation', f => f.alterState(s => { s.snapshot.conversationId = null; }), 'CONVERSATION'],
+  ['pending', f => f.alterState(s => { s.snapshot.hasPending = true; }), 'PENDING_ACTION'],
+  ['stopping', f => f.alterState(s => { s.snapshot.stopping = true; }), 'STOPPING'],
+  ['missing error', f => f.alterState(s => { delete s.snapshot.error; }), 'ERROR'],
+  ['null stop message', f => f.alterState(s => { s.snapshot.stopMessage = null; }), 'STOP_MESSAGE'],
+  ['invalid messages', f => f.alterState(s => { s.snapshot.messages = null; }), 'MESSAGES'],
+  ['failed task', f => f.alterState(s => { s.snapshot.taskState = 'failed'; }), 'TASK_STATE'],
+  ['invalid loading', f => f.alterState(s => { s.snapshot.loading = null; }), 'LOADING'],
+  ['stop still allowed', f => f.alterState(s => { s.snapshot.canStop = true; }), 'STOP_CONTROL'],
+  ['duplicate root', f => f.duplicateRoot(), 'ROOT_COUNT'],
+  ['hidden document', f => { f.context.document.visibilityState = 'hidden'; }, 'ROOT_VISIBILITY'],
+  ['transparent root', f => { f.root.style.opacity = '0'; }, 'OPACITY_ZERO'],
+  ['duplicate body', f => f.hiddenLast(), 'DUPLICATE_BODY'],
+  ['hidden body', f => { f.body.style.visibility = 'hidden'; }, 'BODY_VISIBILITY'],
+  ['transparent body ancestor', f => { f.body.parentElement = { parentElement: f.root, style: { opacity: '0' } }; }, 'OPACITY_ZERO'],
+  ['hidden markdown', f => { f.markdown.style.visibility = 'hidden'; }, 'MARKDOWN_VISIBILITY'],
+  ['hidden paragraph', f => { f.paragraph.style.visibility = 'hidden'; }, 'PARAGRAPH_VISIBILITY'],
+]) test(`MOCK renderer records exact ${name} gate without changing rejection`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); mutate(f);
+  const observed = await f.page.evaluate(readLiveTerminalRenderer, { role: 'owner', deadline: Date.now() + 1000,
+    diagnostics: true, expectedGeneration: 0, expectedConversationId: 73 });
+  assert.equal(observed.status, 'UNSAFE'); assert.equal(observed.diagnostic.reason, expected);
+  assert.equal(observed.diagnostic.documentVisible, name === 'missing bridge' ? null : name !== 'hidden document');
+  assert.doesNotMatch(JSON.stringify(observed.diagnostic), /PRIVATE_|conversationId|generation"|class|path|url/);
+  if (name === 'duplicate root') assert.equal(observed.diagnostic.rootCount, 2);
+  if (name === 'duplicate body') assert.equal(observed.diagnostic.bodyCount, 2);
+  if (name === 'transparent body ancestor') {
+    assert.equal(observed.diagnostic.rootVisible, true); assert.equal(observed.diagnostic.bodyVisible, false);
+  }
+});
+
+test('renderer defaults to unchanged LIVE result and MOCK identity evidence contains only equality booleans', async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73));
+  const args = { role: 'owner', deadline: Date.now() + 1000, expectedGeneration: 9, expectedConversationId: 74 };
+  const live = await f.page.evaluate(readLiveTerminalRenderer, args);
+  assert.equal(live.status, 'READY'); assert.equal(live.diagnostic, undefined);
+  const mock = await f.page.evaluate(readLiveTerminalRenderer, { ...args, diagnostics: true });
+  assert.equal(mock.status, 'READY'); assert.equal(mock.diagnostic.generationMatches, false);
+  assert.equal(mock.diagnostic.conversationMatches, false);
+  assert.equal(mock.diagnostic.bodyCount, 1); assert.equal(mock.diagnostic.assistantCount, 1);
+  assert.doesNotMatch(JSON.stringify(mock.diagnostic), /PRIVATE_|73|74|conversationId|expected/);
+});
+
+function mockObservationArgs(fake) {
+  const snapshot = fake.args.broker.snapshot;
+  return { ...fake.args, mode: 'mock', broker: { ...fake.args.broker, mode: 'MOCK', snapshot: () => {
+    const value = snapshot();
+    return { ...value, mode: 'MOCK', mock: { transport: 'IN_PROCESS_SYNTHETIC_HTTPS', externalNetwork: 'DENIED',
+      realProviderCalls: 0, usageIsSynthetic: true, fakeRequests: value.sentRequests, clockScope: 'BROKER_VM_ONLY' } };
+  } } };
+}
+
+test('MOCK retains both renderer gates before the first rejecting assertion', async t => {
+  const fake = await harness(t);
+  fake.transport.afterSend = () => { fake.owner.body.style.opacity = '0'; };
+  await assert.rejects(observePilotCompletion(mockObservationArgs(fake)), error => {
+    const d = error.pilotProofDiagnostic;
+    assert.equal(d.fault, 'RENDERER_UNPROVEN'); assert.equal(d.faultStage, 'TERMINAL_RENDER_READ');
+    assert.equal(d.rendererReady, null); assert.equal(d.rendererTextMatched, null);
+    assert.equal(d.rendererOwner.reason, 'OPACITY_ZERO'); assert.equal(d.rendererOwner.bodyVisible, false);
+    assert.equal(d.rendererOwner.rootVisible, true); assert.equal(d.rendererOwner.generationMatches, true);
+    assert.equal(d.rendererHaru.status, 'READY'); assert.equal(d.rendererHaru.conversationMatches, true);
+    assert.doesNotMatch(JSON.stringify(d), /PRIVATE_|26e756|turn-synthetic|content|bridgeContent|className|http/);
+    return true;
+  });
+  assert.equal(fake.sends(), 1); assert.equal(fake.owner.responses.size, 0);
+});
+
+for (const mode of ['live', 'mock']) test(`${mode} hostile renderer diagnostic cannot export arbitrary data`, async t => {
+  const fake = await harness(t); const evaluate = fake.owner.page.evaluate;
+  fake.owner.page.evaluate = async (fn, arg) => {
+    if (fn === readLiveTerminalRenderer) return { status: 'UNSAFE', diagnostic: {
+      status: 'PRIVATE_STATUS', reason: 'PRIVATE_REASON', rootCount: 9000, bodyVisible: 'true',
+      content: SECRET, conversationId: 73, generation: 44, className: 'PRIVATE_CLASS', path: 'PRIVATE_PATH', url: 'https://PRIVATE' } };
+    return evaluate(fn, arg);
+  };
+  await assert.rejects(mode === 'mock' ? observePilotCompletion(mockObservationArgs(fake)) : fake.prove(), error => {
+    const d = error.pilotProofDiagnostic; assert.equal(d.fault, 'RENDERER_UNPROVEN');
+    if (mode === 'mock') {
+      assert.equal(d.rendererOwner.status, 'UNAVAILABLE'); assert.equal(d.rendererOwner.reason, null);
+      assert.equal(d.rendererOwner.rootCount, null); assert.equal(d.rendererOwner.bodyVisible, null);
+    } else { assert.equal(d.rendererOwner, undefined); assert.equal(d.rendererHaru, undefined); }
+    assert.doesNotMatch(JSON.stringify(d), /PRIVATE|https|className|conversationId|content|path/); return true;
+  });
+  assert.equal(fake.sends(), 1);
 });

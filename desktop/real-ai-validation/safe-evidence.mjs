@@ -91,7 +91,7 @@ export function safeResults(results, isMock = false) {
         && ['eligible', 'ledgerSafe', 'mirrorProven', 'domEqual', 'noNewRequests', 'cleanupPassed']
           .every(key => continuation[key])), 'SCENARIO_EVIDENCE_INVALID');
     }
-    return { id: row.id, status: row.status, code: row.code, checks, diagnostic: sanitizeUiDiagnostic(row.diagnostic),
+    return { id: row.id, status: row.status, code: row.code, checks, diagnostic: sanitizeUiDiagnostic(row.diagnostic, isMock && row.id === 'pilot-stream'),
       ...(continuation === undefined ? {} : { continuation }) };
   });
 }

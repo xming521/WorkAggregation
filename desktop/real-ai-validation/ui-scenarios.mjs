@@ -80,8 +80,8 @@ const pilot = (page) => page.locator('[data-onboarding-target="pilot"]').filter(
 const composer = (page) => pilot(page).getByPlaceholder('问问领航员，或输入 / 唤起能力', { exact: true });
 const settings = (page) => region(page, 'AI 设置');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-function operationContext(deadline) {
-  const diagnostic = createUiDiagnostic();
+function operationContext(deadline, isMock = false) {
+  const diagnostic = createUiDiagnostic(isMock);
   return {
     mark: diagnostic.mark, target: diagnostic.target, mirror: diagnostic.mirror, stream: diagnostic.stream, pilotProof: diagnostic.pilotProof, diagnostic: diagnostic.snapshot,
     timeout(cap = 15_000) { const left = deadline - Date.now(); if (left <= 0) fail('SUITE_DEADLINE'); return Math.max(1, Math.min(left, cap)); },
@@ -680,7 +680,7 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
     && (mockHaruSession === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockHaruSession === 'function'));
   if (!valid) blocked = 'INVALID_HARNESS';
   const deadline = Math.min(deadlineMs, Date.now() + 600_000);
-  const ctx = operationContext(deadline);
+  const ctx = operationContext(deadline, mode === 'mock');
   for (const current of scenarios) {
     if (blocked) { results.push({ id: current.id, status: 'BLOCKED', code: blocked, checks: {} }); continue; }
     if (Date.now() >= deadline) { blocked = 'SUITE_DEADLINE'; results.push({ id: current.id, status: 'BLOCKED', code: blocked, checks: {} }); continue; }
@@ -739,7 +739,9 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
         catch { ctx.mirror({ observationReadFailed: true, invalidObservation: true }); }
       }
       const diagnostic = await ctx.diagnostic();
-      if (!isBlocked && current.id !== 'connection' && typeof capture === 'function') {
+      const mockProofFailure = mode === 'mock' && broker.mode === 'MOCK'
+        && current.id === 'pilot-stream' && code === 'MOCK_PILOT_COMPLETION_UNPROVEN';
+      if ((!isBlocked || mockProofFailure) && current.id !== 'connection' && typeof capture === 'function') {
         for (const [screen, surface] of [['failure-owner', page], ['failure-haru', haru]]) {
           try { await capture(screen, surface, current.id); } catch { /* Never replace the primary failure. */ }
         }

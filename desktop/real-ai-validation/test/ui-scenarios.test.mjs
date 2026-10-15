@@ -447,3 +447,40 @@ test('failed fresh-session baseline cannot arm the next request after diagnostic
   assert.equal(events.includes('arm:pilot-hitl-reject'), false);
   assert.ok(result.results.slice(3).every(row => row.status === 'BLOCKED'));
 });
+
+for (const mode of ['mock', 'live']) for (const captureFails of [false, true]) {
+  test(`blocked ${mode} proof has only permitted failure captures; captureFails=${captureFails}`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+    const fake = fakeHarness({ streamFailure: true });
+    if (mode === 'live') delete fake.broker.mode;
+    const captures = [];
+    let done = false;
+    const pending = runUiScenarios({ ...fake, mode,
+      capture: async (screen, surface, stage) => {
+        captures.push({ screen, role: surface.role, stage });
+        if (captureFails) throw new Error('private screenshot error');
+      },
+      ...(mode === 'mock' ? { mockPilotProof: async ({ send }) => {
+        await send();
+        throw Object.assign(new Error('private proof detail'), { code: 'MOCK_PILOT_COMPLETION_UNPROVEN' });
+      } } : {}),
+    });
+    pending.finally(() => { done = true; });
+    for (let n = 0; !done && n < 2000; n += 1) {
+      for (let i = 0; i < 40; i += 1) await Promise.resolve();
+      t.mock.timers.tick(100);
+    }
+    assert.equal(done, true);
+    const result = await pending;
+    assert.equal(result.results[1].status, 'BLOCKED');
+    assert.equal(result.results[1].code, mode === 'mock' ? 'MOCK_PILOT_COMPLETION_UNPROVEN' : 'LIVE_COMPLETION_UNPROVEN');
+    assert.deepEqual(captures, mode === 'mock' ? [
+      { screen: 'failure-owner', role: 'owner', stage: 'pilot-stream' },
+      { screen: 'failure-haru', role: 'haru', stage: 'pilot-stream' },
+    ] : []);
+    assert.ok(result.results.slice(2).every(row => row.status === 'BLOCKED'));
+    assert.equal(fake.events.includes('prepare:pilot-cancel'), false);
+    assert.ok(fake.events.includes('observer-remove:pilot-stream:owner'));
+    assert.ok(fake.events.includes('observer-remove:pilot-stream:haru'));
+  });
+}

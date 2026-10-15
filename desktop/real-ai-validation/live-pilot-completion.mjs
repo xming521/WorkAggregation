@@ -2,7 +2,7 @@
 // separate billing boundaries and evidence labels. No extra POST or retry.
 import { POLICY, CASES, Ledger, usageCost } from './broker-core.cjs';
 import { readMirrorObservation, isRunningMirrorProven } from './mirror-observer.mjs';
-import { sanitizePilotProofDiagnostic } from './ui-diagnostics.mjs';
+import { sanitizePilotProofDiagnostic, sanitizeRendererDiagnostic } from './ui-diagnostics.mjs';
 import { installAdmissionCapture } from './admission-capture.mjs';
 
 const CASE = 'pilot-stream';
@@ -236,40 +236,64 @@ function ledgerProven(value, before, previousCount) {
 
 // Raw text and IDs exist only for this short in-memory comparison. The proof
 // returned by the orchestrator contains booleans and fixed result codes only.
-export async function readLiveTerminalRenderer({ role, deadline }) {
-  const result = status => ({ status });
-  if (Date.now() >= deadline) return result('NOT_READY');
+export async function readLiveTerminalRenderer({ role, deadline, diagnostics = false, expectedGeneration, expectedConversationId }) {
+  const detail = { rootCount: null, bodyCount: null, assistantCount: null,
+    documentVisible: null, rootVisible: null, bodyVisible: null, generationMatches: null, conversationMatches: null };
+  const result = (status, reason, values = {}) => ({ status, ...values,
+    ...(diagnostics === true ? { diagnostic: { status, reason, ...detail } } : {}) });
+  if (Date.now() >= deadline) return result('NOT_READY', 'DEADLINE');
   const bridge = window.offerpilotDesktop;
-  if (bridge?.role !== role || typeof bridge.getState !== 'function') return result('UNSAFE');
+  if (bridge?.role !== role || typeof bridge.getState !== 'function') return result('UNSAFE', 'BRIDGE');
   const state = await bridge.getState(), s = state?.snapshot;
-  if (state?.connected !== true || !Number.isSafeInteger(state.generation) || state.generation < 0
-    || !s || !Number.isSafeInteger(s.conversationId) || s.conversationId <= 0
-    || s.hasPending !== false || s.stopping !== false || s.error !== '' || s.stopMessage !== ''
-    || !Array.isArray(s.messages)) return result('UNSAFE');
+  if (diagnostics === true) {
+    detail.documentVisible = document.visibilityState === 'visible';
+    detail.generationMatches = Number.isSafeInteger(state?.generation) && state.generation >= 0
+      && Number.isSafeInteger(expectedGeneration) && expectedGeneration >= 0 ? state.generation === expectedGeneration : null;
+    detail.conversationMatches = Number.isSafeInteger(s?.conversationId) && s.conversationId > 0
+      && Number.isSafeInteger(expectedConversationId) && expectedConversationId > 0 ? s.conversationId === expectedConversationId : null;
+  }
+  if (state?.connected !== true) return result('UNSAFE', 'CONNECTION');
+  if (!Number.isSafeInteger(state.generation) || state.generation < 0) return result('UNSAFE', 'GENERATION');
+  if (!s) return result('UNSAFE', 'SNAPSHOT');
+  if (!Number.isSafeInteger(s.conversationId) || s.conversationId <= 0) return result('UNSAFE', 'CONVERSATION');
+  if (s.hasPending !== false) return result('UNSAFE', 'PENDING_ACTION');
+  if (s.stopping !== false) return result('UNSAFE', 'STOPPING');
+  if (s.error !== '') return result('UNSAFE', 'ERROR');
+  if (s.stopMessage !== '') return result('UNSAFE', 'STOP_MESSAGE');
+  if (!Array.isArray(s.messages)) return result('UNSAFE', 'MESSAGES');
   const identity = { conversationId: s.conversationId, generation: state.generation };
-  const pending = () => ({ status: 'NOT_READY', ...identity });
+  const pending = reason => result('NOT_READY', reason, identity);
   const controlsPending = Date.now() >= deadline || s.taskState === 'running' || s.loading === true || s.canSend !== true;
-  if (!['idle', 'running'].includes(s.taskState) || typeof s.loading !== 'boolean'
-    || (s.taskState === 'idle' && s.loading === false && s.canStop !== false)) return result('UNSAFE');
+  if (!['idle', 'running'].includes(s.taskState)) return result('UNSAFE', 'TASK_STATE');
+  if (typeof s.loading !== 'boolean') return result('UNSAFE', 'LOADING');
+  if (s.taskState === 'idle' && s.loading === false && s.canStop !== false) return result('UNSAFE', 'STOP_CONTROL');
+  let opacityZero = false;
   const visible = node => {
+    opacityZero = false;
     if (document.visibilityState !== 'visible' || !node || !node.isConnected
       || ![...node.getClientRects()].some(rect => rect.width > 0 && rect.height > 0)) return false;
     for (let p = node; p; p = p.parentElement) {
       const style = getComputedStyle(p);
       if (p.hidden || style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility)
-        || style.contentVisibility === 'hidden' || Number(style.opacity) === 0) return false;
+        || style.contentVisibility === 'hidden') return false;
+      if (Number(style.opacity) === 0) { opacityZero = true; return false; }
     }
     return true;
   };
   const roots = [...document.querySelectorAll(role === 'owner' ? '[data-onboarding-target="pilot"]' : 'main[aria-label="Haru 桌面小窗"]')];
-  if (roots.length !== 1 || !visible(roots[0])) return result('UNSAFE');
+  detail.rootCount = Math.min(2, roots.length);
+  if (roots.length !== 1) return result('UNSAFE', 'ROOT_COUNT');
+  detail.rootVisible = visible(roots[0]);
+  if (!detail.rootVisible) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'ROOT_VISIBILITY');
   const root = roots[0];
-  if (root.querySelectorAll('article[aria-label^="本轮任务："], [role="group"][aria-label="AI 修改提议"]').length) return result('UNSUPPORTED_FORMAT');
+  if (root.querySelectorAll('article[aria-label^="本轮任务："], [role="group"][aria-label="AI 修改提议"]').length) return result('UNSUPPORTED_FORMAT', 'STRUCTURED_CONTENT');
   const nodes = [...root.querySelectorAll(role === 'owner' ? '[class*="bubbleAssistant"]' : '.desktop-haru-messages article[data-role="assistant"] p')];
   const messages = s.messages.filter(v => v?.role === 'assistant');
-  if (nodes.length > 1 || messages.length > 1) return result('UNSAFE');
-  if (nodes.length === 0 || messages.length === 0) return pending();
-  if (!visible(nodes[0])) return result('UNSAFE');
+  detail.bodyCount = Math.min(2, nodes.length); detail.assistantCount = Math.min(2, messages.length);
+  if (nodes.length > 1 || messages.length > 1) return result('UNSAFE', 'DUPLICATE_BODY');
+  if (nodes.length === 0 || messages.length === 0) return pending('BODY_MISSING');
+  detail.bodyVisible = visible(nodes[0]);
+  if (!detail.bodyVisible) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'BODY_VISIBILITY');
   // PIN renders a plain response as Markdown div > p > text/BR in Pilot,
   // and literal p > text in Haru. No HTML stripping or Markdown guessing.
   // textContent preserves CJK soft breaks that CSS innerText may collapse.
@@ -287,25 +311,26 @@ export async function readLiveTerminalRenderer({ role, deadline }) {
   if (role === 'owner') {
     const children = [...nodes[0].childNodes];
     if (children.length !== 1 || children[0].nodeType !== 1 || children[0].tagName !== 'DIV'
-      || typeof children[0].className !== 'string' || !children[0].className.includes('markdown')) return result('UNSUPPORTED_FORMAT');
+      || typeof children[0].className !== 'string' || !children[0].className.includes('markdown')) return result('UNSUPPORTED_FORMAT', 'OWNER_SHAPE');
     const markdown = children[0];
-    if (!visible(markdown)) return result('UNSAFE');
+    if (!visible(markdown)) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'MARKDOWN_VISIBILITY');
     const parts = [];
     for (const child of markdown.childNodes) {
       if (child.nodeType === 3 && !child.textContent.trim()) continue;
-      if (child.nodeType !== 1 || child.tagName !== 'P') return result('UNSUPPORTED_FORMAT');
-      if (!visible(child)) return result('UNSAFE');
-      const text = plain(child); if (text === null) return result('UNSUPPORTED_FORMAT'); parts.push(text);
+      if (child.nodeType !== 1 || child.tagName !== 'P') return result('UNSUPPORTED_FORMAT', 'PARAGRAPH_SHAPE');
+      if (!visible(child)) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'PARAGRAPH_VISIBILITY');
+      const text = plain(child); if (text === null) return result('UNSUPPORTED_FORMAT', 'INLINE_FORMAT'); parts.push(text);
     }
-    if (!parts.length) return pending();
+    if (!parts.length) return pending('PARAGRAPHS_MISSING');
     content = parts.join('\n\n');
   } else content = plain(nodes[0]);
-  if (content === null) return result('UNSUPPORTED_FORMAT');
+  if (content === null) return result('UNSUPPORTED_FORMAT', 'INLINE_FORMAT');
   const bridgeContent = messages[0].content;
   if (typeof content !== 'string' || content.length > 12000 || typeof bridgeContent !== 'string'
-    || bridgeContent.length > 12000) return result('UNSAFE');
-  if (controlsPending || !content.trim() || !bridgeContent.trim()) return pending();
-  return { status: 'READY', content, bridgeContent, ...identity };
+    || bridgeContent.length > 12000) return result('UNSAFE', 'TEXT_SHAPE');
+  if (controlsPending) return pending('CONTROLS_PENDING');
+  if (!content.trim() || !bridgeContent.trim()) return pending('EMPTY_TEXT');
+  return result('READY', 'READY', { content, bridgeContent, ...identity });
 }
 
 export async function proveLivePilotCompletion(args) {
@@ -326,7 +351,7 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     try {
       if (diagnostic.fault === undefined) {
         const safe = sanitizePilotProofDiagnostic({ fault: error?.proofFault,
-          faultStage: error?.proofFaultStage ?? stage });
+          faultStage: error?.proofFaultStage ?? stage }, mode === 'mock');
         diagnostic.fault = safe.fault; diagnostic.faultStage = safe.faultStage;
       }
     } catch { /* Never replace the original failure. */ }
@@ -335,7 +360,7 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     try {
       const elapsed = Math.max(0, Math.floor(performance.now() - started));
       error.pilotProofDiagnostic = sanitizePilotProofDiagnostic({ ...diagnostic,
-        elapsedMs: Math.min(elapsed, 600000), elapsedCapped: elapsed > 600000 });
+        elapsedMs: Math.min(elapsed, 600000), elapsedCapped: elapsed > 600000 }, mode === 'mock');
     } catch { /* Optional evidence cannot alter cleanup or the original error. */ }
     return error;
   };
@@ -423,7 +448,15 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
           ctx.mark(mode === 'live' ? 'LIVE_TERMINAL_COMPARE' : 'MOCK_PILOT_PROOF_COMPARE');
           const fingerprint = liveLedgerFingerprint(ledger);
           const [owner, companion] = await within(() => Promise.all([['owner', page], ['haru', haru]].map(([role, surface]) =>
-            surface.evaluate(readLiveTerminalRenderer, { role, deadline: deadlineMs }))), 'TERMINAL_RENDER_READ');
+            surface.evaluate(readLiveTerminalRenderer, { role, deadline: deadlineMs,
+              ...(mode === 'mock' ? { diagnostics: true, expectedGeneration: baseline.owner.generation,
+                expectedConversationId: admitted.conversation_id } : {}) }))), 'TERMINAL_RENDER_READ');
+          // Keep both fixed renderer projections before any assertion can throw.
+          // LIVE retains its original evidence schema, even for hostile returns.
+          if (mode === 'mock') {
+            diagnostic.rendererOwner = sanitizeRendererDiagnostic(owner?.diagnostic);
+            diagnostic.rendererHaru = sanitizeRendererDiagnostic(companion?.diagnostic);
+          }
           const compact = compactPlainMessage(content);
           requireProof([owner, companion].every(v => v && ['READY', 'NOT_READY', 'UNSUPPORTED_FORMAT', 'UNSAFE'].includes(v.status)), 'RENDERER_UNPROVEN');
           requireProof(![owner, companion].some(v => v.status === 'UNSUPPORTED_FORMAT'), 'RENDERER_FORMAT_UNSUPPORTED');

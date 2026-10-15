@@ -310,3 +310,21 @@ test('AI install source comparison consumes the shared complete desktop module c
   assert.match(prepare, /for \(const name of DESKTOP_SOURCE_FILES\)/);
   assert.match(prepare, /normalizeSourceText\(extractFile[\s\S]*?normalizeSourceText\(await fs\.readFile/);
 });
+
+test('renderer structure evidence is MOCK Pilot-only and cannot widen LIVE artifacts', () => {
+  const result = rows();
+  const renderer = { status: 'UNSAFE', reason: 'OPACITY_ZERO', rootCount: 1, bodyCount: 1,
+    assistantCount: 1, documentVisible: true, rootVisible: true, bodyVisible: false,
+    generationMatches: true, conversationMatches: true, content: 'private-raw-body',
+    url: 'private-origin', generation: 999, conversationId: 888 };
+  for (const row of result) row.diagnostic = { pilotProof: {
+    fault: 'RENDERER_UNPROVEN', rendererOwner: renderer, rendererHaru: renderer,
+  } };
+  const mock = safeResults(result, true), live = safeResults(result, false);
+  assert.equal(mock[1].diagnostic.pilotProof.rendererOwner.reason, 'OPACITY_ZERO');
+  assert.equal(mock[1].diagnostic.pilotProof.rendererHaru.bodyVisible, false);
+  assert.ok(mock.filter(row => row.id !== 'pilot-stream').every(row => !('rendererOwner' in row.diagnostic.pilotProof)));
+  assert.ok(live.every(row => !('rendererOwner' in row.diagnostic.pilotProof) && !('rendererHaru' in row.diagnostic.pilotProof)));
+  for (const output of [mock, live]) for (const secret of ['private-raw-body', 'private-origin', '999', '888'])
+    assert.equal(JSON.stringify(output).includes(secret), false);
+});
