@@ -2,7 +2,7 @@ import { PRICE_REVIEW, usageCost } from './broker-core.cjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { SCREEN_IDS, SKIP_CODES, GUARD_REASONS } from './mock-screenshots.mjs';
-import { sanitizeUiDiagnostic, CONTINUATION_CODES } from './ui-diagnostics.mjs';
+import { sanitizeUiDiagnostic, CONTINUATION_CODES, MOCK_PILOT_CHECK_MAP } from './ui-diagnostics.mjs';
 import { CASES, PIN, demand, EVIDENCE_CODES } from './contract.mjs';
 import { HARU_SESSION_CHECKS, HARU_SESSION_STAGES, HARU_SESSION_DIAGNOSTIC_FLAGS } from './mock-haru-session.mjs';
 const CHECKS = new Set('sustainedStreamingObserved freshConversationProven uiAdmissionProven naturalCompletionProven terminalIdentityProven terminalMirrorProven terminalTextProven ledgerUnchanged admissionObserverCleanupPassed settingsSavedThroughUi connectionTestClicked connectionSucceeded incrementalAssistantRendering haruRunningAndIdleMirrored haruVisibleAssistantMatchesSnapshot hitlVisible rejectedThroughUi syntheticWriteAbsent haruPendingAndIdleMirrored stopClickedWhileRunning stopAcknowledged haruRunningAndStoppedMirrored sourceAndResumeSelected disclosureAccepted generatedProposalVisible classificationPreviewVisible cancelledThroughUi sourceUnchanged inputReviewedThroughUi generatedDraftVisible finalSaveNotSubmitted providerRequestObserved providerRequestSettled oneProviderRequestVerified productDisconnectObserved providerDisconnectObserved ownerRunningTransitionObserved haruRunningTransitionObserved positiveRunningConversationMatched finalRunningConversationMatched brokerCleanupFailed mirrorObserverCleanupFailed streamObserverCleanupFailed'.split(' '));
@@ -18,7 +18,8 @@ export function safeResults(results, isMock = false) {
     demand(row.id === CASES[index] && ['PASS', 'FAIL', 'BLOCKED'].includes(row.status) &&
       EVIDENCE_CODES.has(row.code), 'SCENARIO_EVIDENCE_INVALID');
     const checks = Object.fromEntries(Object.entries(row.checks || {}).map(([key, value]) => {
-      demand((CHECKS.has(key) || (isMock && row.id === 'pilot-stream' && HARU_SESSION_CHECKS.includes(key)))
+      demand((CHECKS.has(key) || (isMock && row.id === 'pilot-stream'
+        && [...HARU_SESSION_CHECKS, ...Object.values(MOCK_PILOT_CHECK_MAP)].includes(key)))
         && typeof value === 'boolean', 'SCENARIO_EVIDENCE_INVALID');
       return [key, value];
     }));
@@ -57,6 +58,24 @@ export function safeResults(results, isMock = false) {
       }
     }
     demand(!['LIVE_COMPLETION_ONLY', 'LIVE_STREAMING_PROVEN'].includes(row.code) || liveChecks, 'SCENARIO_EVIDENCE_INVALID');
+    const mockCode = row.code === 'MOCK_PILOT_STREAMING_PROVEN';
+    const mockProofKeys = Object.values(MOCK_PILOT_CHECK_MAP);
+    const mockChecks = mockProofKeys.some(key => Object.hasOwn(checks, key));
+    if (mockCode || mockChecks) {
+      demand(isMock && row.id === 'pilot-stream' && mockChecks
+        && mockProofKeys.every(key => typeof checks[key] === 'boolean'), 'SCENARIO_EVIDENCE_INVALID');
+      demand(!mockCode || row.status === 'PASS', 'SCENARIO_EVIDENCE_INVALID');
+      if (row.status === 'PASS') {
+        demand(mockCode && mockProofKeys.every(key => checks[key] === true)
+          && ['providerRequestSettled', 'oneProviderRequestVerified', 'haruVisibleAssistantMatchesSnapshot',
+            'incrementalAssistantRendering', 'ownerRunningTransitionObserved', 'haruRunningTransitionObserved',
+            'positiveRunningConversationMatched', 'finalRunningConversationMatched', 'haruRunningAndIdleMirrored']
+            .every(key => checks[key] === true)
+          && !['brokerCleanupFailed', 'mirrorObserverCleanupFailed', 'streamObserverCleanupFailed'].some(key => checks[key] === true),
+        'SCENARIO_EVIDENCE_INVALID');
+      }
+    }
+    demand(row.code !== 'MOCK_PILOT_COMPLETION_UNPROVEN' || (isMock && row.status !== 'PASS'), 'SCENARIO_EVIDENCE_INVALID');
     let continuation;
     if (row.continuation !== undefined) {
       const value = row.continuation;
@@ -167,8 +186,13 @@ export async function saveEvidence(directory, report, ledger, secrets = []) {
     demand(isMock && (safe.status !== 'PASS' || HARU_SESSION_CHECKS.every(key => haruScope[key] === true)), 'REPORT_INVALID');
   }
   const livePilotProven = safe.scenarios.some(row => ['LIVE_COMPLETION_ONLY', 'LIVE_STREAMING_PROVEN'].includes(row.code));
-  if (livePilotProven) {
-    demand(ledger?.mode !== 'MOCK' && ledger?.mock === undefined, 'REPORT_INVALID');
+  const mockPilotProven = safe.scenarios.some(row => row.code === 'MOCK_PILOT_STREAMING_PROVEN');
+  if (livePilotProven || mockPilotProven) {
+    demand(livePilotProven ? ledger?.mode !== 'MOCK' && ledger?.mock === undefined
+      : isMock && ledger?.mode === 'MOCK' && ledger.mock?.transport === 'IN_PROCESS_SYNTHETIC_HTTPS'
+        && ledger.mock.externalNetwork === 'DENIED' && ledger.mock.realProviderCalls === 0
+        && ledger.mock.usageIsSynthetic === true && ledger.mock.fakeRequests === ledger.sentRequests,
+    'REPORT_INVALID');
     const rows = ledger?.requests?.filter(row => row.caseId === 'pilot-stream');
     demand(rows?.length === 1 && rows[0].status === 'SETTLED' && rows[0].outboundStarted === true
       && rows[0].upstreamResponded === true && rows[0].clientDisconnectObserved === false

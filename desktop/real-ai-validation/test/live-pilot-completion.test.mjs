@@ -426,3 +426,220 @@ for (const key of ['unknown denial', 'unknown row field']) test(`${key} introduc
     if (key === 'unknown denial') fake.final.denied.NEW = 0; else fake.final.requests[1].unreviewed = true;
   }; await blocked(fake);
 });
+
+test('LIVE diagnostic distinguishes immediate status identity rejection from observation timeout', async t => {
+  const fake = await harness(t, { deadline: 75000 });
+  fake.status.execution.conversation_id += 1;
+  let failure;
+  try { await fake.prove(); } catch (error) { failure = error; }
+  assert.equal(failure?.code, 'LIVE_COMPLETION_UNPROVEN');
+  assert.equal(failure.pilotProofDiagnostic.fault, 'STATUS_IDENTITY_INVALID');
+  assert.equal(failure.pilotProofDiagnostic.admissionObserved, true);
+  assert.equal(failure.pilotProofDiagnostic.admissionValid, true);
+  assert.equal(failure.pilotProofDiagnostic.lastValidState, null);
+  assert.ok(failure.pilotProofDiagnostic.elapsedMs < 5000);
+  assert.equal(fake.sends(), 1); assert.equal(fake.owner.responses.size, 0);
+  assert.doesNotMatch(JSON.stringify(failure.pilotProofDiagnostic), /PRIVATE_|26e756|turn-synthetic|http|conversation_id|token/);
+});
+test('LIVE diagnostic retains valid pending state and distinguishes deadline without a second send', async t => {
+  const fake = await harness(t, { deadline: 120 });
+  const pending = terminal(); pending.state = pending.execution.state = 'running';
+  pending.worker_done = pending.execution.worker_done = false;
+  pending.actual_worker_alive = pending.execution.actual_worker_alive = true;
+  pending.terminal = {}; pending.budget = { model_calls: 1 }; fake.setStatus(pending);
+  let failure;
+  try { await fake.prove(); } catch (error) { failure = error; }
+  assert.equal(failure?.pilotProofDiagnostic.fault, 'OBSERVE_DEADLINE');
+  assert.equal(failure.pilotProofDiagnostic.lastValidState, 'running');
+  assert.equal(failure.pilotProofDiagnostic.workerDone, false);
+  assert.equal(failure.pilotProofDiagnostic.actualWorkerAlive, true);
+  assert.equal(failure.pilotProofDiagnostic.modelCallsReserved, 1, 'runtime reservation count, not HTTP count');
+  assert.ok(failure.pilotProofDiagnostic.pollCount > 0);
+  assert.equal(fake.sends(), 1); assert.equal(fake.owner.responses.size, 0);
+});
+test('LIVE diagnostic records fixed status read failure without leaking body or changing pending semantics', async t => {
+  const fake = await harness(t, { deadline: 120 });
+  fake.transport.statusOptions = { status: 503 };
+  let failure;
+  try { await fake.prove(); } catch (error) { failure = error; }
+  assert.equal(failure?.pilotProofDiagnostic.fault, 'OBSERVE_DEADLINE');
+  assert.equal(failure.pilotProofDiagnostic.lastReadOutcome, 'HTTP_STATUS');
+  assert.equal(failure.pilotProofDiagnostic.lastHttpStatus, 503);
+  assert.equal(failure.pilotProofDiagnostic.lastValidState, null);
+  assert.equal(fake.sends(), 1); assert.equal(fake.owner.responses.size, 0);
+});
+test('first LIVE diagnostic survives admission cleanup failure', async t => {
+  const fake = await harness(t), off = fake.owner.page.off;
+  fake.status.execution.conversation_id += 1;
+  fake.owner.page.off = (...args) => { off(...args); throw new Error(SECRET); };
+  let failure;
+  try { await fake.prove(); } catch (error) { failure = error; }
+  assert.equal(failure?.code, 'LIVE_COMPLETION_UNPROVEN');
+  assert.equal(failure.pilotProofDiagnostic.fault, 'STATUS_IDENTITY_INVALID');
+  assert.equal(fake.owner.responses.size, 0);
+  assert.doesNotMatch(JSON.stringify(failure.pilotProofDiagnostic), /PRIVATE_/);
+});
+
+test('shared strict observer keeps MOCK identity and cannot certify a LIVE wrapper', async t => {
+  const { observePilotCompletion } = await import('../live-pilot-completion.mjs');
+  const fake = await harness(t);
+  fake.args.mode = 'mock'; fake.args.broker.mode = 'MOCK';
+  for (const value of [fake.prior, fake.final]) Object.assign(value, { mode: 'MOCK', mock: {
+    transport: 'IN_PROCESS_SYNTHETIC_HTTPS', externalNetwork: 'DENIED', realProviderCalls: 0,
+    usageIsSynthetic: true, fakeRequests: value.sentRequests, clockScope: 'BROKER_VM_ONLY' } });
+  await assert.rejects(fake.prove(), { code: 'LIVE_COMPLETION_UNPROVEN' });
+  assert.equal(fake.sends(), 0);
+  const result = await observePilotCompletion(fake.args);
+  assert.equal(result.code, 'COMPLETION_ONLY'); assert.equal(fake.sends(), 1);
+  assert.equal(fake.prior.mode, 'MOCK'); assert.equal(fake.final.mode, 'MOCK');
+  assert.equal(isLiveLedgerProven(fake.final, fake.prior, 1), false);
+});
+
+test('strict offline proof results are MOCK-only and cannot carry LIVE-exclusive checks', async t => {
+  const { MOCK_PILOT_CHECK_MAP } = await import('../ui-diagnostics.mjs');
+  const fake = await harness(t, { running: 'both', growth: 2 }), live = await fake.prove();
+  const mockChecks = Object.fromEntries(Object.entries(live.checks).map(([key, value]) => [MOCK_PILOT_CHECK_MAP[key] ?? key, value]));
+  const rows = CASES.map(id => ({ id, status: 'BLOCKED', code: 'NOT_STARTED', checks: {} }));
+  rows[1] = { id: 'pilot-stream', status: 'PASS', code: 'MOCK_PILOT_STREAMING_PROVEN',
+    checks: { ...mockChecks, oneProviderRequestVerified: true } };
+  assert.equal(safeResults(rows, true)[1].code, 'MOCK_PILOT_STREAMING_PROVEN');
+  const completionOnly = structuredClone(rows); completionOnly[1].code = 'MOCK_PILOT_COMPLETION_ONLY';
+  completionOnly[1].checks.mockPilotSustainedStreamingObserved = false;
+  completionOnly[1].checks.incrementalAssistantRendering = false;
+  assert.throws(() => safeResults(completionOnly, true), 'MOCK streaming cannot be relaxed to completion-only PASS');
+  const cleanupFailed = structuredClone(rows);
+  cleanupFailed[1] = { ...cleanupFailed[1], status: 'BLOCKED', code: 'PROVIDER_BUDGET_BLOCKED',
+    checks: { ...cleanupFailed[1].checks, brokerCleanupFailed: true } };
+  assert.equal(safeResults(cleanupFailed, true)[1].status, 'BLOCKED', 'failed cleanup preserves bounded prior proof evidence');
+  assert.throws(() => safeResults(rows, false));
+  for (const key of Object.values(MOCK_PILOT_CHECK_MAP)) {
+    const missing = structuredClone(rows); delete missing[1].checks[key]; assert.throws(() => safeResults(missing, true));
+  }
+  const mixed = structuredClone(rows); mixed[1].checks.naturalCompletionProven = true;
+  assert.throws(() => safeResults(mixed, true));
+  const relabelled = structuredClone(rows); relabelled[1].code = 'PASSED'; assert.throws(() => safeResults(relabelled, true));
+  const misplaced = structuredClone(rows); misplaced[0] = { ...misplaced[1], id: 'connection' };
+  assert.throws(() => safeResults(misplaced, true));
+});
+
+test('fixed five-second read bound fails before the independent 75-second observation deadline', async t => {
+  const fake = await harness(t, { deadline: 75000 });
+  let entered;
+  const reading = new Promise(resolve => { entered = resolve; });
+  const evaluate = fake.owner.page.evaluate;
+  fake.owner.page.evaluate = (fn, arg) => {
+    if (fn === readLivePilotJson && arg.requestId !== null) { entered(); return new Promise(() => {}); }
+    return evaluate(fn, arg);
+  };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const result = fake.prove().then(() => assert.fail('stalled read cannot pass'), error => error);
+  await reading; t.mock.timers.tick(5000);
+  const error = await result;
+  assert.equal(error.pilotProofDiagnostic.fault, 'OPERATION_TIMEOUT');
+  assert.equal(error.pilotProofDiagnostic.faultStage, 'STATUS_AND_MIRROR_READ');
+  assert.equal(error.pilotProofDiagnostic.admissionValid, true);
+  assert.equal(error.pilotProofDiagnostic.lastValidState, null);
+  assert.equal(fake.owner.responses.size, 0); assert.equal(fake.sends(), 1);
+});
+
+test('LIVE runner and scenario boundary reject offline proof injection before preparation or broker creation', async () => {
+  const { executeValidation } = await import('../validation-runner.mjs');
+  const { runUiScenarios } = await import('../ui-scenarios.mjs');
+  const forbidden = () => assert.fail('LIVE cannot reach offline capability');
+  await assert.rejects(executeValidation({ mode: 'live', brokerFactory: forbidden,
+    mockPilotProofFactory: forbidden }), { safeCode: 'INVALID_HARNESS' });
+  const report = await runUiScenarios({ mode: 'live', page: {}, haru: {}, api: forbidden, fixture: {},
+    mockPilotProof: forbidden, broker: { prepareCase: forbidden, armCase: forbidden, cancelCase: forbidden, snapshot: forbidden } });
+  assert.equal(report.allPassed, false);
+  assert.ok(report.results.every(row => row.status === 'BLOCKED' && row.code === 'INVALID_HARNESS'));
+});
+
+for (const sustained of [false, true]) test(`actual branded offline proof ${sustained ? 'preserves streaming PASS' : 'blocks completion-only'}`, async t => {
+  const diagnosticNames = ['NODE_DEBUG', 'NODE_DEBUG_NATIVE', 'NODE_OPTIONS', 'NODE_EXTRA_CA_CERTS',
+    'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_TLS_REJECT_UNAUTHORIZED'];
+  const savedDiagnostics = Object.fromEntries(diagnosticNames.map(name => [name, process.env[name]]));
+  for (const name of diagnosticNames) delete process.env[name];
+  t.after(() => { for (const name of diagnosticNames) if (savedDiagnostics[name] !== undefined) process.env[name] = savedDiagnostics[name]; });
+  const { createOfflineBroker } = await import('../mock-provider.cjs');
+  const { createOfflinePilotProof } = await import('../offline-pilot-completion.mjs');
+  const { request } = await import('node:http');
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'offline-strict-proof-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const broker = await createOfflineBroker({ ledgerPath: path.join(directory, 'MOCK-ledger.jsonl'),
+    sessionId: 'offerpilot-fixed-exe-real-ai-20261008', runId: '1', runAttempt: 1, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40) });
+  t.after(() => broker.close());
+  const send = (token, stream = false) => new Promise((resolve, reject) => {
+    const req = request(`${broker.origin}/v1/chat/completions`, { method: 'POST', agent: false,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, res => {
+      assert.equal(res.statusCode, 200); res.resume(); res.on('end', resolve); res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.end(JSON.stringify({ model: 'deepseek-flash', messages: [{ role: 'user', content: 'MOCK only' }], ...(stream ? { stream: true } : {}) }));
+  });
+  const connection = broker.prepareCase('connection'); broker.armCase('connection'); await send(connection.clientToken);
+  const pilot = broker.prepareCase('pilot-stream');
+  const fake = await harness(t, { running: sustained ? 'both' : 'none', growth: sustained ? 2 : 0, deadline: 75000 });
+  const prove = createOfflinePilotProof({ mode: 'mock', broker });
+  const sendUi = fake.args.send;
+  Object.assign(fake.args, { mode: 'mock', broker, send: async () => { broker.armCase('pilot-stream'); await sendUi(); } });
+  let providerDone;
+  fake.transport.afterSend = async () => {
+    // UI send returns at admission, not at the end of the asynchronous stream.
+    providerDone = send(pilot.clientToken, true);
+    const stop = Date.now() + 2000;
+    while (broker.snapshot().sentRequests !== 2) {
+      assert.ok(Date.now() < stop, 'synthetic request was not admitted');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  };
+  const stages = []; fake.args.ctx.mark = stage => stages.push(stage);
+  let outcome;
+  if (sustained) {
+    outcome = await prove(fake.args);
+    assert.equal(outcome.code, 'MOCK_PILOT_STREAMING_PROVEN');
+    assert.equal(outcome.checks.mockPilotNaturalCompletionProven, true);
+    assert.equal(outcome.checks.mockPilotSustainedStreamingObserved, true);
+    assert.equal(outcome.checks.naturalCompletionProven, undefined);
+  } else {
+    await assert.rejects(prove(fake.args), error => {
+      assert.equal(error.code, 'MOCK_PILOT_COMPLETION_UNPROVEN');
+      assert.equal(error.pilotProofDiagnostic.fault, 'MOCK_STREAMING_UNPROVEN');
+      assert.equal(error.pilotProofDiagnostic.naturalCompletionProven, true); return true;
+    });
+  }
+  await providerDone;
+  assert.equal(broker.snapshot().mode, 'MOCK');
+  assert.equal(broker.snapshot().mock.realProviderCalls, 0);
+  assert.equal(broker.snapshot().sentRequests, 2);
+  assert.equal(broker.snapshot().requests[1].status, 'SETTLED');
+  assert.equal(fake.owner.responses.size, 0); assert.equal(fake.sends(), 1);
+  assert.ok(stages.length >= 4 && stages.every(stage => stage.startsWith('MOCK_PILOT_PROOF_')));
+  if (sustained) {
+    await broker.close();
+    const ledger = broker.snapshot();
+    const scenarios = CASES.map(id => ({ id, status: 'BLOCKED', code: 'NOT_STARTED', checks: {} }));
+    scenarios[0] = { id: 'connection', status: 'PASS', code: 'PASSED', checks: {} };
+    scenarios[1] = { id: 'pilot-stream', status: 'PASS', ...outcome,
+      checks: { ...outcome.checks, oneProviderRequestVerified: true } };
+    await saveEvidence(path.join(directory, 'MOCK-evidence'), { mode: 'mock', status: 'BLOCKED', code: 'UI_CASES_INCOMPLETE',
+      cleanupCode: 'CLEANUP_PASSED', cleanupPassed: true, scenarios }, ledger, [SECRET, ID.request_id, ID.turn_id]);
+    const artifact = JSON.parse(await fs.readFile(path.join(directory, 'MOCK-evidence', 'result.json'), 'utf8'));
+    assert.equal(artifact.mode, 'MOCK'); assert.equal(artifact.realProviderCalled, false);
+    assert.equal(artifact.scenarios[1].code, 'MOCK_PILOT_STREAMING_PROVEN');
+    assert.doesNotMatch(JSON.stringify(artifact), /LIVE_|PRIVATE_|26e756|turn-synthetic/);
+  }
+});
+
+for (const [name, body, fault] of [
+  ['invalid JSON', Buffer.from(SECRET), 'ADMISSION_INVALID'],
+  ['invalid UTF-8', Buffer.from([0xff]), 'ADMISSION_INVALID'],
+]) test(`admission ${name} has a fixed safe failure reason`, async t => {
+  const fake = await harness(t); fake.transport.admissionOptions.body = body;
+  await assert.rejects(fake.prove(), error => {
+    assert.equal(error.pilotProofDiagnostic.fault, fault);
+    assert.equal(error.pilotProofDiagnostic.admissionObserved, true);
+    assert.equal(error.pilotProofDiagnostic.admissionValid, false);
+    assert.doesNotMatch(JSON.stringify(error.pilotProofDiagnostic), /PRIVATE_/); return true;
+  });
+  assert.equal(fake.owner.responses.size, 0);
+});

@@ -18,6 +18,11 @@ const MOCK_EPOCH = Date.parse(`${PRICE_REVIEW.priceCheckedAt}T12:00:00.000Z`);
 let installed = false;
 let owner = null;
 let creating = false;
+const offlineBrokers = new WeakMap();
+function isOfflineBroker(broker) {
+  const state = broker && offlineBrokers.get(broker);
+  return Boolean(installed && state && state === owner && state.closed === false);
+}
 const fail = () => { const error = new Error('MOCK_NETWORK_DENIED'); error.code = 'MOCK_NETWORK_DENIED'; throw error; };
 const lock = (object, key, value) => Object.defineProperty(object, key, { value, writable: false, configurable: false });
 
@@ -158,13 +163,13 @@ async function createOfflineBroker({ ledgerPath, sessionId, runId, runAttempt, h
   if (creating || owner) fail();
   installOfflineBoundary(); // Must precede even requiring the real live broker.
   creating = true;
-  const state = { armedCase: null, prepared: new Set(), inflight: null, fakeRequests: 0 };
+  const state = { armedCase: null, prepared: new Set(), inflight: null, fakeRequests: 0, closed: false };
   owner = state;
   try {
     const { createBroker } = loadOfflineBroker();
     const broker = await createBroker({ providerKey: FAKE_KEY, ledgerPath, sessionId, runId, runAttempt, helperCommit, requestCommit });
     let closing;
-    return Object.freeze({
+    const offline = Object.freeze({
       mode: MODE, origin: broker.origin,
       prepareCase(caseId) {
         if (!CASE_IDS.includes(caseId)) fail();
@@ -182,6 +187,7 @@ async function createOfflineBroker({ ledgerPath, sessionId, runId, runAttempt, h
             realProviderCalls: 0, usageIsSynthetic: true } };
       },
       close() {
+        state.closed = true;
         if (!closing) closing = broker.close().finally(() => {
           state.inflight?.destroy(); state.armedCase = null;
           if (owner === state) owner = null;
@@ -189,7 +195,9 @@ async function createOfflineBroker({ ledgerPath, sessionId, runId, runAttempt, h
         return closing;
       },
     });
+    offlineBrokers.set(offline, state);
+    return offline;
   } catch (error) { state.inflight?.destroy(); owner = null; throw error; }
   finally { creating = false; }
 }
-module.exports = { createOfflineBroker };
+module.exports = { createOfflineBroker, isOfflineBroker };

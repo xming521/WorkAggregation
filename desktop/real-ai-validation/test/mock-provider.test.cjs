@@ -191,3 +191,16 @@ test('strict guard permits the installed Playwright WebSocket transport over lit
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('offline strict proof factory requires the actual active network-locked broker, not copied mode claims', async t => {
+  const { createOfflinePilotProof } = await import('../offline-pilot-completion.mjs');
+  const { broker } = await fixture(t);
+  assert.throws(() => createOfflinePilotProof({ mode: 'live', broker }), { safeCode: 'INVALID_HARNESS' });
+  assert.throws(() => createOfflinePilotProof({ mode: 'mock', broker: { ...broker } }), { safeCode: 'INVALID_HARNESS' });
+  const prove = createOfflinePilotProof({ mode: 'mock', broker });
+  assert.equal(typeof prove, 'function');
+  await assert.rejects(prove({ mode: 'live', broker }), { safeCode: 'INVALID_HARNESS' });
+  await assert.rejects(prove({ mode: 'mock', broker: { ...broker, snapshot: () => broker.snapshot() } }), { safeCode: 'INVALID_HARNESS' });
+  await broker.close();
+  assert.throws(() => createOfflinePilotProof({ mode: 'mock', broker }), { safeCode: 'INVALID_HARNESS' });
+});

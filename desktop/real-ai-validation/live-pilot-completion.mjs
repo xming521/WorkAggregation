@@ -1,7 +1,8 @@
-// LIVE pilot-stream only. Observe the user's one UI submission and bounded,
-// same-origin readbacks. No extra POST, credentials, provider calls or retries.
+// Shared strict Pilot observation; live and explicitly offline wrappers keep
+// separate billing boundaries and evidence labels. No extra POST or retry.
 import { POLICY, CASES, Ledger, usageCost } from './broker-core.cjs';
 import { readMirrorObservation, isRunningMirrorProven } from './mirror-observer.mjs';
+import { sanitizePilotProofDiagnostic } from './ui-diagnostics.mjs';
 
 const CASE = 'pilot-stream';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -13,8 +14,10 @@ const DENIED = Object.keys(new Ledger().snapshot().denied).sort();
 const ROW = ['caseId', 'cap', 'envelope', 'status', 'micro', 'outboundStarted', 'upstreamResponded',
   'clientDisconnectObserved', 'promptTokens', 'completionTokens', 'cacheHitTokens', 'cacheMissTokens'].sort();
 const sameKeys = (v, keys) => object(v) && Object.keys(v).sort().join('|') === keys.join('|');
-const fail = () => { throw Object.assign(new Error('LIVE_COMPLETION_UNPROVEN'), { code: 'LIVE_COMPLETION_UNPROVEN' }); };
-const requireProof = v => { if (!v) fail(); };
+const proofError = (fault = 'UNEXPECTED_FAILURE', faultStage = null) => Object.assign(
+  new Error('LIVE_COMPLETION_UNPROVEN'), { code: 'LIVE_COMPLETION_UNPROVEN', proofFault: fault, proofFaultStage: faultStage });
+const fail = fault => { throw proofError(fault); };
+const requireProof = (v, fault) => { if (!v) fail(fault); };
 export const normalizePlainText = text => text.replace(/[\t\n\v\f\r ]+/gu, ' ').replace(/^ | $/gu, '');
 // Exact plain-message branch of PIN assistantPresentation.compactMessageText.
 // The owner bridge already carries this compact projection, not the full reply.
@@ -24,7 +27,7 @@ export function compactPlainMessage(content) {
 }
 function identity(value) {
   requireProof(object(value) && UUID.test(value.request_id) && typeof value.turn_id === 'string'
-    && /^[A-Za-z0-9_-]{1,128}$/.test(value.turn_id) && positive(value.conversation_id) && positive(value.execution_generation));
+    && /^[A-Za-z0-9_-]{1,128}$/.test(value.turn_id) && positive(value.conversation_id) && positive(value.execution_generation), 'ADMISSION_INVALID');
   return Object.fromEntries(IDS.map(key => [key, value[key]]));
 }
 function matches(value, admitted, optionalRequest = false) {
@@ -38,16 +41,17 @@ function unsafe(value) {
     || unsafe(child));
 }
 export function projectAdmission(value, status) {
-  requireProof(status === 202 && object(value) && value.protocol_version === 'pilot-runtime-v1' && value.replayed === false && !unsafe(value));
+  requireProof(status === 202 && object(value) && value.protocol_version === 'pilot-runtime-v1' && value.replayed === false && !unsafe(value), 'ADMISSION_INVALID');
   const admitted = identity(value);
   requireProof(matches(value.execution, admitted) && value.execution.protocol_version === 'pilot-runtime-v1'
-    && ['queued', 'running', 'completed'].includes(value.state) && value.execution.state === value.state);
+    && ['queued', 'running', 'completed'].includes(value.state) && value.execution.state === value.state, 'ADMISSION_INVALID');
   return Object.freeze(admitted);
 }
 export function projectTerminal(value, admitted) {
-  requireProof(matches(value, admitted) && matches(value.execution, admitted)
-    && value.protocol_version === 'pilot-runtime-v1' && value.execution.protocol_version === 'pilot-runtime-v1' && !unsafe(value)
-    && value.recovery?.requires_resync === false && value.recovery?.auto_resume === false);
+  requireProof(matches(value, admitted) && matches(value.execution, admitted), 'STATUS_IDENTITY_INVALID');
+  requireProof(value.protocol_version === 'pilot-runtime-v1' && value.execution.protocol_version === 'pilot-runtime-v1', 'STATUS_PROTOCOL_INVALID');
+  requireProof(!unsafe(value), 'STATUS_UNSAFE');
+  requireProof(value.recovery?.requires_resync === false && value.recovery?.auto_resume === false, 'STATUS_RECOVERY_INVALID');
   if (['queued', 'running'].includes(value.state) && value.execution.state === value.state
     && !value.terminal?.response) return null;
   // Logical completion can precede the manager's finally block. Wait for both
@@ -55,48 +59,59 @@ export function projectTerminal(value, admitted) {
   if (value.state === 'completed' && value.execution.state === 'completed'
     && [value, value.execution].every(v => v.worker_done === false && v.actual_worker_alive === true)) return null;
   requireProof(value.state === 'completed' && value.execution.state === 'completed'
-    && [value, value.execution].every(v => v.worker_done === true && v.actual_worker_alive === false));
+    && [value, value.execution].every(v => v.worker_done === true && v.actual_worker_alive === false), 'STATUS_STATE_INVALID');
   const response = value.terminal?.response;
   // PIN guarantees three terminal IDs; request_id is mandatory in both outer
   // envelopes and, if present in terminal.response, must also agree.
   requireProof(matches(response, admitted, true) && response.type === 'message'
-    && typeof response.message === 'string' && response.message.length <= 12000 && response.message.trim().length > 0);
+    && typeof response.message === 'string' && response.message.length <= 12000 && response.message.trim().length > 0, 'STATUS_TERMINAL_INVALID');
   return response.message;
 }
 
 // Exact allowlist, fetched by the owner's existing application session. No
 // authentication inspection and no expansion of syntheticApi's write routes.
-export async function readLivePilotJson({ origin, requestId, deadline }) {
-  if (window.offerpilotDesktop?.role !== 'owner' || location.origin !== origin || Date.now() >= deadline) return null;
+export async function readLivePilotJson({ origin, requestId, deadline, diagnostics = false }) {
+  // The optional envelope reports only this already-authorized GET's fixed
+  // outcome. Its payload remains ephemeral and never enters an artifact.
+  let httpStatus = null;
+  const result = (value, readOutcome) => diagnostics ? { value, readOutcome, httpStatus } : value;
+  if (window.offerpilotDesktop?.role !== 'owner' || location.origin !== origin) return result(null, 'INVALID_CONTEXT');
+  if (Date.now() >= deadline) return result(null, 'DEADLINE');
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (requestId !== null && !uuid.test(requestId)) return null;
+  if (requestId !== null && !uuid.test(requestId)) return result(null, 'INVALID_REQUEST');
   const route = requestId === null ? '/api/chat/conversations?include_archived=true' : `/api/pilot/runtime/v1/requests/${requestId}`;
   const limit = requestId === null ? 8192 : 131072;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1, Math.min(5000, deadline - Date.now())));
-  let reader;
+  let reader, phase = 'TRANSPORT';
   try {
     const response = await fetch(route, { method: 'GET', credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: controller.signal });
-    if (response.status !== 200 || response.redirected || response.url !== `${origin}${route}` || !response.body) return null;
+    httpStatus = response.status;
+    if (response.status !== 200) return result(null, 'HTTP_STATUS');
+    if (response.redirected || response.url !== `${origin}${route}`) return result(null, 'ROUTE_MISMATCH');
+    if (!response.body) return result(null, 'BODY_MISSING');
     reader = response.body.getReader(); let size = 0, text = '';
     const decoder = new TextDecoder('utf-8', { fatal: true });
     while (true) {
-      const part = await reader.read(); if (Date.now() >= deadline) return null;
+      phase = 'TRANSPORT';
+      const part = await reader.read(); if (Date.now() >= deadline) return result(null, 'DEADLINE');
       if (part.done) break;
-      size += part.value.byteLength; if (size > limit) return null;
-      text += decoder.decode(part.value, { stream: true });
+      size += part.value.byteLength; if (size > limit) return result(null, 'BODY_TOO_LARGE');
+      phase = 'DECODE_OR_JSON'; text += decoder.decode(part.value, { stream: true });
     }
-    text += decoder.decode();
-    return JSON.parse(text);
-  } catch { return null; }
+    phase = 'DECODE_OR_JSON'; text += decoder.decode();
+    return result(JSON.parse(text), 'OK');
+  } catch { return result(null, Date.now() >= deadline ? 'DEADLINE' : controller.signal.aborted ? 'TIMEOUT' : phase); }
   finally { clearTimeout(timer); controller.abort(); try { await reader?.cancel(); } catch { /* No raw errors. */ } }
 }
 
-export function observeLiveAdmission(page, origin, within) {
-  let closed = false, count = 0, admitted = null, faulted = false;
-  const invalidate = () => {
-    faulted = true; closed = true; admitted = null;
-    try { page.off('response', listener); } catch { /* dispose retries cleanup and still cannot pass. */ }
+export function observeLiveAdmission(page, origin, within, observe = () => {}) {
+  let closed = false, count = 0, admitted = null, firstFault = null;
+  const note = value => { try { observe(value); } catch { /* Diagnostics cannot alter the proof. */ } };
+  const invalidate = (error = proofError('ADMISSION_READ_FAILED')) => {
+    firstFault ??= error; closed = true; admitted = null;
+    note({ fault: firstFault, admissionValid: false });
+    try { page.off('response', listener); } catch { /* dispose still retries. */ }
   };
   const listener = response => {
     if (closed) return;
@@ -105,18 +120,24 @@ export function observeLiveAdmission(page, origin, within) {
       request = response.request();
       if (response.url() !== `${origin}/api/pilot/runtime/v1/turns` || request.method() !== 'POST'
         || request.frame() !== page.mainFrame()) return;
-      if (++count !== 1 || request.redirectedFrom() !== null) { invalidate(); return; }
+      note({ admissionObserved: true });
+      if (++count !== 1) { invalidate(proofError('ADMISSION_DUPLICATE')); return; }
+      if (request.redirectedFrom() !== null) { invalidate(proofError('ADMISSION_REDIRECTED')); return; }
     } catch { invalidate(); return; }
-    // No request headers or postData are read. Project the bounded admission
-    // response immediately; a late callback can never revive a disposed proof.
     void within(async () => {
-      const bytes = await response.body();
-      requireProof(bytes.byteLength <= 65536);
-      return projectAdmission(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), response.status());
-    }).then(value => { if (!closed && !faulted && count === 1) admitted = value; }, () => { if (!closed) invalidate(); });
+      let bytes;
+      try { bytes = await response.body(); } catch { throw proofError('ADMISSION_READ_FAILED'); }
+      requireProof(bytes.byteLength <= 65536, 'ADMISSION_INVALID');
+      let value;
+      try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+      catch { throw proofError('ADMISSION_INVALID'); }
+      return projectAdmission(value, response.status());
+    }, 'ADMISSION_READ').then(value => {
+      if (!closed && !firstFault && count === 1) { admitted = value; note({ admissionValid: true }); }
+    }, error => { if (!closed) invalidate(error); });
   };
   page.on('response', listener);
-  return { read() { requireProof(!closed && !faulted && count <= 1); return admitted; },
+  return { read() { if (firstFault) throw firstFault; requireProof(!closed && count <= 1, 'ADMISSION_INVALID'); return admitted; },
     dispose() { closed = true; admitted = null; page.off('response', listener); } };
 }
 
@@ -140,8 +161,19 @@ export function liveLedgerFingerprint(value) {
     value.settledMicroCny, value.retainedMicroCny, value.active, value.closed, value.journalFailed,
     DENIED.map(key => value.denied?.[key]), value.requests?.map(row => ROW.map(key => row[key]))]);
 }
+export function offlineSnapshot(value) {
+  return value?.mode === 'MOCK' && value.mock?.transport === 'IN_PROCESS_SYNTHETIC_HTTPS'
+    && value.mock.externalNetwork === 'DENIED' && value.mock.realProviderCalls === 0
+    && value.mock.usageIsSynthetic === true && value.mock.fakeRequests === value.sentRequests
+    && value.mock.clockScope === 'BROKER_VM_ONLY';
+}
+const snapshotMode = (mode, value) => mode === 'live'
+  ? value?.mode !== 'MOCK' && value?.mock === undefined : mode === 'mock' && offlineSnapshot(value);
 export function isLiveLedgerProven(value, before, previousCount) {
-  if (value?.mode === 'MOCK' || value?.mock !== undefined || !integer(previousCount)
+  return snapshotMode('live', value) && snapshotMode('live', before) && ledgerProven(value, before, previousCount);
+}
+function ledgerProven(value, before, previousCount) {
+  if (!integer(previousCount)
     || before?.sentRequests !== previousCount || before.requests?.length !== previousCount
     || before.requests.some(row => row.caseId === CASE) || value?.model !== POLICY.model
     || value.active !== false || value.closed !== false || value.journalFailed !== false
@@ -205,70 +237,119 @@ export async function readLiveTerminalRenderer({ role, deadline }) {
   return { content, bridgeContent, conversationId: s.conversationId, generation: state.generation };
 }
 
-export async function proveLivePilotCompletion({ mode, page, haru, broker, requestCountBefore, send, deadlineMs, ctx }) {
-  requireProof(mode === 'live' && broker?.mode !== 'MOCK' && page !== haru && typeof send === 'function' && Number.isFinite(deadlineMs));
-  let alive = true, admission;
-  const within = async action => {
-    const left = Math.min(5000, deadlineMs - Date.now()); requireProof(alive && left > 0);
+export async function proveLivePilotCompletion(args) {
+  requireProof(args?.mode === 'live' && args?.broker?.mode !== 'MOCK', 'HARNESS_INVALID');
+  const outcome = await observePilotCompletion(args);
+  return { ...outcome, code: `LIVE_${outcome.code}` };
+}
+
+// Shared mechanics only. The offline entrypoint's separate branded wrapper
+// is the sole production caller that selects mock; LIVE never accepts an injection.
+export async function observePilotCompletion({ mode, page, haru, broker, requestCountBefore, send, deadlineMs, ctx }) {
+  requireProof(['live', 'mock'].includes(mode) && (mode === 'live' ? broker?.mode !== 'MOCK' : broker?.mode === 'MOCK')
+    && page !== haru && typeof send === 'function' && Number.isFinite(deadlineMs), 'HARNESS_INVALID');
+  let alive = true, admission, primaryFailure;
+  const started = performance.now();
+  const diagnostic = { pollCount: 0 };
+  const remember = (error, stage = diagnostic.lastReadStage) => {
+    try {
+      if (diagnostic.fault === undefined) {
+        const safe = sanitizePilotProofDiagnostic({ fault: error?.proofFault,
+          faultStage: error?.proofFaultStage ?? stage });
+        diagnostic.fault = safe.fault; diagnostic.faultStage = safe.faultStage;
+      }
+    } catch { /* Never replace the original failure. */ }
+  };
+  const attach = error => {
+    try {
+      const elapsed = Math.max(0, Math.floor(performance.now() - started));
+      error.pilotProofDiagnostic = sanitizePilotProofDiagnostic({ ...diagnostic,
+        elapsedMs: Math.min(elapsed, 600000), elapsedCapped: elapsed > 600000 });
+    } catch { /* Optional evidence cannot alter cleanup or the original error. */ }
+    return error;
+  };
+  const readback = value => {
+    diagnostic.lastReadOutcome = value?.readOutcome;
+    diagnostic.lastHttpStatus = value?.httpStatus;
+    return value?.value ?? null;
+  };
+  const isLedger = (value, before, count) => snapshotMode(mode, value) && snapshotMode(mode, before)
+    && ledgerProven(value, before, count);
+  const within = async (action, stage) => {
+    diagnostic.lastReadStage = stage;
+    const remaining = deadlineMs - Date.now();
+    const left = Math.min(5000, remaining); requireProof(alive && left > 0, 'OBSERVE_DEADLINE');
     let timer;
     try {
       const value = await Promise.race([Promise.resolve().then(action), new Promise((_, reject) => {
-        timer = setTimeout(() => reject(Object.assign(new Error('LIVE_COMPLETION_UNPROVEN'), { code: 'LIVE_COMPLETION_UNPROVEN' })), left);
+        timer = setTimeout(() => reject(proofError(remaining <= 5000 ? 'OBSERVE_DEADLINE' : 'OPERATION_TIMEOUT', stage)), left);
       })]);
-      requireProof(alive && Date.now() < deadlineMs); return value;
-    } finally { clearTimeout(timer); }
+      requireProof(alive && Date.now() < deadlineMs, 'OBSERVE_DEADLINE'); return value;
+    } catch (error) { remember(error, stage); throw error; }
+    finally { clearTimeout(timer); }
   };
   try {
-    ctx.mark('LIVE_FRESH_BASELINE');
+    ctx.mark(mode === 'live' ? 'LIVE_FRESH_BASELINE' : 'MOCK_PILOT_PROOF_BASELINE');
     const origin = new URL(page.url()).origin;
-    requireProof(/^http:\/\/127\.0\.0\.1:\d+$/.test(origin));
+    requireProof(/^http:\/\/127\.0\.0\.1:\d+$/.test(origin), 'HARNESS_INVALID');
     const before = structuredClone(broker.snapshot());
-    requireProof(before.mode !== 'MOCK' && before.mock === undefined && before.sentRequests === requestCountBefore
-      && before.requests?.length === requestCountBefore && before.active === false && before.closed === false && before.journalFailed === false);
-    const baseline = await within(() => readMirrorObservation(page, haru));
+    requireProof(snapshotMode(mode, before) && before.sentRequests === requestCountBefore
+      && before.requests?.length === requestCountBefore && before.active === false && before.closed === false && before.journalFailed === false, 'BASELINE_LEDGER_INVALID');
+    const baseline = await within(() => readMirrorObservation(page, haru), 'INITIAL_MIRROR');
     requireProof(healthyMirror(baseline) && [baseline.owner, baseline.haru].every(v => v.conversationId === null
-      && v.currentTaskState === 'idle' && v.loading === false && v.hasPending === false));
-    const history = await within(() => page.evaluate(readLivePilotJson, { origin, requestId: null, deadline: deadlineMs }));
-    requireProof(Array.isArray(history) && history.length === 0);
-    admission = observeLiveAdmission(page, origin, within);
-    ctx.mark('LIVE_SEND_OBSERVE');
-    await within(send);
-    ctx.mark('LIVE_TERMINAL_OBSERVE');
+      && v.currentTaskState === 'idle' && v.loading === false && v.hasPending === false), 'FRESH_MIRROR_INVALID');
+    const history = readback(await within(() => page.evaluate(readLivePilotJson, { origin, requestId: null, deadline: deadlineMs, diagnostics: true }), 'HISTORY_READ'));
+    requireProof(Array.isArray(history) && history.length === 0, 'HISTORY_INVALID');
+    admission = observeLiveAdmission(page, origin, within, value => {
+      if (value.admissionObserved === true) diagnostic.admissionObserved = true;
+      if (typeof value.admissionValid === 'boolean') diagnostic.admissionValid = value.admissionValid;
+      if (value.fault) remember(value.fault, 'ADMISSION_READ');
+    });
+    ctx.mark(mode === 'live' ? 'LIVE_SEND_OBSERVE' : 'MOCK_PILOT_PROOF_SEND');
+    await within(send, 'SEND');
+    ctx.mark(mode === 'live' ? 'LIVE_TERMINAL_OBSERVE' : 'MOCK_PILOT_PROOF_OBSERVE');
     while (Date.now() < deadlineMs) {
+      diagnostic.pollCount = Math.min(65535, diagnostic.pollCount + 1);
       const admitted = admission.read();
-      const [pair, stream, message] = await within(() => Promise.all([
+      const [pair, stream, response] = await within(() => Promise.all([
         readMirrorObservation(page, haru),
         page.evaluate(() => window.__offerpilotBoundedUiObserver?.summary?.() ?? null),
-        admitted ? page.evaluate(readLivePilotJson, { origin, requestId: admitted.request_id, deadline: deadlineMs }) : null,
-      ]));
-      requireProof(healthyMirror(pair));
+        admitted ? page.evaluate(readLivePilotJson, { origin, requestId: admitted.request_id, deadline: deadlineMs, diagnostics: true }) : null,
+      ]), 'STATUS_AND_MIRROR_READ');
+      requireProof(healthyMirror(pair), 'MIRROR_INVALID');
       admission.read();
+      const message = response === null ? null : readback(response);
       const content = message === null ? null : projectTerminal(message, admitted);
+      if (message !== null) {
+        diagnostic.lastValidState = message.state;
+        diagnostic.workerDone = message.worker_done; diagnostic.actualWorkerAlive = message.actual_worker_alive;
+        diagnostic.modelCallsReserved = message.budget?.model_calls;
+      }
       if (content !== null && isLiveTerminalMirrorProven(pair, admitted)) {
         const ledger = broker.snapshot();
-        if (!isLiveLedgerProven(ledger, before, requestCountBefore)) {
+        if (!isLedger(ledger, before, requestCountBefore)) {
           // Wait only for the one already admitted provider call to settle.
           requireProof(ledger.active === true && ledger.requests?.filter(row => row.caseId === CASE).length === 1
-            && ledger.requests.at(-1).status === 'RESERVED');
+            && ledger.requests.at(-1).status === 'RESERVED', 'LEDGER_INVALID');
         } else {
-          ctx.mark('LIVE_TERMINAL_COMPARE');
+          ctx.mark(mode === 'live' ? 'LIVE_TERMINAL_COMPARE' : 'MOCK_PILOT_PROOF_COMPARE');
           const fingerprint = liveLedgerFingerprint(ledger);
           const [owner, companion] = await within(() => Promise.all([['owner', page], ['haru', haru]].map(([role, surface]) =>
-            surface.evaluate(readLiveTerminalRenderer, { role, deadline: deadlineMs }))));
+            surface.evaluate(readLiveTerminalRenderer, { role, deadline: deadlineMs }))), 'TERMINAL_RENDER_READ');
           const compact = compactPlainMessage(content);
           requireProof([owner, companion].every(v => v && v.conversationId === admitted.conversation_id && v.generation === baseline.owner.generation)
             && normalizePlainText(owner.content) === normalizePlainText(content)
-            && companion.content === compact && owner.bridgeContent === compact && companion.bridgeContent === compact);
-          const after = await within(() => readMirrorObservation(page, haru));
+            && companion.content === compact && owner.bridgeContent === compact && companion.bridgeContent === compact, 'RENDERER_UNPROVEN');
+          const after = await within(() => readMirrorObservation(page, haru), 'FINAL_MIRROR_READ');
           admission.read();
           const afterLedger = broker.snapshot();
           requireProof(isLiveTerminalMirrorProven(after, admitted) && JSON.stringify(pair) === JSON.stringify(after)
-            && isLiveLedgerProven(afterLedger, before, requestCountBefore) && liveLedgerFingerprint(afterLedger) === fingerprint);
+            && isLedger(afterLedger, before, requestCountBefore) && liveLedgerFingerprint(afterLedger) === fingerprint, 'FINAL_STABILITY_UNPROVEN');
           const sustained = isRunningMirrorProven(after) && stream?.installed === true && stream.originalTargetConnected === true
             && stream.originalTargetCurrent === true && stream.currentPilotUnique === true && stream.targetReplacementObserved === false
             && stream.readFailed === false && stream.originalGrowthWithStopCount >= 2;
           const running = v => v.bridgeRunningObserved === true && v.domRunningObserved === true && v.runningConversationId === admitted.conversation_id;
-          return { code: sustained ? 'LIVE_STREAMING_PROVEN' : 'LIVE_COMPLETION_ONLY', checks: {
+          return { code: sustained ? 'STREAMING_PROVEN' : 'COMPLETION_ONLY', checks: {
             sustainedStreamingObserved: sustained, incrementalAssistantRendering: sustained,
             ownerRunningTransitionObserved: running(after.owner), haruRunningTransitionObserved: running(after.haru),
             positiveRunningConversationMatched: isRunningMirrorProven(after), finalRunningConversationMatched: isRunningMirrorProven(after),
@@ -278,9 +359,14 @@ export async function proveLivePilotCompletion({ mode, page, haru, broker, reque
             providerRequestSettled: true, ledgerUnchanged: true, admissionObserverCleanupPassed: true } };
         }
       }
-      await within(() => new Promise(resolve => setTimeout(resolve, 50)));
+      await within(() => new Promise(resolve => setTimeout(resolve, 50)), 'POLL_WAIT');
     }
-    fail();
-  } catch { fail(); }
-  finally { alive = false; try { admission?.dispose(); } catch { fail(); } }
+    fail('OBSERVE_DEADLINE');
+  } catch (error) { remember(error); primaryFailure = attach(proofError(diagnostic.fault, diagnostic.faultStage)); throw primaryFailure; }
+  finally {
+    alive = false;
+    try { admission?.dispose(); } catch {
+      if (!primaryFailure) { const error = proofError('ADMISSION_CLEANUP_FAILED', 'CLEANUP'); remember(error); throw attach(error); }
+    }
+  }
 }

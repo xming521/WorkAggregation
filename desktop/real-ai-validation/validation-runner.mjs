@@ -17,12 +17,13 @@ import { refreshSyntheticProfile } from './seed-refresh.mjs';
 import { assertHaruRestartFacts } from './mock-haru-session.mjs';
 import { createRunLifetime } from './run-lifetime.mjs';
 
-export async function executeValidation({ mode, brokerFactory, providerKey, screenshotFactory, mockContinuation, mockHaruSessionFactory } = {}) {
+export async function executeValidation({ mode, brokerFactory, providerKey, screenshotFactory, mockContinuation, mockHaruSessionFactory, mockPilotProofFactory } = {}) {
   demand(['live', 'mock'].includes(mode) && typeof brokerFactory === 'function' &&
     (mockContinuation === undefined || typeof mockContinuation === 'function') &&
     (mockHaruSessionFactory === undefined || typeof mockHaruSessionFactory === 'function') &&
+    (mockPilotProofFactory === undefined || typeof mockPilotProofFactory === 'function') &&
     (mode !== 'live' || screenshotFactory === undefined) &&
-    (mode !== 'live' || (mockContinuation === undefined && mockHaruSessionFactory === undefined)), 'INVALID_HARNESS');
+    (mode !== 'live' || (mockContinuation === undefined && mockHaruSessionFactory === undefined && mockPilotProofFactory === undefined)), 'INVALID_HARNESS');
   if (mode === 'live') validateLiveProduct();
 const blocked = code => CASES.map(id => ({ id, status: 'BLOCKED', code, checks: {} }));
 const report = { mode, status: 'BLOCKED', code: 'NOT_STARTED', scenarios: blocked('NOT_STARTED'), cleanupPassed: false };
@@ -147,6 +148,8 @@ try {
     sessionId: 'offerpilot-fixed-exe-real-ai-20261008', runId: process.env.GITHUB_RUN_ID,
     runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), helperCommit: prepared.helperSha, requestCommit: prepared.requestSha });
   let scenarioBroker = broker;
+  const mockPilotProof = mockPilotProofFactory?.({ mode, broker });
+  demand(mockPilotProofFactory === undefined || typeof mockPilotProof === 'function', 'INVALID_HARNESS');
   let capture;
   if (mode === 'mock' && typeof screenshotFactory === 'function') {
     screenshotEvidence = screenshotFactory({ mode: 'mock', directory: evidence });
@@ -171,7 +174,7 @@ try {
     const fixture = await prepareSyntheticProfile(api);
     await refreshSyntheticProfile(page, broker, fixture, started + 600000);
     const result = await runUiScenarios({ page, haru, api, broker: scenarioBroker, fixture,
-      capture, mode, mockContinuation,
+      capture, mode, mockContinuation, mockPilotProof,
       mockHaruSession: mockSession ? args => mockSession.afterPilot({ ...args, native, capture }) : undefined,
       deadlineMs: started + 600000 });
     report.scenarios = CASES.map(id => result.results.find(row => row.id === id));

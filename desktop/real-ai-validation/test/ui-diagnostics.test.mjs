@@ -55,3 +55,24 @@ test('mirror diagnosis contains only fixed booleans, never identifiers or prose'
   diagnostic.mark('CASE_START');
   assert.equal((await diagnostic.snapshot()).mirror, undefined);
 });
+
+test('LIVE evidence allowlist preserves null observations and drops arbitrary source values', async () => {
+  const diagnostic = createUiDiagnostic();
+  diagnostic.pilotProof({ fault: 'STATUS_IDENTITY_INVALID', faultStage: 'STATUS_AND_MIRROR_READ',
+    lastReadStage: 'STATUS_AND_MIRROR_READ', elapsedMs: 42, elapsedCapped: false, pollCount: 1,
+    admissionObserved: true, admissionValid: true, lastValidState: null,
+    workerDone: null, actualWorkerAlive: null, lastReadOutcome: 'OK', lastHttpStatus: 200,
+    request_id: 'private-id', text: 'private-text', url: 'https://private', rawError: 'private-error' });
+  const value = await diagnostic.snapshot();
+  assert.equal(value.pilotProof.fault, 'STATUS_IDENTITY_INVALID');
+  assert.equal(value.pilotProof.lastValidState, null); assert.equal(value.pilotProof.workerDone, null);
+  assert.doesNotMatch(JSON.stringify(value), /private|request_id|rawError|url/);
+  const safe = safeResults(CASES.map(id => ({ id, status: 'BLOCKED', code: 'LIVE_COMPLETION_UNPROVEN', checks: {}, diagnostic: value })));
+  assert.deepEqual(safe[1].diagnostic.pilotProof, value.pilotProof);
+  diagnostic.mark('CASE_START'); assert.equal((await diagnostic.snapshot()).pilotProof, undefined);
+  const unknown = sanitizeUiDiagnostic({ pilotProof: { fault: 'private', elapsedMs: Infinity, pollCount: -1,
+    lastValidState: 'private', admissionObserved: 'true', workerDone: 'false' } }).pilotProof;
+  assert.equal(unknown.fault, 'UNEXPECTED_FAILURE'); assert.equal(unknown.elapsedMs, null);
+  assert.equal(unknown.admissionObserved, null); assert.equal(unknown.workerDone, null);
+  assert.doesNotMatch(JSON.stringify(unknown), /private/);
+});

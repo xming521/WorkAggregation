@@ -22,14 +22,14 @@ const ROLE = '合成软件测试工程师';
 const RESUME_TITLE = 'OfferPilot 合成验收简历';
 const RAW_RESUME = '姓名：合成候选人\n求职意向：软件测试工程师\n技能：JavaScript、Python、自动化测试\n项目：为合成订单服务编写自动化测试，发现并修复三个边界问题。';
 const JD = '合成岗位资料。招聘软件测试工程师，负责 JavaScript 和 Python 自动化测试、接口边界分析及团队协作。';
-const CODES = new Set(['PASSED', 'INVALID_HARNESS', 'SYNTHETIC_PROFILE_INVALID', 'SETTINGS_SAVE_FAILED', 'CONNECTION_FAILED', 'UI_ACTION_FAILED', 'UI_TIMEOUT', 'UI_ASSERTION_FAILED', 'STREAM_NOT_OBSERVED', 'HARU_SYNC_FAILED', 'HITL_NOT_OBSERVED', 'CANCEL_NOT_OBSERVED', 'UNEXPECTED_DIALOG', 'UNEXPECTED_PROVIDER_REQUESTS', 'PROVIDER_BUDGET_BLOCKED', 'SUITE_DEADLINE', 'PREVIOUS_SCENARIO_FAILED', 'UNSAFE_SCREENSHOT', 'AUXILIARY_READBACK_FAILED', 'LIVE_COMPLETION_UNPROVEN']);
+const CODES = new Set(['PASSED', 'INVALID_HARNESS', 'SYNTHETIC_PROFILE_INVALID', 'SETTINGS_SAVE_FAILED', 'CONNECTION_FAILED', 'UI_ACTION_FAILED', 'UI_TIMEOUT', 'UI_ASSERTION_FAILED', 'STREAM_NOT_OBSERVED', 'HARU_SYNC_FAILED', 'HITL_NOT_OBSERVED', 'CANCEL_NOT_OBSERVED', 'UNEXPECTED_DIALOG', 'UNEXPECTED_PROVIDER_REQUESTS', 'PROVIDER_BUDGET_BLOCKED', 'SUITE_DEADLINE', 'PREVIOUS_SCENARIO_FAILED', 'UNSAFE_SCREENSHOT', 'AUXILIARY_READBACK_FAILED', 'LIVE_COMPLETION_UNPROVEN', 'MOCK_PILOT_COMPLETION_UNPROVEN']);
 class UiFailure extends Error { constructor(code) { super(code); this.code = code; } }
 const fail = (code) => { throw new UiFailure(code); };
 const check = (value, code = 'UI_ASSERTION_FAILED') => { if (!value) fail(code); };
 const exact = (name) => ({ name, exact: true });
 const id = (value) => { check(Number.isSafeInteger(value) && value > 0, 'SYNTHETIC_PROFILE_INVALID'); return value; };
 export function safeUiCode(error) {
-  if ((error instanceof UiFailure || error?.code === 'LIVE_COMPLETION_UNPROVEN') && CODES.has(error.code)) return error.code;
+  if ((error instanceof UiFailure || ['LIVE_COMPLETION_UNPROVEN', 'MOCK_PILOT_COMPLETION_UNPROVEN'].includes(error?.code)) && CODES.has(error.code)) return error.code;
   if (['BUDGET', 'COUNT', 'CLOSED', 'DEADLINE', 'LEDGER', 'USAGE', 'EXPIRED'].includes(error?.code)) return 'PROVIDER_BUDGET_BLOCKED';
   return error?.name === 'TimeoutError' ? 'UI_TIMEOUT' : 'UI_ACTION_FAILED';
 }
@@ -83,7 +83,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function operationContext(deadline) {
   const diagnostic = createUiDiagnostic();
   return {
-    mark: diagnostic.mark, target: diagnostic.target, mirror: diagnostic.mirror, stream: diagnostic.stream, diagnostic: diagnostic.snapshot,
+    mark: diagnostic.mark, target: diagnostic.target, mirror: diagnostic.mirror, stream: diagnostic.stream, pilotProof: diagnostic.pilotProof, diagnostic: diagnostic.snapshot,
     timeout(cap = 15_000) { const left = deadline - Date.now(); if (left <= 0) fail('SUITE_DEADLINE'); return Math.max(1, Math.min(left, cap)); },
     async click(locator, diagnosticLocator = locator) { diagnostic.target(diagnosticLocator); await locator.click({ timeout: this.timeout() }); },
     async fill(locator, value) { diagnostic.target(locator); await locator.fill(value, { timeout: this.timeout() }); },
@@ -423,7 +423,7 @@ export function pilotPrompt(caseId, mode) {
   return mode === 'mock' && caseId === 'pilot-stream'
     ? prompt.replace('这是虚构软件验收。', '这是虚构软件流式验收。') : prompt;
 }
-async function runPilot({ page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore }) {
+async function runPilot({ page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore, mockPilotProof }) {
   await openPilot(page, ctx);
   await expandHaru(haru, ctx);
   ctx.mark('PILOT_COMPOSE');
@@ -435,12 +435,17 @@ async function runPilot({ page, haru, api, broker, fixture, capture, current, ct
     try { await installMirrorObservation(page, haru, current.id); }
     catch { ctx.mirror({ invalidObservation: true, observationReadFailed: true }); fail('HARU_SYNC_FAILED'); }
   }
-  if (mode === 'live' && current.id === 'pilot-stream') {
-    const outcome = await proveLivePilotCompletion({ mode, page, haru, broker, requestCountBefore, ctx,
+  if (current.id === 'pilot-stream' && (mode === 'live' || typeof mockPilotProof === 'function')) {
+    const prove = mode === 'live' ? proveLivePilotCompletion : mockPilotProof;
+    const outcome = await prove({ mode, page, haru, broker, requestCountBefore, ctx,
       deadlineMs: Date.now() + ctx.timeout(current.timeoutMs), send: async () => {
         ctx.mark('PILOT_ARM'); await broker.armCase(current.id);
         ctx.mark('PILOT_SEND'); await ctx.click(pilot(page).getByRole('button', exact('发送')));
       } });
+    if (mode === 'mock') {
+      await safeCapture(capture, current.id, page);
+      await safeCapture(capture, `haru-${current.id}`, haru);
+    }
     return outcome;
   }
   ctx.mark('PILOT_ARM');
@@ -662,7 +667,7 @@ export function canContinueMockScenario({ mode, result, proof, cleanupPassed, le
     && ['eligible', 'ledgerSafe', 'mirrorProven', 'domEqual', 'noNewRequests'].every(key => proof[key] === true)
     && ledgerBefore !== undefined && JSON.stringify(ledgerBefore) === JSON.stringify(ledgerAfter);
 }
-export async function runUiScenarios({ page, haru, api, broker, fixture, capture, mode = 'live', mockContinuation, mockHaruSession, deadlineMs = Date.now() + 600_000 } = {}) {
+export async function runUiScenarios({ page, haru, api, broker, fixture, capture, mode = 'live', mockContinuation, mockHaruSession, mockPilotProof, deadlineMs = Date.now() + 600_000 } = {}) {
   const results = [];
   const continuedSettledFailures = new Set();
   let blocked = null;
@@ -671,6 +676,7 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
     && typeof broker.snapshot === 'function' && fixture && Number.isFinite(deadlineMs)
     && ['live', 'mock'].includes(mode)
     && (mockContinuation === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockContinuation === 'function'))
+    && (mockPilotProof === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockPilotProof === 'function'))
     && (mockHaruSession === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockHaruSession === 'function'));
   if (!valid) blocked = 'INVALID_HARNESS';
   const deadline = Math.min(deadlineMs, Date.now() + 600_000);
@@ -680,7 +686,7 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
     if (Date.now() >= deadline) { blocked = 'SUITE_DEADLINE'; results.push({ id: current.id, status: 'BLOCKED', code: blocked, checks: {} }); continue; }
     ctx.mark('CASE_START');
     let requestCountBefore = 0;
-    let continuationProof, continuationLedger, liveFingerprint;
+    let continuationProof, continuationLedger, proofFingerprint;
     let caseCleanupPassed = true;
     // The immediate next Pilot case cannot inherit the completed stream's
     // positive ID. Prove both real windows reached a fresh idle/null baseline
@@ -700,7 +706,7 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
       // Broker is the final spending authority. prepare/arm throws on a sealed
       // or insufficient budget; no retry, alternative model, or direct API.
       await configureCase(page, broker, current, ctx);
-      const args = { page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore };
+      const args = { page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore, mockPilotProof };
       const outcome = current.id === 'connection' ? await runConnection(args)
         : current.id.startsWith('pilot-') ? await runPilot(args)
           : current.id === 'interview-preparation' ? await runInterview(args)
@@ -708,11 +714,11 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
       // Settle the one admitted call before exposing PASS; cancellation is the
       // only case allowed to retain an unresolved cost reservation.
       ctx.mark('PROVIDER_TERMINAL');
-      const livePilot = mode === 'live' && current.id === 'pilot-stream';
-      const checks = livePilot ? outcome.checks : outcome;
-      if (livePilot) liveFingerprint = liveLedgerFingerprint(broker.snapshot());
+      const strictPilot = current.id === 'pilot-stream' && (mode === 'live' || typeof mockPilotProof === 'function');
+      const checks = strictPilot ? outcome.checks : outcome;
+      if (strictPilot) proofFingerprint = liveLedgerFingerprint(broker.snapshot());
       await broker.cancelCase();
-      if (livePilot) check(liveLedgerFingerprint(broker.snapshot()) === liveFingerprint, 'LIVE_COMPLETION_UNPROVEN');
+      if (strictPilot) check(liveLedgerFingerprint(broker.snapshot()) === proofFingerprint, mode === 'live' ? 'LIVE_COMPLETION_UNPROVEN' : 'MOCK_PILOT_COMPLETION_UNPROVEN');
       assertProviderCase(broker.snapshot(), current.id, requestCountBefore);
       if (current.id === 'pilot-stream' && typeof mockHaruSession === 'function') {
         // The original provider case must settle first. This capability only
@@ -722,11 +728,12 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
         catch { fail('HARU_SYNC_FAILED'); }
         check(JSON.stringify(broker.snapshot()) === before, 'UNEXPECTED_PROVIDER_REQUESTS');
       }
-      results.push({ id: current.id, status: 'PASS', code: livePilot ? outcome.code : 'PASSED', checks: { ...checks, oneProviderRequestVerified: true } });
+      results.push({ id: current.id, status: 'PASS', code: strictPilot ? outcome.code : 'PASSED', checks: { ...checks, oneProviderRequestVerified: true } });
     } catch (error) {
       const code = safeUiCode(error);
-      const isBlocked = ['SUITE_DEADLINE', 'PROVIDER_BUDGET_BLOCKED', 'LIVE_COMPLETION_UNPROVEN'].includes(code);
+      const isBlocked = ['SUITE_DEADLINE', 'PROVIDER_BUDGET_BLOCKED', 'LIVE_COMPLETION_UNPROVEN', 'MOCK_PILOT_COMPLETION_UNPROVEN'].includes(code);
       if (current.id === 'pilot-stream') {
+        try { if (error?.pilotProofDiagnostic !== undefined) ctx.pilotProof(error.pilotProofDiagnostic); } catch { /* Preserve primary failure and cleanup. */ }
         ctx.stream(await readStreamDiagnostic(page));
         try { ctx.mirror(mirrorDiagnostic(await readMirrorObservation(page, haru), current.id)); }
         catch { ctx.mirror({ observationReadFailed: true, invalidObservation: true }); }
@@ -772,9 +779,9 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
         ctx.mark('CASE_CLEANUP');
         recordObserverCleanupFailure(results, current.id, 'stream', await ctx.diagnostic());
       } }
-      if (liveFingerprint !== undefined && results.at(-1)?.status === 'PASS') {
-        try { check(liveLedgerFingerprint(broker.snapshot()) === liveFingerprint, 'LIVE_COMPLETION_UNPROVEN'); }
-        catch { caseCleanupPassed = false; blocked = 'LIVE_COMPLETION_UNPROVEN';
+      if (proofFingerprint !== undefined && results.at(-1)?.status === 'PASS') {
+        try { check(liveLedgerFingerprint(broker.snapshot()) === proofFingerprint, mode === 'live' ? 'LIVE_COMPLETION_UNPROVEN' : 'MOCK_PILOT_COMPLETION_UNPROVEN'); }
+        catch { caseCleanupPassed = false; blocked = mode === 'live' ? 'LIVE_COMPLETION_UNPROVEN' : 'MOCK_PILOT_COMPLETION_UNPROVEN';
           results[results.length - 1] = { ...results.at(-1), status: 'BLOCKED', code: blocked }; }
       }
       const failedResult = results.at(-1);

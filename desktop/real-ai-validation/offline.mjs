@@ -3,7 +3,7 @@ import { prepare } from './prepare.mjs';
 import { executeValidation } from './validation-runner.mjs';
 import { createMockScreenshots } from './mock-screenshots.mjs';
 import { createOfflineBroker } from './mock-provider.cjs';
-import { proveMockTerminalContinuation } from './mock-continuation.mjs';
+import { createOfflinePilotProof } from './offline-pilot-completion.mjs';
 import { createMockHaruSession } from './mock-haru-session.mjs';
 import { demand, safeCode } from './contract.mjs';
 try {
@@ -11,7 +11,7 @@ try {
   if (process.argv[2] === 'prepare') await prepare({ mode: 'mock' });
   else if (process.argv[2] === 'run') {
     const result = await executeValidation({ mode: 'mock', brokerFactory: createOfflineBroker,
-      screenshotFactory: createMockScreenshots, mockContinuation: proveMockTerminalContinuation,
+      screenshotFactory: createMockScreenshots, mockPilotProofFactory: createOfflinePilotProof,
       mockHaruSessionFactory: createMockHaruSession });
     process.exitCode = result.exitCode;
   } else demand(false, 'INVALID_HARNESS');

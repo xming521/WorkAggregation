@@ -2,7 +2,7 @@
 
 ## 状态与边界
 
-本轮固定产品提交 `9c245314e570f1d6de034e4d52deb46979874416`、完整门禁与打包 run `38500952016`。完整门禁已通过（6760 passed、13 允许的 skipped，前端 2657 passed）；同包非 AI run `38503131958` 为 183 PASS、7 BLOCKED、1 NOT RUN、4 N/A，免费 MOCK run `38503131977` 七场景通过且未调用真实 provider。同包非 AI 与 MOCK 结果属于原 helper `f3122f4`，本次价格审阅变更后的 helper 仍须独立审查及同 SHA 的免费 MOCK，通过后才可按既有精确请求和人工批准流程启用 live。
+本轮固定产品提交 `9c245314e570f1d6de034e4d52deb46979874416`、完整门禁与打包 run `38500952016`。完整门禁已通过（6760 passed、13 允许的 skipped，前端 2657 passed）；同包非 AI run `38503131958` 为 183 PASS、7 BLOCKED、1 NOT RUN、4 N/A，免费 MOCK run `38503131977` 七场景通过且未调用真实 provider。同包非 AI 与 MOCK 结果属于原 helper `f3122f4`，本次严格观察诊断变更后的 helper 仍须独立审查及同 SHA 的免费 MOCK；既往 paid job 已执行，本轮历史闩锁已关闭，免费通过不授权重跑 live。
 
 固定对象见 `desktop/real-ai-validation/product.json`：
 
@@ -17,7 +17,7 @@
 
 真实安装版 UI → 本机 loopback 预算代理 → 固定 `https://api.deepseek.com/chat/completions`，模型只允许 `deepseek-flash`。这是经代理的真实 provider 验证，不是直连。正常 HTTPS/TLS 校验保持开启；不修改防火墙、证书、OS 安全或产品代码。
 
-换固定产品包不会重置 session、历史闩锁、累计预算或价格期限。已运行的 Windows helper 仅有 MOCK，没有 live provider 验证；该范围不包括较早未加离线 guard 的 Python 测试尝试，其实际出站与费用仍无法确认，不能被后续通过记录消除。空 full-gate 来源仍会被 live 拒绝；当前安装器还须独立完整门禁成功、同一审阅 helper SHA 的新 Windows MOCK 成功，再满足既有人工配置与审批条件。
+换固定产品包不会重置 session、历史闩锁、累计预算或价格期限。2026-10-15 的 paid run `38694575612` 已终态 FAIL：连接成功，账本仅一笔连接请求 SETTLED、188 microCNY（0.000188 CNY），Pilot 无请求条目或拒绝计数，失败于 `LIVE_TERMINAL_OBSERVE / LIVE_COMPLETION_UNPROVEN`；清理通过。这不能证明 Pilot 已调用 provider，也不能据此归因于模型速度或余额。该账本范围不包括较早未加离线 guard 的 Python 测试尝试，其实际出站与费用仍无法确认，不能被后续通过记录消除。空 full-gate 来源仍会被 live 拒绝；当前安装器还须独立完整门禁成功、同一审阅 helper SHA 的新 Windows MOCK 成功，再满足既有人工配置与审批条件。
 
 整轮 session `offerpilot-fixed-exe-real-ai-20261008` 总上限为 **10 CNY、8 次 HTTP 出站请求、600 秒、0 自动重试**。并非每个 workflow run 各有 10 元。七个场景分别最多一请求；取消场景最后执行。broker 先以保守峰值费用为每请求预留 3 元，再发送。可信 usage 才安全结算；缺失/矛盾 usage、协议或账本异常封闭 session，未知费用保留预留额。余额不足后续场景 BLOCKED。
 
@@ -89,6 +89,10 @@ OfferPilot-AI-Budget-CNY: 10
 
 MOCK 工具在自身进程中封锁真实 HTTPS/TLS 和非 loopback TCP，生产 broker 的字节未改，单独 VM 时钟只让 broker 处于已审计费窗口；UI/EXE/合成事件日期仍使用当前系统时间。此处是工具的进程级网络拦截，不修改 Windows 防火墙/证书或 EXE。七场景合成响应仍经过真实应用处理、JSON 校验、真实 HITL 和 UI 点击。mock 不是 provider 行为、质量、费用或网络兼容性的证明。
 
+本次免费入口的 Pilot 复用 live 的严格观察内核：同一真实 EXE 的 UI 提交、实际异步流与完整产品上下文，验证新会话、单次 admission 身份、自然 worker 结束、两窗终态正文及账本稳定；保留每次读取 5 秒和场景 75 秒的原期限。只允许 `offline.mjs` 使用独立工厂；工厂通过私有对象品牌核验仍有效、已封锁外网的真实 MOCK broker，复制 mode 字段无效，live 入口拒绝注入。MOCK 仍须原有至少两次可见流增量及同会话 running 同步才能 PASS；仅自然完成保持 BLOCKED，不能将 `COMPLETION_ONLY` 当作旧流式验收通过。失败停止后续场景并清理，成功后继续原七场景及 Haru 会话检查；免费产物始终标为 MOCK、`realProviderCalled: false`，检查名使用 MOCK 专用前缀。
+
+失败诊断只增加固定原因/读阶段枚举、受限耗时和轮询计数、nullable admission/worker 状态及已存在 status GET 的 `budget.model_calls` 预留次数；后者不是 HTTP 出站计数。未观察保持 null，首要失败不被清理异常覆盖；没有增加请求、正文、标识符、URL、凭据或原始错误采集。这是 harness 可观测性与免费复现路径，不是已确定的产品根因修复；本地合成测试仍不替代 Windows EXE 实跑。原 paid 消耗、未知费用和永久历史闩锁均不因新 helper 或免费结果而重置。
+
 普通 push 首先只做无secret changed-path 路由。仅 `desktop/real-ai-validation/**`、本独立 workflow 或本文变化才启动 Windows MOCK；其他 helper 改动和空 activation 不重复启动它。合并提交、缺历史、非祖先 push、文件列表截断均 fail closed。顶层没有 paths 过滤，以免把空 activation 丢弃。
 
 paid preflight 必须从真实 GitHub Actions 记录查到同一 H 的完整 successful push run、唯一 completed/success 的 “Pinned EXE offline UI” job，且 job/run/head SHA 全一致；不能用变量 `true`、别的 helper SHA、局部单测或旧截图代替。产物只在 `mock-evidence/`，artifact 名 `fixed-exe-mock-evidence-*`，result/ledger 都显式 `mode: MOCK`、零真实 provider 证据和 `simulated-counters-only`；不会覆盖 live ledger。
@@ -108,7 +112,7 @@ npm test --prefix desktop/real-ai-validation
 
 原 `desktop-windows.yml` 现仅为本工具新增三个精确 `paths-ignore`：`desktop/real-ai-validation/**`、`.github/workflows/desktop-real-ai.yml`、本文。产品、锁文件、原 workflow 自身和 release gate 路径仍触发默认完整门禁，dispatch 与原有 package-only 判定不变。
 
-首次修改原 workflow 的迁移提交本身仍触发旧流程。早期迁移候选曾显式使用已存在的 `build: AI [windows-package-only] ` 前缀（末尾空格属于契约），允许额外 focused/build/packaging 和独立 Windows MOCK；不使用全 CI 跳过标记。该前缀不触发本工具 paid 入口：没有精确 R/H 和人工环境批准仍然跳过真实 AI。原 `validation-status` 仍按设计拒绝把 skipped full-regression 当成功，故 package-only run 不应被承诺整体绿色或发布就绪。当前 9c245314 已使用无此前缀的普通完整门禁且通过；本次仅价格审阅 helper 更新，不重复产品完整门禁或打包。
+首次修改原 workflow 的迁移提交本身仍触发旧流程。早期迁移候选曾显式使用已存在的 `build: AI [windows-package-only] ` 前缀（末尾空格属于契约），允许额外 focused/build/packaging 和独立 Windows MOCK；不使用全 CI 跳过标记。该前缀不触发本工具 paid 入口：没有精确 R/H 和人工环境批准仍然跳过真实 AI。原 `validation-status` 仍按设计拒绝把 skipped full-regression 当成功，故 package-only run 不应被承诺整体绿色或发布就绪。当前 9c245314 已使用无此前缀的普通完整门禁且通过；本次仅验证 helper 的安全诊断和离线观察路径更新，不重复产品完整门禁或打包。
 
 空激活提交是否被其他 path-filtered workflow 忽略按真实 GitHub run 验证，不预先声称不会触发。
 
