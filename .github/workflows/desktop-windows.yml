@@ -240,6 +240,11 @@ jobs:
   # 90-minute cap left limited margin for slower runners/partitions; 120
   # adds bounded headroom, not a speedup or completion guarantee.
   # Sharding reduces wall-clock/timeout pressure, not total resource consumption.
+  # duration-lpt-v1 uses pinned historical durations only to balance scheduling;
+  # every collected node still runs exactly once under the full manifest gate.
+  # Whole-file isolation and the reviewed chat-node exception remain unchanged.
+  # Estimates do not certify passing tests; each shard keeps its 120-minute limit
+  # and at most two pytest shards run concurrently.
   pytest-shards:
     name: Complete pytest shard ${{ matrix.shard }} of 12
     if: "${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
