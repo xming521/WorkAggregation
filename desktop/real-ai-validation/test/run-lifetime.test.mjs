@@ -51,3 +51,22 @@ test('completed work preserves result, stops late starts and never invokes timeo
   assert.throws(lifetime.assertActive, { safeCode: 'SESSION_DEADLINE' });
   await assert.rejects(lifetime.run(async () => 8), { safeCode: 'INVALID_HARNESS' });
 });
+
+test('recovery monotonic deadline rejects late microtask success even after wall clock rollback', async t => {
+  const start = performance.now();
+  const wall = Date.now();
+  const lifetime = createRunLifetime(wall + 20, { monotonicDeadline: start + 20 });
+  await assert.rejects(lifetime.run(async () => {
+    t.mock.method(Date, 'now', () => wall - 60000);
+    while (performance.now() - start < 35) { /* Deliberately block timer dispatch. */ }
+    return 'must not pass';
+  }), { safeCode: 'SESSION_DEADLINE' });
+  assert.throws(lifetime.assertActive, { safeCode: 'SESSION_DEADLINE' });
+});
+
+test('recovery already-expired monotonic budget refuses any work despite future wall clock deadline', async () => {
+  const lifetime = createRunLifetime(Date.now() + 600000, { monotonicDeadline: performance.now() - 1 });
+  let ran = false;
+  await assert.rejects(lifetime.run(async () => { ran = true; }), { safeCode: 'SESSION_DEADLINE' });
+  assert.equal(ran, false);
+});

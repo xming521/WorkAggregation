@@ -94,6 +94,20 @@ jobs:
         run: |
           node desktop/real-ai-validation/offline.mjs run
           if ($LASTEXITCODE -ne 0) { throw 'MOCK UI validation failed; paid validation remains blocked' }
+      - name: Prepare fresh profile for single Pilot recovery timing probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AI_EVIDENCE_DIR: ${{ github.workspace }}/desktop/real-ai-validation/mock-recovery-evidence
+        run: |
+          node desktop/real-ai-validation/offline.mjs prepare-recovery
+          if ($LASTEXITCODE -ne 0) { throw 'MOCK recovery preparation failed' }
+      - name: Strict single Pilot recovery proof with synthetic carried cost and 120-second window
+        timeout-minutes: 5
+        env:
+          AI_EVIDENCE_DIR: ${{ github.workspace }}/desktop/real-ai-validation/mock-recovery-evidence
+        run: |
+          node desktop/real-ai-validation/offline.mjs run-recovery
+          if ($LASTEXITCODE -ne 0) { throw 'MOCK recovery proof failed; paid validation remains blocked' }
       - name: Clean only MOCK-owned temporary profile
         if: ${{ always() }}
         run: |
@@ -123,6 +137,17 @@ jobs:
             desktop/real-ai-validation/mock-evidence/screens/offer-negotiation.png
             desktop/real-ai-validation/mock-evidence/screens/failure-owner.png
             desktop/real-ai-validation/mock-evidence/screens/failure-haru.png
+
+      - name: Retain separate MOCK-only recovery timing and cumulative fixture evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixed-exe-mock-evidence-recovery-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            desktop/real-ai-validation/mock-recovery-evidence/result.json
+            desktop/real-ai-validation/mock-recovery-evidence/ledger.json
 
   preflight:
     needs: route

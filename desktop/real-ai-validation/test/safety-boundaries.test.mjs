@@ -328,3 +328,50 @@ test('renderer structure evidence is MOCK Pilot-only and cannot widen LIVE artif
   for (const output of [mock, live]) for (const secret of ['private-raw-body', 'private-origin', '999', '888'])
     assert.equal(JSON.stringify(output).includes(secret), false);
 });
+
+test('free recovery probe is explicit, fresh, separate and mandatory after unchanged full MOCK suite', async () => {
+  const steps = workflow.jobs.offline.steps;
+  const normal = steps.findIndex(step => step.run?.includes('offline.mjs run\n'));
+  const prepare = steps.findIndex(step => step.run?.includes('offline.mjs prepare-recovery'));
+  const run = steps.findIndex(step => step.run?.includes('offline.mjs run-recovery'));
+  assert.ok(normal > 0 && prepare > normal && run > prepare);
+  for (const index of [prepare, run]) {
+    assert.equal(steps[index].if, undefined); assert.equal(steps[index]['continue-on-error'], undefined);
+    assert.equal(steps[index].env.AI_EVIDENCE_DIR, '${{ github.workspace }}/desktop/real-ai-validation/mock-recovery-evidence');
+    assert.ok(steps[index].run.includes('if ($LASTEXITCODE -ne 0)'));
+  }
+  const uploads = steps.filter(step => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(uploads.length, 2);
+  assert.deepEqual(uploads[1].with.path.trim().split('\n'), [
+    'desktop/real-ai-validation/mock-recovery-evidence/result.json',
+    'desktop/real-ai-validation/mock-recovery-evidence/ledger.json',
+  ]);
+  assert.notEqual(uploads[0].with.name, uploads[1].with.name);
+  const offline = await fs.readFile(new URL('../offline.mjs', import.meta.url), 'utf8');
+  assert.match(offline, /run-recovery[\s\S]*?mode: 'mock', scope: RECOVERY.scope, brokerFactory: createOfflineRecoveryBroker/);
+  const runner = await fs.readFile(new URL('../validation-runner.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /mode !== 'live' \|\| scope === RECOVERY.scope/);
+  assert.match(runner, /prepared.scope === scope/);
+  assert.match(runner, /await loadPreparedCarryForward\(prepared\)/);
+  assert.match(runner, /ledger = recoveryBaselineSnapshot\(carryForward, binding\)/);
+  assert.match(runner, /recovery \? RECOVERY.executionMs : 600000/);
+  assert.match(runner, /executionStartedAt \} : \{\}/);
+  assert.match(runner, /refreshSyntheticProfile\(page, broker, fixture, deadlineMs, \{ mode, scope \}\)/);
+  assert.match(runner, /capture, mode, scope, mockContinuation, mockPilotProof/);
+  assert.equal(/deadlineMs: started \+ 600000/.test(runner), false);
+  assert.match(runner, /'PILOT_HARU_RECOVERY_PASSED', 'PILOT_HARU_RECOVERY_COMPLETION_ONLY'\]\.includes\(report.code\)/);
+});
+
+test('runner rejects full LIVE scope and recovery-only injection misuse before any environment action', async () => {
+  const { executeValidation } = await import('../validation-runner.mjs');
+  const { RECOVERY } = await import('../carry-forward-policy.cjs');
+  const brokerFactory = () => { throw new Error('must not create broker'); };
+  for (const options of [
+    { mode: 'live', scope: 'full-suite' }, { mode: 'live', scope: 'unreviewed-scope' },
+    { mode: 'live', mockPilotProofFactory: () => {} },
+    { mode: 'mock', scope: RECOVERY.scope },
+    { mode: 'mock', scope: RECOVERY.scope, mockPilotProofFactory: () => {}, screenshotFactory: () => {} },
+    { mode: 'mock', scope: RECOVERY.scope, mockPilotProofFactory: () => {}, mockHaruSessionFactory: () => {} },
+    { mode: 'mock', scope: RECOVERY.scope, mockPilotProofFactory: () => {}, mockContinuation: () => {} },
+  ]) await assert.rejects(executeValidation({ brokerFactory, ...options }), { safeCode: 'INVALID_HARNESS' });
+});

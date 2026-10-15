@@ -44,6 +44,11 @@ test('cold shallow helper requires its independent verified PIN checkout', async
   // tests; its shallow Git history must still lack that independent product.
   await fs.copyFile(new URL('../../installed-ui/contract.mjs', import.meta.url),
     path.join(helper, 'desktop/installed-ui/contract.mjs'));
+  await fs.mkdir(path.join(helper, 'desktop/real-ai-validation/test/fixtures'), { recursive: true });
+  await fs.copyFile(new URL('./fixtures/prior-paid-38694575612.zip', import.meta.url),
+    path.join(helper, 'desktop/real-ai-validation/test/fixtures/prior-paid-38694575612.zip'));
+  await fs.copyFile(new URL('../carry-forward-policy.cjs', import.meta.url),
+    path.join(helper, 'desktop/real-ai-validation/carry-forward-policy.cjs'));
   await fs.copyFile(new URL('../product.json', import.meta.url), path.join(helper, 'desktop/real-ai-validation/product.json'));
   await fs.mkdir(product);
   git(product, 'init');
@@ -161,7 +166,7 @@ test('cold shallow helper requires its independent verified PIN checkout', async
     // No source override is supplied and the process cwd is a different repo.
     await fs.copyFile(new URL('pinned-source.mjs', import.meta.url),
       path.join(product, 'desktop/real-ai-validation/test/pinned-source.mjs'));
-    for (const file of ['desktop/real-ai-validation/contract.mjs', 'desktop/installed-ui/contract.mjs',
+    for (const file of ['desktop/real-ai-validation/contract.mjs', 'desktop/real-ai-validation/carry-forward-policy.cjs', 'desktop/installed-ui/contract.mjs',
       'desktop/installed-ui/filesystem-safety.mjs']) {
       await fs.copyFile(path.join(root, file), path.join(product, file));
     }

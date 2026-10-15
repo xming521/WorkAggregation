@@ -1,6 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import net from 'node:net';
+import { performance } from 'node:perf_hooks';
+import { RECOVERY } from './carry-forward-policy.cjs';
+import { loadPreparedCarryForward } from './carry-forward-evidence.mjs';
+import { recoveryBaselineSnapshot } from './broker.cjs';
 import { _electron } from 'playwright-core';
 import { CASES, childEnvironment, demand, safeCode, validateFixedFiles, validateLiveProduct } from './contract.mjs';
 import { hash } from '../installed-ui/integrity.mjs';
@@ -18,16 +22,23 @@ import { assertHaruRestartFacts } from './mock-haru-session.mjs';
 import { createRunLifetime } from './run-lifetime.mjs';
 import { trackAppResource, waitForResourceSettlement } from './run-finalization.mjs';
 
-export async function executeValidation({ mode, brokerFactory, providerKey, screenshotFactory, mockContinuation, mockHaruSessionFactory, mockPilotProofFactory } = {}) {
+export async function executeValidation({ mode, brokerFactory, providerKey, screenshotFactory, mockContinuation, mockHaruSessionFactory, mockPilotProofFactory, scope = mode === 'live' ? RECOVERY.scope : 'full-suite' } = {}) {
   demand(['live', 'mock'].includes(mode) && typeof brokerFactory === 'function' &&
+    [RECOVERY.scope, 'full-suite'].includes(scope) && (mode !== 'live' || scope === RECOVERY.scope) &&
+    (scope !== RECOVERY.scope || (screenshotFactory === undefined && mockContinuation === undefined && mockHaruSessionFactory === undefined)) &&
+    (mode !== 'mock' || scope !== RECOVERY.scope || typeof mockPilotProofFactory === 'function') &&
     (mockContinuation === undefined || typeof mockContinuation === 'function') &&
     (mockHaruSessionFactory === undefined || typeof mockHaruSessionFactory === 'function') &&
     (mockPilotProofFactory === undefined || typeof mockPilotProofFactory === 'function') &&
     (mode !== 'live' || screenshotFactory === undefined) &&
     (mode !== 'live' || (mockContinuation === undefined && mockHaruSessionFactory === undefined && mockPilotProofFactory === undefined)), 'INVALID_HARNESS');
   if (mode === 'live') validateLiveProduct();
-const blocked = code => CASES.map(id => ({ id, status: 'BLOCKED', code, checks: {} }));
-const report = { mode, status: 'BLOCKED', code: 'NOT_STARTED', scenarios: blocked('NOT_STARTED'), cleanupPassed: false };
+const recovery = scope === RECOVERY.scope;
+const selectedCases = recovery ? RECOVERY.allowedCases : CASES;
+const started = Date.now(), executionStartedAt = performance.now();
+const deadlineMs = started + (recovery ? RECOVERY.executionMs : 600000);
+const blocked = code => selectedCases.map(id => ({ id, status: 'BLOCKED', code, checks: {} }));
+const report = { mode, scope, status: 'BLOCKED', code: 'NOT_STARTED', scenarios: blocked('NOT_STARTED'), cleanupPassed: false };
 let app, broker, lifetime, screenshotEvidence, ledger = {}, failure, cleanupFailure, finalEvidenceSaved = false, appLaunchPending = false;
 const appResources = [];
 const root = process.env.RUNNER_TEMP && path.join(process.env.RUNNER_TEMP, mode === 'live' ? 'offerpilot-bounded-ai' : 'offerpilot-bounded-ai-mock');
@@ -139,19 +150,24 @@ try {
   await validateFixedFiles();
   const statePath = path.join(root, 'prepared.json');
   const prepared = JSON.parse(await fs.readFile(statePath, 'utf8'));
-  demand(prepared.schema === 1 && prepared.mode === mode && prepared.root === root && prepared.profile === path.join(process.env.APPDATA, 'OfferPilot Desktop') &&
+  demand(prepared.schema === 1 && prepared.mode === mode && prepared.scope === scope && prepared.root === root && prepared.profile === path.join(process.env.APPDATA, 'OfferPilot Desktop') &&
     prepared.installDir === path.join(root, '安装 Application') && prepared.exe === path.join(prepared.installDir, 'OfferPilot Desktop.exe') &&
     prepared.backend === path.join(prepared.installDir, 'resources/backend/offerpilot-backend.exe') &&
     prepared.helperSha === (mode === 'live' ? process.env.AI_APPROVED_HELPER_SHA : process.env.GITHUB_SHA) && prepared.requestSha === process.env.GITHUB_SHA &&
     prepared.profileOwned === false, 'PREPARED_IDENTITY_MISMATCH');
+  const carryForward = mode === 'live' ? await loadPreparedCarryForward(prepared) : undefined;
+  const binding = { sessionId: RECOVERY.sessionId, runId: process.env.GITHUB_RUN_ID,
+    runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), helperCommit: prepared.helperSha, requestCommit: prepared.requestSha };
+  // Preserve the authenticated historical cost even if launch/profile/broker creation later fails.
+  if (mode === 'live') ledger = recoveryBaselineSnapshot(carryForward, binding);
   demand(await hash(prepared.exe) === prepared.exeSha256 && !await exists(prepared.profile), 'PREPARED_IDENTITY_MISMATCH');
   demand((await ownedSnapshot(prepared)).processes.length === 0, 'PREEXISTING_PRODUCT_PROCESS');
   await fs.mkdir(prepared.profile); // exclusive, never overwrite or adopt a real profile
   prepared.profileOwned = true;
   await fs.writeFile(statePath, JSON.stringify(prepared));
   broker = await brokerFactory({ providerKey, ledgerPath: path.join(root, 'session-ledger.json'),
-    sessionId: 'offerpilot-fixed-exe-real-ai-20261008', runId: process.env.GITHUB_RUN_ID,
-    runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT), helperCommit: prepared.helperSha, requestCommit: prepared.requestSha });
+    ...binding, carryForward, ...(recovery ? { executionStartedAt } : {}) });
+  demand((broker.snapshot().carryForward !== undefined) === recovery, 'INVALID_HARNESS');
   let scenarioBroker = broker;
   const mockPilotProof = mockPilotProofFactory?.({ mode, broker });
   demand(mockPilotProofFactory === undefined || typeof mockPilotProof === 'function', 'INVALID_HARNESS');
@@ -166,8 +182,7 @@ try {
     capture = (screenId, page, failedCase) => screenshotEvidence.capture(screenId, page,
       { stage: failedCase || screenId.replace(/^haru-/, '') });
   }
-  const started = Date.now();
-  lifetime = createRunLifetime(started + 600000);
+  lifetime = createRunLifetime(deadlineMs, recovery ? { monotonicDeadline: executionStartedAt + RECOVERY.executionMs } : {});
   await lifetime.run(async () => {
     const first = await launchOwned(prepared);
     const { page, haru } = first;
@@ -175,14 +190,22 @@ try {
     if (mockHaruSessionFactory) demand(mockSession && typeof mockSession.afterPilot === 'function'
       && typeof mockSession.afterRestart === 'function' && typeof mockSession.diagnostic === 'function', 'INVALID_HARNESS');
     const native = mockSession ? nativeControls(first, prepared) : undefined;
-    const api = syntheticApi(page);
+    const synthetic = syntheticApi(page);
+    const api = async (...args) => { lifetime.assertActive(); const value = await synthetic(...args); lifetime.assertActive(); return value; };
     const fixture = await prepareSyntheticProfile(api);
-    await refreshSyntheticProfile(page, broker, fixture, started + 600000);
+    await refreshSyntheticProfile(page, broker, fixture, deadlineMs, { mode, scope });
+    if (recovery) {
+      const elapsedBeforeUiMs = Math.floor(performance.now() - executionStartedAt);
+      const remainingBeforeUiMs = Math.floor(broker.remainingMs());
+      if (Number.isSafeInteger(elapsedBeforeUiMs) && elapsedBeforeUiMs >= 0 && elapsedBeforeUiMs <= 600000 &&
+        Number.isSafeInteger(remainingBeforeUiMs) && remainingBeforeUiMs >= 0 && remainingBeforeUiMs <= RECOVERY.executionMs)
+        report.executionTiming = { windowMs: RECOVERY.executionMs, elapsedBeforeUiMs, remainingBeforeUiMs };
+    }
     const result = await runUiScenarios({ page, haru, api, broker: scenarioBroker, fixture,
-      capture, mode, mockContinuation, mockPilotProof,
+      capture, mode, scope, mockContinuation, mockPilotProof,
       mockHaruSession: mockSession ? args => mockSession.afterPilot({ ...args, native, capture }) : undefined,
-      deadlineMs: started + 600000 });
-    report.scenarios = CASES.map(id => result.results.find(row => row.id === id));
+      deadlineMs });
+    report.scenarios = selectedCases.map(id => result.results.find(row => row.id === id));
     if (result.allPassed && mockSession) {
       demand(mode === 'mock' && broker.mode === 'MOCK' && !broker.snapshot().active, 'INVALID_HARNESS');
       const beforeRestart = JSON.stringify(broker.snapshot());
@@ -196,7 +219,7 @@ try {
       const secondNative = nativeControls(second, prepared);
       try {
         const checks = await mockSession.afterRestart({ page: second.page, haru: second.haru,
-          native: secondNative, capture, restart, deadlineMs: started + 600000 });
+          native: secondNative, capture, restart, deadlineMs });
         demand(JSON.stringify(broker.snapshot()) === beforeRestart, 'UNEXPECTED_PROVIDER_REQUESTS');
         Object.assign(report.scenarios.find(row => row.id === 'pilot-stream').checks, checks);
       } catch (error) {
@@ -211,10 +234,13 @@ try {
         throw error;
       } finally { report.haruSessionDiagnostic = mockSession.diagnostic(); }
     }
+    lifetime.assertActive();
     demand(!externalRendererRequest, 'UNEXPECTED_RENDERER_NETWORK');
     report.status = result.allPassed ? 'PASS' : 'FAIL';
-    report.code = result.allPassed ? (report.scenarios.some(row => row.code === 'LIVE_COMPLETION_ONLY')
-      ? 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' : 'ALL_UI_CASES_PASSED') : 'UI_CASES_INCOMPLETE';
+    const completionOnly = report.scenarios.some(row => row.code === 'LIVE_COMPLETION_ONLY');
+    report.code = !result.allPassed ? 'UI_CASES_INCOMPLETE' : recovery
+      ? (completionOnly ? 'PILOT_HARU_RECOVERY_COMPLETION_ONLY' : 'PILOT_HARU_RECOVERY_PASSED')
+      : (completionOnly ? 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' : 'ALL_UI_CASES_PASSED');
   }, async () => {
     try { await broker.close(); } catch { cleanupFailure = 'BROKER_CLEANUP_FAILED'; }
   });
@@ -241,16 +267,16 @@ try {
   report.cleanupCode = cleanupFailure || 'CLEANUP_PASSED';
   if (failure || cleanupFailure) {
     report.status = 'BLOCKED';
-    report.code = failure || (['NOT_STARTED', 'ALL_UI_CASES_PASSED', 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY'].includes(report.code) ? cleanupFailure : report.code);
+    report.code = failure || (['NOT_STARTED', 'ALL_UI_CASES_PASSED', 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY', 'PILOT_HARU_RECOVERY_PASSED', 'PILOT_HARU_RECOVERY_COMPLETION_ONLY'].includes(report.code) ? cleanupFailure : report.code);
   }
   if (evidence) {
     try { await saveEvidence(evidence, report, ledger, [providerKey]); finalEvidenceSaved = true; }
     catch { report.status = 'BLOCKED'; report.code = failure || report.code; report.cleanupCode = 'EVIDENCE_WRITE_BLOCKED'; }
   }
   console.log(mode === 'mock' ? `MOCK installed UI validation: ${report.status}; no real provider evidence.` :
-    report.status === 'PASS' ? (report.code === 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY'
-      ? 'Bounded real-provider installed UI cases completed; sustained Pilot streaming NOT proven; experimental evidence only.'
-      : 'Bounded real-provider installed UI cases passed; experimental evidence only.') : `Real AI validation blocked or incomplete: ${report.code}`);
+    report.status === 'PASS' ? (report.code === 'PILOT_HARU_RECOVERY_COMPLETION_ONLY'
+      ? 'Single Pilot/Haru recovery completed; sustained Pilot streaming NOT proven; experimental evidence only.'
+      : 'Single Pilot/Haru recovery passed; experimental evidence only.') : `Real AI validation blocked or incomplete: ${report.code}`);
   return { ...report, finalEvidenceSaved,
     appResourcesReleased: !appLaunchPending && appResources.every(resource => resource.launcherClosed && resource.closeConfirmed),
     exitCode: report.status === 'PASS' && report.cleanupPassed ? 0 : 1 };

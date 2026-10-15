@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { RECOVERY, createMockCarryForward, carryForwardEvidence } from '../carry-forward-policy.cjs';
 import { refreshSyntheticProfile } from '../seed-refresh.mjs';
 const fixture = { applicationId: 1, eventId: 2, resumeId: 3, offerId: 4 };
 const paths = ['/api/applications', '/api/application-events', '/api/resumes', '/api/offers'];
@@ -82,3 +83,30 @@ test('an invalid request observed during final navigation wait cannot pass refre
     { safeCode: 'SYNTHETIC_SETUP_FAILED' });
   assert.equal(page.listenerCount('request'), 0);
 });
+
+
+test('recovery seed reload preserves trusted historical cost rather than pretending cumulative requests are zero', async () => {
+  const { page, events } = setup();
+  const carry = createMockCarryForward();
+  const snapshot = { carryForward: carryForwardEvidence(carry), currentRequests: 0,
+    sentRequests: 1, requests: structuredClone(carry.requests), settledMicroCny: 188, retainedMicroCny: 0,
+    active: false, closed: false, journalFailed: false };
+  const broker = { remainingMs: () => 120000, snapshot: () => structuredClone(snapshot) };
+  await refreshSyntheticProfile(page, broker, fixture, Date.now() + 60000, { mode: 'mock', scope: RECOVERY.scope });
+  assert.deepEqual(events, ['reload', ...paths, 'navigation-visible']);
+  assert.equal(broker.snapshot().sentRequests, 1);
+  assert.equal(broker.snapshot().settledMicroCny, 188);
+});
+
+for (const change of [v => { v.requests[0].micro = 0; }, v => { v.currentRequests = 1; },
+  v => { v.carryForward.source.kind = 'forged'; }, v => { v.settledMicroCny = 0; }]) {
+  test('recovery seed rejects mismatched or mutated historical prefix', async () => {
+    const { page } = setup(); const carry = createMockCarryForward(); let reads = 0;
+    const base = { carryForward: carryForwardEvidence(carry), currentRequests: 0, sentRequests: 1,
+      requests: structuredClone(carry.requests), settledMicroCny: 188, retainedMicroCny: 0,
+      active: false, closed: false, journalFailed: false };
+    const broker = { remainingMs: () => 120000, snapshot() { const value = structuredClone(base); if (++reads > 1) change(value); return value; } };
+    await assert.rejects(refreshSyntheticProfile(page, broker, fixture, Date.now() + 60000,
+      { mode: 'mock', scope: RECOVERY.scope }), { safeCode: 'SYNTHETIC_SETUP_FAILED' });
+  });
+}

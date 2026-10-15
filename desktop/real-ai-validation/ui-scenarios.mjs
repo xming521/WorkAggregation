@@ -1,6 +1,8 @@
 // Real installed-renderer actions only. No provider calls, secrets, raw response
 // logs, traces, exports, controller replacement, or synthetic Haru publication.
 import { proveLivePilotCompletion, liveLedgerFingerprint } from './live-pilot-completion.mjs';
+import { RECOVERY, validateCarryForwardPrefix } from './carry-forward-policy.cjs';
+import { performance } from 'node:perf_hooks';
 import { randomUUID } from 'node:crypto';
 import { createUiDiagnostic, sanitizeStreamDiagnostic } from './ui-diagnostics.mjs';
 import { installMirrorObservation, readMirrorObservation, removeMirrorObservation, isRunningMirrorProven } from './mirror-observer.mjs';
@@ -80,19 +82,22 @@ const pilot = (page) => page.locator('[data-onboarding-target="pilot"]').filter(
 const composer = (page) => pilot(page).getByPlaceholder('问问领航员，或输入 / 唤起能力', { exact: true });
 const settings = (page) => region(page, 'AI 设置');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-function operationContext(deadline, isMock = false) {
+function operationContext(deadline, isMock = false, remainingMs) {
   const diagnostic = createUiDiagnostic(isMock);
   return {
     mark: diagnostic.mark, target: diagnostic.target, mirror: diagnostic.mirror, stream: diagnostic.stream, pilotProof: diagnostic.pilotProof, diagnostic: diagnostic.snapshot,
-    timeout(cap = 15_000) { const left = deadline - Date.now(); if (left <= 0) fail('SUITE_DEADLINE'); return Math.max(1, Math.min(left, cap)); },
+    timeout(cap = 15_000) { const budgetLeft = remainingMs ? remainingMs() : Infinity; if (remainingMs && (!Number.isFinite(budgetLeft) || budgetLeft < 0 || budgetLeft > RECOVERY.executionMs)) fail('SUITE_DEADLINE'); const left = Math.min(deadline - Date.now(), budgetLeft); if (!Number.isFinite(left) || left <= 0) fail('SUITE_DEADLINE'); return Math.max(1, Math.min(left, cap)); },
     async click(locator, diagnosticLocator = locator) { diagnostic.target(diagnosticLocator); await locator.click({ timeout: this.timeout() }); },
     async fill(locator, value) { diagnostic.target(locator); await locator.fill(value, { timeout: this.timeout() }); },
     async visible(locator) { diagnostic.target(locator); await locator.waitFor({ state: 'visible', timeout: this.timeout() }); },
     async hidden(locator) { diagnostic.target(locator); await locator.waitFor({ state: 'hidden', timeout: this.timeout() }); },
     async detached(locator) { diagnostic.target(locator); await locator.waitFor({ state: 'detached', timeout: this.timeout() }); },
     async until(predicate, cap = 15_000, code = 'UI_TIMEOUT') {
-      const end = Date.now() + this.timeout(cap);
-      do { if (await predicate()) return; await sleep(Math.min(50, Math.max(1, end - Date.now()))); } while (Date.now() < end);
+      const duration = this.timeout(cap), end = Date.now() + duration;
+      const monotonicEnd = remainingMs ? performance.now() + duration : Infinity;
+      do { this.timeout(); const ready = await predicate(); this.timeout(); if (ready) return;
+        await sleep(Math.min(50, Math.max(1, Math.min(end - Date.now(), monotonicEnd - performance.now()))));
+      } while (Date.now() < end && performance.now() < monotonicEnd);
       fail(Date.now() >= deadline ? 'SUITE_DEADLINE' : code);
     },
   };
@@ -423,7 +428,7 @@ export function pilotPrompt(caseId, mode) {
   return mode === 'mock' && caseId === 'pilot-stream'
     ? prompt.replace('这是虚构软件验收。', '这是虚构软件流式验收。') : prompt;
 }
-async function runPilot({ page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore, mockPilotProof }) {
+async function runPilot({ page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore, mockPilotProof, scope }) {
   await openPilot(page, ctx);
   await expandHaru(haru, ctx);
   ctx.mark('PILOT_COMPOSE');
@@ -439,6 +444,11 @@ async function runPilot({ page, haru, api, broker, fixture, capture, current, ct
     const prove = mode === 'live' ? proveLivePilotCompletion : mockPilotProof;
     const outcome = await prove({ mode, page, haru, broker, requestCountBefore, ctx,
       deadlineMs: Date.now() + ctx.timeout(current.timeoutMs), send: async () => {
+        if (scope === RECOVERY.scope) {
+          // Configuration/launch consumed part of the same 120s grant. Never
+          // buy a request unless its original observation window still fits.
+          check(broker.remainingMs() >= current.timeoutMs && ctx.timeout(current.timeoutMs) === current.timeoutMs, 'SUITE_DEADLINE');
+        }
         ctx.mark('PILOT_ARM'); await broker.armCase(current.id);
         ctx.mark('PILOT_SEND'); await ctx.click(pilot(page).getByRole('button', exact('发送')));
       } });
@@ -667,21 +677,26 @@ export function canContinueMockScenario({ mode, result, proof, cleanupPassed, le
     && ['eligible', 'ledgerSafe', 'mirrorProven', 'domEqual', 'noNewRequests'].every(key => proof[key] === true)
     && ledgerBefore !== undefined && JSON.stringify(ledgerBefore) === JSON.stringify(ledgerAfter);
 }
-export async function runUiScenarios({ page, haru, api, broker, fixture, capture, mode = 'live', mockContinuation, mockHaruSession, mockPilotProof, deadlineMs = Date.now() + 600_000 } = {}) {
+export async function runUiScenarios({ page, haru, api, broker, fixture, capture, mode = 'live', mockContinuation, mockHaruSession, mockPilotProof, scope = mode === 'live' ? RECOVERY.scope : 'full-suite', deadlineMs = Date.now() + 600_000 } = {}) {
   const results = [];
+  const recovery = scope === RECOVERY.scope;
+  const selected = recovery ? scenarios.filter(current => current.id === 'pilot-stream') : scenarios;
   const continuedSettledFailures = new Set();
   let blocked = null;
   const valid = page && haru && typeof api === 'function' && broker && typeof broker.prepareCase === 'function'
     && typeof broker.armCase === 'function' && typeof broker.cancelCase === 'function'
     && typeof broker.snapshot === 'function' && fixture && Number.isFinite(deadlineMs)
-    && ['live', 'mock'].includes(mode)
+    && ['live', 'mock'].includes(mode) && [RECOVERY.scope, 'full-suite'].includes(scope)
+    && (mode !== 'live' || recovery)
+    && (!recovery || (typeof broker.remainingMs === 'function' && mockContinuation === undefined && mockHaruSession === undefined
+      && (mode === 'live' || typeof mockPilotProof === 'function')))
     && (mockContinuation === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockContinuation === 'function'))
     && (mockPilotProof === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockPilotProof === 'function'))
     && (mockHaruSession === undefined || (mode === 'mock' && broker.mode === 'MOCK' && typeof mockHaruSession === 'function'));
   if (!valid) blocked = 'INVALID_HARNESS';
-  const deadline = Math.min(deadlineMs, Date.now() + 600_000);
-  const ctx = operationContext(deadline, mode === 'mock');
-  for (const current of scenarios) {
+  const deadline = Math.min(deadlineMs, Date.now() + (recovery ? RECOVERY.executionMs : 600_000));
+  const ctx = operationContext(deadline, mode === 'mock', recovery ? () => broker.remainingMs() : undefined);
+  for (const current of selected) {
     if (blocked) { results.push({ id: current.id, status: 'BLOCKED', code: blocked, checks: {} }); continue; }
     if (Date.now() >= deadline) { blocked = 'SUITE_DEADLINE'; results.push({ id: current.id, status: 'BLOCKED', code: blocked, checks: {} }); continue; }
     ctx.mark('CASE_START');
@@ -696,9 +711,14 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
     try {
       const initialLedger = broker.snapshot();
       const accounted = results.filter(row => row.status === 'PASS' || continuedSettledFailures.has(row.id));
+      if (recovery) {
+        try { validateCarryForwardPrefix(initialLedger, mode); } catch { fail('UNEXPECTED_PROVIDER_REQUESTS'); }
+      } else check(initialLedger.carryForward === undefined, 'UNEXPECTED_PROVIDER_REQUESTS');
+      const priorCount = recovery ? 1 : 0;
       check(Array.isArray(initialLedger.requests) && initialLedger.sentRequests === initialLedger.requests.length
-        && initialLedger.sentRequests <= 8 && initialLedger.sentRequests === accounted.length
-        && initialLedger.requests.every((row) => accounted.some((done) => done.id === row.caseId))
+        && initialLedger.sentRequests <= 8 && initialLedger.sentRequests === priorCount + accounted.length
+        && (!recovery || initialLedger.currentRequests === accounted.length)
+        && initialLedger.requests.slice(priorCount).every((row) => accounted.some((done) => done.id === row.caseId))
         && new Set(initialLedger.requests.map((row) => row.caseId)).size === initialLedger.requests.length, 'UNEXPECTED_PROVIDER_REQUESTS');
       check(!initialLedger.closed && !initialLedger.active
         && initialLedger.settledMicroCny + initialLedger.retainedMicroCny + initialLedger.reserveMicroCny <= initialLedger.budgetMicroCny, 'PROVIDER_BUDGET_BLOCKED');
@@ -706,7 +726,7 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
       // Broker is the final spending authority. prepare/arm throws on a sealed
       // or insufficient budget; no retry, alternative model, or direct API.
       await configureCase(page, broker, current, ctx);
-      const args = { page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore, mockPilotProof };
+      const args = { page, haru, api, broker, fixture, capture, current, ctx, freshSessionRequired, mode, requestCountBefore, mockPilotProof, scope };
       const outcome = current.id === 'connection' ? await runConnection(args)
         : current.id.startsWith('pilot-') ? await runPilot(args)
           : current.id === 'interview-preparation' ? await runInterview(args)
@@ -728,6 +748,7 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
         catch { fail('HARU_SYNC_FAILED'); }
         check(JSON.stringify(broker.snapshot()) === before, 'UNEXPECTED_PROVIDER_REQUESTS');
       }
+      if (recovery) ctx.timeout();
       results.push({ id: current.id, status: 'PASS', code: strictPilot ? outcome.code : 'PASSED', checks: { ...checks, oneProviderRequestVerified: true } });
     } catch (error) {
       const code = safeUiCode(error);
@@ -782,7 +803,7 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
         recordObserverCleanupFailure(results, current.id, 'stream', await ctx.diagnostic());
       } }
       if (proofFingerprint !== undefined && results.at(-1)?.status === 'PASS') {
-        try { check(liveLedgerFingerprint(broker.snapshot()) === proofFingerprint, mode === 'live' ? 'LIVE_COMPLETION_UNPROVEN' : 'MOCK_PILOT_COMPLETION_UNPROVEN'); }
+        try { if (recovery) ctx.timeout(); check(liveLedgerFingerprint(broker.snapshot()) === proofFingerprint, mode === 'live' ? 'LIVE_COMPLETION_UNPROVEN' : 'MOCK_PILOT_COMPLETION_UNPROVEN'); }
         catch { caseCleanupPassed = false; blocked = mode === 'live' ? 'LIVE_COMPLETION_UNPROVEN' : 'MOCK_PILOT_COMPLETION_UNPROVEN';
           results[results.length - 1] = { ...results.at(-1), status: 'BLOCKED', code: blocked }; }
       }
@@ -800,5 +821,5 @@ export async function runUiScenarios({ page, haru, api, broker, fixture, capture
       }
     }
   }
-  return { schemaVersion: 1, results, allPassed: results.length === scenarios.length && results.every((item) => item.status === 'PASS') };
+  return { schemaVersion: 1, scope, results, allPassed: results.length === selected.length && results.every((item) => item.status === 'PASS') };
 }

@@ -6,13 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { readPinnedSource } from './pinned-source.mjs';
 import { Ledger } from '../broker-core.cjs';
+import { RECOVERY, verifyPriorZip, createMockCarryForward, carryForwardEvidence } from '../carry-forward-policy.cjs';
 import { PIN, CASES } from '../contract.mjs';
 import { safeResults, saveEvidence } from '../safe-evidence.mjs';
 import { installMirrorObservation, removeMirrorObservation } from '../mirror-observer.mjs';
 import { compactPlainMessage, normalizePlainText, projectAdmission, projectUiRequest, projectRequestExecution, projectTerminal, readLivePilotJson,
-  observeLiveAdmission, isLiveLedgerProven, proveLivePilotCompletion, readLiveTerminalRenderer, observePilotCompletion } from '../live-pilot-completion.mjs';
+  observeLiveAdmission, isLiveLedgerProven, liveLedgerFingerprint, offlineSnapshot, proveLivePilotCompletion, readLiveTerminalRenderer, observePilotCompletion } from '../live-pilot-completion.mjs';
 // Offline synthetic mechanism tests. No EXE, real provider or release claim.
 const SECRET = 'PRIVATE_SYNTHETIC_TERMINAL_CONTENT';
+const recoveryCarry = verifyPriorZip(await fs.readFile(new URL('./fixtures/prior-paid-38694575612.zip', import.meta.url)));
 const flush = async () => { for (let n = 0; n < 30; n += 1) await Promise.resolve(); };
 const state = (taskState = 'idle', conversationId = null) => ({ connected: true, generation: 0,
   snapshot: { taskState, conversationId, loading: taskState === 'running', hasPending: false,
@@ -97,9 +99,22 @@ function ledger(stream = true) {
   }
   return { ...book.snapshot(), journalFailed: false };
 }
-async function harness(t, { running = 'none', growth = 0, content = SECRET, deadline = 3000, initial } = {}) {
+function recoveryLedger(stream = true, mode = 'live') {
+  const book = new Ledger(undefined, { carryForward: mode === 'live' ? recoveryCarry : createMockCarryForward(), mode });
+  if (stream) {
+    book.armCase('pilot-stream'); const ticket = book.claim(); book.reserve(ticket, ticket.maxTokens, 'UNCHANGED');
+    book.markTransport(ticket, 'outboundStarted'); book.markTransport(ticket, 'upstreamResponded');
+    book.finish(ticket, 'SETTLED', { prompt_tokens: 20, completion_tokens: 3, prompt_cache_hit_tokens: 0,
+      prompt_cache_miss_tokens: 20, total_tokens: 23 });
+  }
+  return { ...book.snapshot(), journalFailed: false,
+    ...(mode === 'mock' ? { mode: 'MOCK', mock: { transport: 'IN_PROCESS_SYNTHETIC_HTTPS', externalNetwork: 'DENIED',
+      realProviderCalls: 0, usageIsSynthetic: true, fakeRequests: stream ? 1 : 0, clockScope: 'BROKER_VM_ONLY' } } : {}) };
+}
+async function harness(t, { running = 'none', growth = 0, content = SECRET, deadline = 3000, initial, recovery = false } = {}) {
   const owner = renderer('owner'), haru = renderer('haru');
-  const prior = ledger(false), final = ledger(); let snapshot = prior, sends = 0, status = terminal(), history = [];
+  const makeLedger = recovery ? recoveryLedger : ledger;
+  const prior = makeLedger(false), final = makeLedger(); let snapshot = prior, sends = 0, status = terminal(), history = [];
   status.terminal.response.message = content;
   const transport = { historyOptions: {}, statusOptions: {}, admissionOptions: {}, afterSend: null, terminalHook: null };
   function reply(value, options = {}) {
@@ -136,7 +151,9 @@ async function harness(t, { running = 'none', growth = 0, content = SECRET, dead
     if ((options.method ?? 'POST') === 'POST') void owner.context.window.fetch(request.url(), { method: 'POST', body }).catch(() => {});
     for (const listener of [...owner.responses]) listener(request);
   };
-  const broker = { snapshot: () => structuredClone(snapshot), cancelCase: () => assert.fail('proof cannot cancel'),
+  const brokerStarted = performance.now();
+  const broker = { ...(recovery ? { remainingMs: () => Math.max(0, 120000 - (performance.now() - brokerStarted)) } : {}),
+    snapshot: () => structuredClone(snapshot), cancelCase: () => assert.fail('proof cannot cancel'),
     armCase: () => assert.fail('proof cannot arm'), prepareCase: () => assert.fail('proof cannot prepare') };
   const args = { mode: 'live', page: owner.page, haru: haru.page, broker, requestCountBefore: 1,
     deadlineMs: Date.now() + deadline, ctx: { mark() {} }, send: async () => {
@@ -272,6 +289,107 @@ for (const [name, change] of [
 test('prior denial cannot be adopted as clean baseline', () => {
   const before = ledger(false), after = ledger(); before.denied.AUTH = after.denied.AUTH = 1;
   assert.equal(isLiveLedgerProven(after, before, 1), false);
+});
+test('strict carry-forward proof binds a historical connection and exactly one current Pilot', async t => {
+  const fake = await harness(t, { recovery: true, running: 'both', growth: 2 });
+  assert.equal(isLiveLedgerProven(fake.final, fake.prior, 1), true);
+  assert.equal((await fake.prove()).code, 'LIVE_STREAMING_PROVEN');
+  assert.equal(fake.sends(), 1);
+  assert.equal(fake.prior.sentRequests, 1); assert.equal(fake.prior.currentRequests, 0);
+  assert.equal(fake.prior.settledMicroCny, 188); assert.equal(fake.final.settledMicroCny, 252);
+});
+for (const [name, mutate] of [
+  ['source product', v => { v.carryForward.source.productCommit = PIN.commit; }],
+  ['source run', v => { v.carryForward.source.runId++; }],
+  ['source price', v => { v.carryForward.source.priceCheckedAt = '2026-10-16'; }],
+  ['scope', v => { v.carryForward.scope = 'full-suite'; }],
+  ['prefix count', v => { v.carryForward.priorRequestCount = 0; }],
+  ['prior spend', v => { v.carryForward.priorSettledMicroCny = 189; }],
+  ['delta count', v => { v.currentRequests = 0; }],
+  ['prefix cost', v => { v.requests[0].micro = 0; }],
+  ['source erased', v => { delete v.carryForward; }],
+]) test(`carry ${name} changing during renderer reads invalidates strict proof`, async t => {
+  const fake = await harness(t, { recovery: true });
+  // Snapshot mutation is synthetic test input, never a broker mutation API.
+  fake.final.carryForward = structuredClone(fake.final.carryForward);
+  const priorFingerprint = liveLedgerFingerprint(fake.final);
+  fake.transport.terminalHook = () => mutate(fake.final);
+  await blocked(fake);
+  assert.notEqual(liveLedgerFingerprint(fake.final), priorFingerprint);
+  assert.equal(isLiveLedgerProven(fake.final, fake.prior, 1), false);
+});
+for (const [name, mutate] of [
+  ['corrupt source', v => { v.carryForward.source.productCommit = PIN.commit; }],
+  ['unknown carry mode', v => { v.carryForward.mode = 'unknown'; }],
+  ['MOCK source', v => { v.carryForward = structuredClone(carryForwardEvidence(createMockCarryForward())); }],
+  ['zero historical cost', v => { v.settledMicroCny = 0; }],
+  ['historical retained cost', v => { v.retainedMicroCny = 3000000; }],
+  ['already used current request', v => { v.currentRequests = 1; }],
+]) test(`carry baseline ${name} blocks before UI sends`, async t => {
+  const fake = await harness(t, { recovery: true }); fake.prior.carryForward = structuredClone(fake.prior.carryForward);
+  mutate(fake.prior); await blocked(fake); assert.equal(fake.sends(), 0);
+});
+test('explicit synthetic recovery counts only new fake HTTP calls and remains excluded from LIVE proof', async t => {
+  const before = recoveryLedger(false, 'mock'), after = recoveryLedger(true, 'mock');
+  assert.equal(offlineSnapshot(before), true); assert.equal(offlineSnapshot(after), true);
+  assert.equal(before.mock.fakeRequests, 0); assert.equal(after.mock.fakeRequests, 1);
+  assert.equal(isLiveLedgerProven(after, before, 1), false);
+  const wrong = structuredClone(after); wrong.mock.fakeRequests = wrong.sentRequests;
+  assert.equal(offlineSnapshot(wrong), false);
+  const fake = await harness(t, { recovery: true, running: 'both', growth: 2 });
+  Object.assign(fake.prior, before); Object.assign(fake.final, after);
+  fake.args.mode = 'mock'; fake.args.broker.mode = 'MOCK';
+  assert.equal((await observePilotCompletion(fake.args)).code, 'STREAMING_PROVEN');
+  assert.equal(fake.sends(), 1);
+});
+const deadlineBlocked = async fake => {
+  await assert.rejects(fake.prove(), error => {
+    assert.equal(error.code, 'LIVE_COMPLETION_UNPROVEN');
+    assert.equal(error.pilotProofDiagnostic.fault, 'OBSERVE_DEADLINE');
+    return true;
+  });
+  assert.equal(fake.owner.responses.size, 0);
+};
+for (const invalid of [undefined, null, NaN, Infinity, -1, 120001, '75000', 0]) {
+  test(`recovery proof rejects invalid or expired broker time ${String(invalid)} before sending`, async t => {
+    const fake = await harness(t, { recovery: true });
+    if (invalid === undefined) delete fake.args.broker.remainingMs;
+    else fake.args.broker.remainingMs = () => invalid;
+    await deadlineBlocked(fake); assert.equal(fake.sends(), 0);
+  });
+}
+for (const [limit, deadline] of [[75000, 120000], [3000, 3000]]) {
+  test(`wall-clock rollback cannot extend recovery observation past its ${limit}ms monotonic limit`, async t => {
+    const fake = await harness(t, { recovery: true, running: 'both', growth: 2, deadline });
+    let elapsed = 0;
+    t.mock.method(performance, 'now', () => elapsed);
+    fake.args.broker.remainingMs = () => 120000;
+    const wall = Date.now();
+    fake.transport.terminalHook = () => { elapsed = limit + 1; t.mock.method(Date, 'now', () => wall - 86400000); };
+    await deadlineBlocked(fake); assert.equal(fake.sends(), 1);
+  });
+}
+test('wall-clock rollback cannot permit PASS after the real broker time reaches zero', async t => {
+  const fake = await harness(t, { recovery: true, running: 'both', growth: 2, deadline: 75000 });
+  let remaining = 75000; fake.args.broker.remainingMs = () => remaining;
+  const wall = Date.now();
+  fake.transport.terminalHook = () => { remaining = 0; t.mock.method(Date, 'now', () => wall - 86400000); };
+  await deadlineBlocked(fake); assert.equal(fake.sends(), 1);
+});
+test('recovery broker time cannot increase or be reset while observing', async t => {
+  const fake = await harness(t, { recovery: true, running: 'both', growth: 2 });
+  let remaining = 74000; fake.args.broker.remainingMs = () => remaining;
+  fake.transport.terminalHook = () => { remaining = 75000; };
+  await deadlineBlocked(fake); assert.equal(fake.sends(), 1);
+});
+test('recovery completion cannot return PASS when time expires during admission cleanup', async t => {
+  const fake = await harness(t, { recovery: true, running: 'both', growth: 2 });
+  let remaining = 75000; fake.args.broker.remainingMs = () => remaining;
+  const wall = Date.now();
+  fake.owner.onEvaluate(arg => {
+    if (arg?.operation === 'dispose') { remaining = 0; t.mock.method(Date, 'now', () => wall - 86400000); }
+  });
+  await deadlineBlocked(fake); assert.equal(fake.sends(), 1);
 });
 for (const change of [f => { f.args.mode = 'mock'; }, f => { f.args.broker.mode = 'MOCK'; },
   f => { f.prior.mock = {}; }, f => { f.args.requestCountBefore = 0; }]) test('mode or baseline misuse fails before sending', async t => {
@@ -534,8 +652,8 @@ test('strict offline proof results are MOCK-only and cannot carry LIVE-exclusive
   assert.throws(() => safeResults(misplaced, true));
 });
 
-test('fixed five-second read bound fails before the independent 75-second observation deadline', async t => {
-  const fake = await harness(t, { deadline: 75000 });
+for (const recovery of [false, true]) test(`${recovery ? 'recovery ' : ''}fixed five-second read bound fails before the independent 75-second observation deadline`, async t => {
+  const fake = await harness(t, { deadline: 75000, recovery });
   let entered, didEnter = false;
   const reading = new Promise(resolve => { entered = resolve; });
   const evaluate = fake.owner.page.evaluate;
@@ -568,18 +686,18 @@ test('LIVE runner and scenario boundary reject offline proof injection before pr
   assert.ok(report.results.every(row => row.status === 'BLOCKED' && row.code === 'INVALID_HARNESS'));
 });
 
-for (const sustained of [false, true]) test(`actual branded offline proof ${sustained ? 'preserves streaming PASS' : 'blocks completion-only'}`, async t => {
+for (const [sustained, recovery] of [[false, false], [true, false], [false, true], [true, true]]) test(`actual branded offline ${recovery ? 'carry-forward ' : ''}proof ${sustained ? 'preserves streaming PASS' : 'blocks completion-only'}`, async t => {
   const diagnosticNames = ['NODE_DEBUG', 'NODE_DEBUG_NATIVE', 'NODE_OPTIONS', 'NODE_EXTRA_CA_CERTS',
     'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_TLS_REJECT_UNAUTHORIZED'];
   const savedDiagnostics = Object.fromEntries(diagnosticNames.map(name => [name, process.env[name]]));
   for (const name of diagnosticNames) delete process.env[name];
   t.after(() => { for (const name of diagnosticNames) if (savedDiagnostics[name] !== undefined) process.env[name] = savedDiagnostics[name]; });
-  const { createOfflineBroker } = await import('../mock-provider.cjs');
+  const { createOfflineBroker, createOfflineRecoveryBroker } = await import('../mock-provider.cjs');
   const { createOfflinePilotProof } = await import('../offline-pilot-completion.mjs');
   const { request } = await import('node:http');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'offline-strict-proof-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
-  const broker = await createOfflineBroker({ ledgerPath: path.join(directory, 'MOCK-ledger.jsonl'),
+  const broker = await (recovery ? createOfflineRecoveryBroker : createOfflineBroker)({ ledgerPath: path.join(directory, 'MOCK-ledger.jsonl'),
     sessionId: 'offerpilot-fixed-exe-real-ai-20261008', runId: '1', runAttempt: 1, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40) });
   t.after(() => broker.close());
   const send = (token, stream = false) => new Promise((resolve, reject) => {
@@ -590,7 +708,7 @@ for (const sustained of [false, true]) test(`actual branded offline proof ${sust
     req.on('error', reject);
     req.end(JSON.stringify({ model: 'deepseek-flash', messages: [{ role: 'user', content: 'MOCK only' }], ...(stream ? { stream: true } : {}) }));
   });
-  const connection = broker.prepareCase('connection'); broker.armCase('connection'); await send(connection.clientToken);
+  if (!recovery) { const connection = broker.prepareCase('connection'); broker.armCase('connection'); await send(connection.clientToken); }
   const pilot = broker.prepareCase('pilot-stream');
   const fake = await harness(t, { running: sustained ? 'both' : 'none', growth: sustained ? 2 : 0, deadline: 75000 });
   const prove = createOfflinePilotProof({ mode: 'mock', broker });
@@ -626,6 +744,11 @@ for (const sustained of [false, true]) test(`actual branded offline proof ${sust
   assert.equal(broker.snapshot().mock.realProviderCalls, 0);
   assert.equal(broker.snapshot().sentRequests, 2);
   assert.equal(broker.snapshot().requests[1].status, 'SETTLED');
+  if (recovery) {
+    assert.equal(broker.snapshot().currentRequests, 1); assert.equal(broker.snapshot().mock.fakeRequests, 1);
+    assert.equal(broker.snapshot().carryForward.source.synthetic, true);
+    assert.equal(broker.snapshot().requests[0].micro, 188);
+  }
   assert.equal(fake.owner.responses.size, 0); assert.equal(fake.sends(), 1);
   assert.ok(stages.length >= 4 && stages.every(stage => stage.startsWith('MOCK_PILOT_PROOF_')));
   if (sustained) {
@@ -635,11 +758,14 @@ for (const sustained of [false, true]) test(`actual branded offline proof ${sust
     scenarios[0] = { id: 'connection', status: 'PASS', code: 'PASSED', checks: {} };
     scenarios[1] = { id: 'pilot-stream', status: 'PASS', ...outcome,
       checks: { ...outcome.checks, oneProviderRequestVerified: true } };
-    await saveEvidence(path.join(directory, 'MOCK-evidence'), { mode: 'mock', status: 'BLOCKED', code: 'UI_CASES_INCOMPLETE',
-      cleanupCode: 'CLEANUP_PASSED', cleanupPassed: true, scenarios }, ledger, [SECRET, ID.request_id, ID.turn_id]);
+    await saveEvidence(path.join(directory, 'MOCK-evidence'), { mode: 'mock',
+      status: recovery ? 'PASS' : 'BLOCKED', code: recovery ? 'PILOT_HARU_RECOVERY_PASSED' : 'UI_CASES_INCOMPLETE',
+      ...(recovery ? { scope: RECOVERY.scope } : {}),
+      cleanupCode: 'CLEANUP_PASSED', cleanupPassed: true,
+      scenarios: recovery ? scenarios.filter(row => row.id === 'pilot-stream') : scenarios }, ledger, [SECRET, ID.request_id, ID.turn_id]);
     const artifact = JSON.parse(await fs.readFile(path.join(directory, 'MOCK-evidence', 'result.json'), 'utf8'));
     assert.equal(artifact.mode, 'MOCK'); assert.equal(artifact.realProviderCalled, false);
-    assert.equal(artifact.scenarios[1].code, 'MOCK_PILOT_STREAMING_PROVEN');
+    assert.equal(artifact.scenarios[recovery ? 0 : 1].code, 'MOCK_PILOT_STREAMING_PROVEN');
     assert.doesNotMatch(JSON.stringify(artifact), /LIVE_|PRIVATE_|26e756|turn-synthetic/);
   }
 });

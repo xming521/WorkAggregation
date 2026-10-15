@@ -1,5 +1,7 @@
 'use strict';
 
+const { RECOVERY, validateCarryForward, carryForwardEvidence } = require('./carry-forward-policy.cjs');
+
 // Peak CNY prices verified 2026-10-15 at 06:19 UTC. Integer micro-yuan only; no token estimates.
 // https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
 // https://api-docs.deepseek.com/quick_start/pricing/
@@ -106,13 +108,33 @@ function envelope(body, cap) {
 class Ledger {
   #now; #deadline; #closed = false; #armed = null; #active = null; #used = new Set();
   #records = []; #denied = Object.fromEntries(REASONS.map((r) => [r, 0]));
-  constructor(now = () => performance.now()) { this.#now = now; this.#deadline = now() + POLICY.runMs; }
+  #carry = null; #prefixCount = 0;
+  constructor(now = () => performance.now(), { carryForward, mode = 'live', executionStartedAt } = {}) {
+    this.#now = now;
+    const current = now();
+    const started = executionStartedAt === undefined ? current : executionStartedAt;
+    if (!Number.isFinite(current) || !Number.isFinite(started) || started < 0 || started > current) fail('DEADLINE');
+    if (carryForward !== undefined) {
+      try { validateCarryForward(carryForward, mode); } catch { fail('LEDGER'); }
+      this.#carry = carryForwardEvidence(carryForward);
+      this.#prefixCount = carryForward.sentRequests;
+      // Historical rows have no current ticket and are frozen separately. They
+      // cannot be settled, cancelled, or re-priced by this execution segment.
+      this.#records = carryForward.requests.map(row => Object.freeze({ ...row }));
+      this.#used = new Set(this.#records.map(row => row.caseId));
+    }
+    this.#deadline = started + (this.#carry ? RECOVERY.executionMs : POLICY.runMs);
+  }
+  #allowed(id) { return !this.#carry || RECOVERY.allowedCases.includes(id); }
+  #currentRow(ticket) {
+    return ticket && this.#records.slice(this.#prefixCount).find(row => row.ticket === ticket);
+  }
   remainingMs() { return Math.max(0, this.#deadline - this.#now()); }
   #check() { if (this.#closed) fail('CLOSED'); if (this.remainingMs() <= 0) fail('DEADLINE'); }
   deny(code) { if (REASONS.includes(code)) this.#denied[code] += 1; }
   armCase(id) {
     this.#check();
-    if (!Object.hasOwn(CASES, id) || this.#used.has(id)) fail('CASE');
+    if (!Object.hasOwn(CASES, id) || !this.#allowed(id) || this.#used.has(id)) fail('CASE');
     if (this.#armed || this.#active) fail('BUSY');
     this.#armed = id;
   }
@@ -120,15 +142,18 @@ class Ledger {
     this.#check();
     if (this.#active) fail('BUSY');
     if (!this.#armed) fail('UNARMED');
+    if (!this.#allowed(this.#armed)) fail('CASE');
+    if (this.#carry && this.#records.length - this.#prefixCount >= RECOVERY.additionalRequests) fail('COUNT');
     const ticket = Object.freeze({ caseId: this.#armed, ...CASES[this.#armed] });
     this.#used.add(this.#armed); this.#armed = null; this.#active = ticket;
     return ticket;
   }
   reserve(ticket, maxTokens, adjustment) {
     this.#check();
-    if (ticket !== this.#active || this.#records.some((r) => r.ticket === ticket)) fail('CASE');
+    if (!ticket || ticket !== this.#active || !this.#allowed(ticket.caseId) || this.#currentRow(ticket)) fail('CASE');
     if (!integer(maxTokens, ticket.maxTokens) || maxTokens < 1 || !['INSERTED', 'TIGHTENED', 'UNCHANGED'].includes(adjustment)) fail('PARAMETER');
-    if (this.#records.length >= POLICY.maxRequests) fail('COUNT');
+    if (this.#records.length >= POLICY.maxRequests ||
+        (this.#carry && this.#records.length - this.#prefixCount >= RECOVERY.additionalRequests)) fail('COUNT');
     const charged = this.#records.reduce((s, r) => s + r.micro, 0);
     if (!integer(charged, POLICY.budgetMicroCny) || charged + POLICY.reserveMicroCny > POLICY.budgetMicroCny) fail('BUDGET');
     // Synchronous critical section before the single outbound HTTPS request.
@@ -137,36 +162,43 @@ class Ledger {
   }
   markTransport(ticket, field) {
     if (ticket !== this.#active || !['outboundStarted', 'upstreamResponded', 'clientDisconnectObserved'].includes(field)) return;
-    const row = this.#records.find((r) => r.ticket === ticket);
+    const row = this.#currentRow(ticket);
     if (row) row[field] = true;
   }
   finish(ticket, code, usage = null) {
     // Terminal requests never settle again, even if usage arrives after an abort.
-    if (ticket !== this.#active) return false;
-    const row = this.#records.find((r) => r.ticket === ticket);
+    if (!ticket || ticket !== this.#active) return false;
+    const row = this.#currentRow(ticket);
     this.#active = null;
-    if (!row) { this.deny(code); return true; }
+    if (!row) { this.deny(code); if (this.#carry) this.#closed = true; return true; }
+    if (this.#carry && code === 'SETTLED' && this.remainingMs() <= 0) code = 'DEADLINE';
     if (code === 'SETTLED') {
       try { const cost = usageCost(usage, row.cap); Object.assign(row, cost, { status: 'SETTLED' }); }
       catch { row.status = 'USAGE'; this.#closed = true; }
     } else row.status = REASONS.includes(code) ? code : 'PROTOCOL';
+    if (this.#carry && row.status !== 'SETTLED') this.#closed = true;
     return true;
   }
   retainUncertain(ticket) {
-    const row = this.#records.find((r) => r.ticket === ticket);
+    const row = this.#currentRow(ticket);
     if (row) {
       row.status = 'LEDGER'; row.micro = POLICY.reserveMicroCny;
       for (const key of ['promptTokens', 'completionTokens', 'cacheHitTokens', 'cacheMissTokens']) delete row[key];
     }
     this.close();
   }
-  cancelCase() { if (this.#armed) this.#used.add(this.#armed); this.#armed = null; if (this.#active) this.finish(this.#active, 'CANCELLED'); }
+  cancelCase() {
+    if (this.#armed) { this.#used.add(this.#armed); if (this.#carry) this.#closed = true; }
+    this.#armed = null;
+    if (this.#active) this.finish(this.#active, 'CANCELLED');
+  }
   close() { this.#closed = true; this.cancelCase(); }
   snapshot() {
     return { model: POLICY.model, budgetMicroCny: POLICY.budgetMicroCny, reserveMicroCny: POLICY.reserveMicroCny,
       sentRequests: this.#records.length, settledMicroCny: this.#records.filter((r) => r.status === 'SETTLED').reduce((s, r) => s + r.micro, 0),
       retainedMicroCny: this.#records.filter((r) => r.status !== 'SETTLED').reduce((s, r) => s + r.micro, 0),
       active: Boolean(this.#active), closed: this.#closed, denied: { ...this.#denied },
+      ...(this.#carry ? { carryForward: this.#carry, currentRequests: this.#records.length - this.#prefixCount } : {}),
       requests: this.#records.map(({ ticket, ...row }) => ({ ...row })) };
   }
 }

@@ -1,12 +1,22 @@
+import { RECOVERY, validateCarryForwardPrefix } from './carry-forward-policy.cjs';
 import { demand } from './contract.mjs';
 
 // Setup only: the app has already cached the pristine profile before the API
 // seeds it. Reload normally before any provider token/configuration or arm.
 // Never mutate React Query, replay a task, or refresh an in-flight conversation.
-export async function refreshSyntheticProfile(page, broker, fixture, deadlineMs) {
+export async function refreshSyntheticProfile(page, broker, fixture, deadlineMs, { mode = 'live', scope = 'full-suite' } = {}) {
   const before = broker.snapshot();
-  demand(before.sentRequests === 0 && Array.isArray(before.requests) && before.requests.length === 0
-    && before.active === false && before.closed === false, 'SYNTHETIC_SETUP_FAILED');
+  const assertBaseline = value => {
+    demand(['live', 'mock'].includes(mode) && [RECOVERY.scope, 'full-suite'].includes(scope), 'SYNTHETIC_SETUP_FAILED');
+    if (scope === RECOVERY.scope) {
+      try { validateCarryForwardPrefix(value, mode); } catch { demand(false, 'SYNTHETIC_SETUP_FAILED'); }
+      demand(value.currentRequests === 0 && value.sentRequests === 1 && value.settledMicroCny === 188
+        && value.retainedMicroCny === 0 && value.journalFailed === false, 'SYNTHETIC_SETUP_FAILED');
+    } else demand(value.carryForward === undefined && value.sentRequests === 0 && Array.isArray(value.requests)
+      && value.requests.length === 0, 'SYNTHETIC_SETUP_FAILED');
+    demand(value.active === false && value.closed === false, 'SYNTHETIC_SETUP_FAILED');
+  };
+  assertBaseline(before);
   const origin = new URL(page.url());
   demand(origin.protocol === 'http:' && origin.hostname === '127.0.0.1' && !origin.username && !origin.password,
     'PRODUCT_ORIGIN_INVALID');
@@ -18,8 +28,10 @@ export async function refreshSyntheticProfile(page, broker, fixture, deadlineMs)
   demand(Number.isFinite(deadlineMs) && deadlineMs > Date.now(), 'SESSION_DEADLINE');
   const phaseDeadline = Math.min(Date.now() + 30000, deadlineMs);
   const remaining = () => {
-    const left = phaseDeadline - Date.now();
-    demand(left > 0, 'SYNTHETIC_SETUP_FAILED');
+    const budgetLeft = scope === RECOVERY.scope ? broker.remainingMs?.() : Infinity;
+    demand(scope !== RECOVERY.scope || (Number.isFinite(budgetLeft) && budgetLeft >= 0 && budgetLeft <= RECOVERY.executionMs), 'SYNTHETIC_SETUP_FAILED');
+    const left = Math.min(phaseDeadline - Date.now(), budgetLeft);
+    demand(Number.isFinite(left) && left > 0, 'SYNTHETIC_SETUP_FAILED');
     return left;
   };
   const bounded = async promise => {
@@ -60,8 +72,8 @@ export async function refreshSyntheticProfile(page, broker, fixture, deadlineMs)
     remaining();
     demand(!invalidObservation, 'SYNTHETIC_SETUP_FAILED');
     const after = broker.snapshot();
-    demand(after.sentRequests === 0 && after.requests.length === 0 && !after.active && !after.closed,
-      'SYNTHETIC_SETUP_FAILED');
+    assertBaseline(after);
+    demand(JSON.stringify(after) === JSON.stringify(before), 'SYNTHETIC_SETUP_FAILED');
   } catch (error) {
     demand(false, error?.safeCode === 'SYNTHETIC_PROFILE_INVALID' ? 'SYNTHETIC_PROFILE_INVALID' : 'SYNTHETIC_SETUP_FAILED');
   } finally { page.off('framenavigated', onNavigation); page.off('request', onRequest); }

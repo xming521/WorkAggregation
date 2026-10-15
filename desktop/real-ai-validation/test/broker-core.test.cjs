@@ -121,3 +121,90 @@ test('body, SSE event and malformed UTF-8 memory limits fail closed', () => {
     const parser = new UsageParser(stream, 64); assert.throws(() => parser.push(chunk));
   }
 });
+
+const { RECOVERY, verifyPriorZip, createMockCarryForward } = require('../carry-forward-policy.cjs');
+const inherited = () => verifyPriorZip(require('node:fs').readFileSync(require('node:path').join(__dirname, 'fixtures/prior-paid-38694575612.zip')));
+const recoveryLedger = (now = () => performance.now(), options = {}) => new Ledger(now, { carryForward: inherited(), ...options });
+
+test('recovery accepts only branded mode-matching history and preserves immutable exact prefix', () => {
+  const carry = inherited();
+  for (const untrusted of [null, {}, { ...carry }, JSON.parse(JSON.stringify(carry)), createMockCarryForward()]) {
+    throwsCode(() => new Ledger(undefined, { carryForward: untrusted }), 'LEDGER');
+  }
+  const book = recoveryLedger(); const first = book.snapshot();
+  assert.equal(first.sentRequests, 1); assert.equal(first.currentRequests, 0);
+  assert.equal(first.settledMicroCny, 188); assert.equal(first.retainedMicroCny, 0);
+  assert.equal(first.carryForward.scope, RECOVERY.scope);
+  assert.deepEqual(first.requests, carry.requests);
+  first.requests[0].micro = 0; first.requests.push({ caseId: 'pilot-stream' });
+  assert.throws(() => { first.carryForward.source.runId = 0; }, TypeError);
+  assert.deepEqual(book.snapshot().requests, carry.requests);
+  // Undefined/fabricated tickets can never find the ticketless inherited row.
+  book.markTransport(undefined, 'clientDisconnectObserved');
+  assert.equal(book.finish(undefined, 'SETTLED', usage()), false);
+  book.retainUncertain(undefined);
+  assert.deepEqual(book.snapshot().requests, carry.requests);
+  assert.equal(book.snapshot().settledMicroCny, 188);
+});
+
+test('recovery arm, claim and reserve allow only one new Pilot with cumulative cost/count', () => {
+  const book = recoveryLedger(); const prefix = book.snapshot().requests[0];
+  for (const id of Object.keys(CASES).filter(id => id !== 'pilot-stream')) throwsCode(() => book.armCase(id), 'CASE');
+  throwsCode(() => book.claim(), 'UNARMED');
+  book.armCase('pilot-stream'); const ticket = book.claim();
+  throwsCode(() => book.claim(), 'BUSY');
+  throwsCode(() => book.reserve({ ...ticket }, ticket.maxTokens, 'INSERTED'), 'CASE');
+  book.reserve(ticket, ticket.maxTokens, 'INSERTED');
+  throwsCode(() => book.reserve(ticket, ticket.maxTokens, 'INSERTED'), 'CASE');
+  let snapshot = book.snapshot();
+  assert.equal(snapshot.sentRequests, 2); assert.equal(snapshot.currentRequests, 1);
+  assert.equal(snapshot.settledMicroCny + snapshot.retainedMicroCny, 3000188);
+  assert.equal(snapshot.budgetMicroCny - snapshot.settledMicroCny - snapshot.retainedMicroCny, 6999812);
+  book.markTransport(ticket, 'outboundStarted');
+  book.finish(ticket, 'SETTLED', usage());
+  snapshot = book.snapshot();
+  assert.equal(snapshot.settledMicroCny, 188 + 280); assert.equal(snapshot.retainedMicroCny, 0);
+  assert.equal(snapshot.closed, false, 'terminal UI proof runs before explicit cleanup close');
+  assert.deepEqual(snapshot.requests[0], prefix);
+  throwsCode(() => book.armCase('pilot-stream'), 'CASE');
+  throwsCode(() => book.armCase('connection'), 'CASE');
+  throwsCode(() => book.claim(), 'UNARMED');
+  assert.equal(book.finish(ticket, 'SETTLED', usage(999, 99)), false);
+  assert.equal(book.snapshot().settledMicroCny, 468);
+});
+
+test('recovery unknown usage, every failed outcome and cancelled arm seal the narrow segment', () => {
+  for (const code of ['TIMEOUT', 'DISCONNECT', 'UPSTREAM_DISCONNECT', 'CANCELLED', 'UPSTREAM', 'PROTOCOL', 'USAGE', 'LEDGER', 'SETTLED']) {
+    const book = recoveryLedger(); const prefix = book.snapshot().requests[0]; const ticket = claim(book, 'pilot-stream');
+    book.finish(ticket, code, null);
+    assert.equal(book.snapshot().closed, true, code);
+    assert.equal(book.snapshot().settledMicroCny, 188, code);
+    assert.equal(book.snapshot().retainedMicroCny, 3000000, code);
+    assert.deepEqual(book.snapshot().requests[0], prefix);
+    throwsCode(() => book.armCase('pilot-stream'), 'CLOSED');
+    assert.equal(book.finish(ticket, 'SETTLED', usage()), false);
+  }
+  const book = recoveryLedger(); book.armCase('pilot-stream'); book.cancelCase();
+  assert.equal(book.snapshot().closed, true); assert.equal(book.snapshot().currentRequests, 0);
+  throwsCode(() => book.armCase('pilot-stream'), 'CLOSED');
+});
+
+test('recovery uses shared 120-second start, preserves 60-second Pilot bound and refuses late settlement', () => {
+  let time = 1000; const book = recoveryLedger(() => time, { executionStartedAt: 100 });
+  assert.equal(book.remainingMs(), 119100); assert.equal(CASES['pilot-stream'].timeoutMs, 60000);
+  book.armCase('pilot-stream'); const ticket = book.claim(); book.reserve(ticket, 4096, 'INSERTED');
+  time = 120100; assert.equal(book.remainingMs(), 0);
+  book.finish(ticket, 'SETTLED', usage());
+  assert.equal(book.snapshot().closed, true); assert.equal(book.snapshot().requests[1].status, 'DEADLINE');
+  assert.equal(book.snapshot().settledMicroCny, 188); assert.equal(book.snapshot().retainedMicroCny, 3000000);
+  for (const started of [NaN, Infinity, -1, time + 1]) throwsCode(() => recoveryLedger(() => time, { executionStartedAt: started }), 'DEADLINE');
+  const legacy = new Ledger(() => time); assert.equal(legacy.remainingMs(), 600000);
+});
+
+test('recovery settlement persistence failure retains only current reservation without changing prefix', () => {
+  const book = recoveryLedger(); const prefix = book.snapshot().requests[0]; const ticket = claim(book, 'pilot-stream');
+  book.finish(ticket, 'SETTLED', usage()); book.retainUncertain(ticket);
+  assert.deepEqual(book.snapshot().requests[0], prefix);
+  assert.equal(book.snapshot().settledMicroCny, 188); assert.equal(book.snapshot().retainedMicroCny, 3000000);
+  assert.equal(book.snapshot().requests[1].promptTokens, undefined); assert.equal(book.snapshot().closed, true);
+});

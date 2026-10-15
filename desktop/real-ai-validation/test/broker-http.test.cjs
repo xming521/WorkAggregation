@@ -8,7 +8,9 @@ const http = require('node:http');
 const https = require('node:https');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
-const { createBroker } = require('../broker.cjs');
+const { createBroker, recoveryBaselineSnapshot } = require('../broker.cjs');
+const { RECOVERY, verifyPriorZip, createMockCarryForward } = require('../carry-forward-policy.cjs');
+const inherited = () => verifyPriorZip(fs.readFileSync(path.join(__dirname, 'fixtures/prior-paid-38694575612.zip')));
 const { POLICY } = require('../broker-core.cjs');
 // These tests replace https.request before every local request: no provider is reachable.
 // Isolate only diagnostic/TLS configuration (never provider credentials) for fake transport tests.
@@ -41,12 +43,12 @@ function answer(call, body = fakeResponse) {
   call.callback(call.incoming); call.incoming.complete = true;
   call.incoming.end(Buffer.from(JSON.stringify(body)));
 }
-async function fixture(t) {
+async function fixture(t, options = {}) {
   t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 15, 12));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offerpilot-fake-broker-'));
   const ledgerPath = path.join(dir, 'session-ledger.json');
   const args = { providerKey: 'FAKE_ONLY_PROVIDER_KEY', ledgerPath, sessionId: 'test-session', runId: '123', runAttempt: 1,
-    helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40) };
+    helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40), ...options };
   const broker = await createBroker(args);
   t.after(async () => {
     try { await broker.close(); } catch (error) { assert.equal(error.code, 'LEDGER'); assert.equal(broker.snapshot().journalFailed, true); }
@@ -368,4 +370,166 @@ test('broker socket timeout is not mistaken for a product-side disconnect', asyn
   const row = broker.snapshot().requests[0];
   assert.equal(row.status, 'TIMEOUT'); assert.equal(row.clientDisconnectObserved, false);
   assert.equal(broker.snapshot().retainedMicroCny, 3000000);
+});
+
+test('recovery baseline is pure verified prior-cost evidence and cannot manufacture MOCK guard state', t => {
+  const carry = inherited();
+  const binding = { mode: 'live', runId: '123', runAttempt: 1, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40) };
+  for (const [object, name] of [[fs, 'openSync'], [http, 'createServer'], [https, 'request']]) {
+    t.mock.method(object, name, () => { throw new Error('UNEXPECTED_IO'); });
+  }
+  const baseline = recoveryBaselineSnapshot(carry, binding);
+  assert.equal(baseline.sentRequests, 1); assert.equal(baseline.currentRequests, 0);
+  assert.equal(baseline.settledMicroCny, 188); assert.equal(baseline.retainedMicroCny, 0);
+  assert.equal(baseline.active, false); assert.equal(baseline.closed, true); assert.equal(baseline.journalFailed, false);
+  assert.equal(baseline.provenance.sessionId, RECOVERY.sessionId);
+  assert.notEqual(baseline.provenance.productCommit, baseline.carryForward.source.productCommit);
+  assert.throws(() => recoveryBaselineSnapshot({ ...carry }, binding), /LEDGER/);
+  assert.throws(() => recoveryBaselineSnapshot(createMockCarryForward(), { ...binding, mode: 'mock' }), /LEDGER/);
+});
+
+test('recovery durable OPEN precedes server creation, tokens and one cumulative Pilot request', async t => {
+  const sync = fs.fsyncSync, create = http.createServer;
+  let synced = false;
+  t.mock.method(fs, 'fsyncSync', (...args) => { sync(...args); synced = true; });
+  t.mock.method(http, 'createServer', (...args) => { assert.equal(synced, true); return create(...args); });
+  const { broker, ledgerPath } = await fixture(t, { carryForward: inherited(), sessionId: RECOVERY.sessionId });
+  const prefix = broker.snapshot().requests[0];
+  const opening = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+  assert.equal(opening.event, 'CARRY_FORWARD_OPEN'); assert.equal(opening.currentRequests, 0);
+  assert.equal(opening.sentRequests, 1); assert.equal(opening.settledMicroCny, 188);
+  assert.equal(opening.carryForward.source.runId, RECOVERY.source.runId);
+  assert.ok(broker.remainingMs() > 118000 && broker.remainingMs() <= 120000);
+  for (const id of ['connection', 'pilot-cancel', 'pilot-hitl-reject', 'interview-preparation', 'resume-structure', 'offer-negotiation']) {
+    assert.throws(() => broker.prepareCase(id), /CASE/); assert.throws(() => broker.armCase(id), /CASE/);
+  }
+  const calls = fakeUpstream(t, call => {
+    const durable = fs.readFileSync(ledgerPath, 'utf8').trim().split('\n').map(JSON.parse).at(-1);
+    assert.equal(durable.event, 'RESERVE'); assert.equal(durable.currentRequests, 1);
+    assert.equal(durable.settledMicroCny + durable.retainedMicroCny, 3000188);
+    assert.deepEqual(durable.requests[0], prefix); answer(call);
+  });
+  const token = ready(broker, 'pilot-stream'); const result = await send(broker, token);
+  assert.equal(result.status, 200); assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.max_tokens, 4096);
+  assert.equal(broker.snapshot().sentRequests, 2); assert.equal(broker.snapshot().currentRequests, 1);
+  assert.equal(broker.snapshot().settledMicroCny, 188 + 64); assert.equal(broker.snapshot().retainedMicroCny, 0);
+  assert.deepEqual(broker.snapshot().requests[0], prefix);
+  assert.throws(() => broker.prepareCase('pilot-stream'), /CASE/);
+  assert.throws(() => broker.armCase('pilot-stream'), /CASE/);
+  assert.equal((await send(broker, token)).status, 403); assert.equal(calls.length, 1);
+});
+
+test('recovery rejects unbranded/mode-mismatched/session-mismatched carry before creating journal or listener', async t => {
+  const { args, broker } = await fixture(t); await broker.close();
+  let bound = 0;
+  t.mock.method(http, 'createServer', () => { bound++; throw new Error('MUST_NOT_LISTEN'); });
+  for (const options of [
+    { carryForward: { ...inherited() }, sessionId: RECOVERY.sessionId },
+    { carryForward: createMockCarryForward(), sessionId: RECOVERY.sessionId, mode: 'mock' },
+    { carryForward: inherited(), sessionId: 'different-session' },
+  ]) {
+    const ledgerPath = `${args.ledgerPath}-invalid`;
+    await assert.rejects(createBroker({ ...args, ...options, ledgerPath }), /LEDGER/);
+    assert.equal(fs.existsSync(ledgerPath), false);
+  }
+  assert.equal(bound, 0);
+});
+
+test('recovery OPEN fsync failure or elapsed shared start never bind a port or call HTTPS', async t => {
+  const { args, broker } = await fixture(t); await broker.close();
+  let bound = 0; const calls = fakeUpstream(t, answer);
+  t.mock.method(http, 'createServer', () => { bound++; throw new Error('MUST_NOT_LISTEN'); });
+  t.mock.method(fs, 'fsyncSync', () => { throw new Error('FAKE_FSYNC'); });
+  await assert.rejects(createBroker({ ...args, ledgerPath: `${args.ledgerPath}-sync-failure`,
+    carryForward: inherited(), sessionId: RECOVERY.sessionId }), /LEDGER/);
+  let now = 121000; t.mock.method(performance, 'now', () => now);
+  await assert.rejects(createBroker({ ...args, ledgerPath: `${args.ledgerPath}-expired-start`,
+    carryForward: inherited(), sessionId: RECOVERY.sessionId, executionStartedAt: 100 }), /DEADLINE/);
+  assert.equal(bound, 0); assert.equal(calls.length, 0);
+});
+
+test('recovery OPEN fsync cannot extend shared deadline or cross price boundary before listen', async t => {
+  const { args, broker } = await fixture(t); await broker.close();
+  const sync = fs.fsyncSync;
+  let now = 100; t.mock.method(performance, 'now', () => now);
+  let bound = 0;
+  t.mock.method(http, 'createServer', () => { bound++; throw new Error('MUST_NOT_LISTEN'); });
+  t.mock.method(fs, 'fsyncSync', (...args) => { sync(...args); now += RECOVERY.executionMs + 1; });
+  await assert.rejects(createBroker({ ...args, ledgerPath: `${args.ledgerPath}-slow-open`,
+    carryForward: inherited(), sessionId: RECOVERY.sessionId, executionStartedAt: 100 }), /DEADLINE/);
+  assert.equal(bound, 0);
+});
+
+for (const reason of ['missing-usage', 'upstream-disconnect', 'reserve-fsync', 'finish-fsync']) {
+  test(`recovery ${reason} preserves188 plus full3million reserve and permanently seals current segment`, async t => {
+    const { broker } = await fixture(t, { carryForward: inherited(), sessionId: RECOVERY.sessionId });
+    const prefix = broker.snapshot().requests[0]; const sync = fs.fsyncSync; let syncs = 0;
+    if (reason.endsWith('fsync')) t.mock.method(fs, 'fsyncSync', (...args) => {
+      if (++syncs === (reason === 'reserve-fsync' ? 1 : 2)) throw new Error('FAKE_FSYNC_FAILURE');
+      return sync(...args);
+    });
+    const calls = fakeUpstream(t, call => {
+      if (reason === 'upstream-disconnect') { call.callback(call.incoming); call.incoming.emit('aborted'); call.incoming.destroy(); }
+      else answer(call, reason === 'missing-usage' ? { ...fakeResponse, usage: null } : fakeResponse);
+    });
+    await send(broker, ready(broker, 'pilot-stream'));
+    const summary = broker.snapshot();
+    assert.equal(summary.sentRequests, 2); assert.equal(summary.currentRequests, 1);
+    assert.equal(summary.settledMicroCny, 188); assert.equal(summary.retainedMicroCny, 3000000);
+    assert.equal(summary.closed, true); assert.equal(summary.active, false);
+    assert.deepEqual(summary.requests[0], prefix);
+    assert.equal(calls.length, reason === 'reserve-fsync' ? 0 : 1);
+    assert.throws(() => broker.armCase('pilot-stream'), /CLOSED/);
+  });
+}
+
+test('recovery concurrent duplicate and later retry never make a second new request', async t => {
+  const { broker } = await fixture(t, { carryForward: inherited(), sessionId: RECOVERY.sessionId });
+  let first, accepted; const waiting = new Promise(resolve => { accepted = resolve; });
+  const calls = fakeUpstream(t, call => { first = call; accepted(); });
+  const token = ready(broker, 'pilot-stream'); const pending = send(broker, token); await waiting;
+  assert.equal((await send(broker, token)).status, 403);
+  assert.throws(() => broker.prepareCase('connection'), /CASE/);
+  assert.throws(() => broker.armCase('pilot-stream'), /CASE/);
+  answer(first); assert.equal((await pending).status, 200);
+  assert.equal((await send(broker, token)).status, 403);
+  assert.equal(calls.length, 1); assert.equal(broker.snapshot().currentRequests, 1);
+  assert.equal(broker.snapshot().sentRequests, 2); assert.equal(broker.snapshot().settledMicroCny, 252);
+});
+
+for (const [advance, reason] of [[60001, 'TIMEOUT'], [120001, 'DEADLINE']]) {
+  test(`recovery reservation fsync crossing ${reason} keeps188 and reserve without outbound`, async t => {
+    let now = 100; t.mock.method(performance, 'now', () => now);
+    const { broker } = await fixture(t, { carryForward: inherited(), sessionId: RECOVERY.sessionId, executionStartedAt: 100 });
+    const calls = fakeUpstream(t, answer); const sync = fs.fsyncSync;
+    t.mock.method(fs, 'fsyncSync', (...args) => { sync(...args); now += advance; });
+    const result = await send(broker, ready(broker, 'pilot-stream'));
+    assert.equal(JSON.parse(result.text).error.code, reason);
+    const summary = broker.snapshot();
+    assert.equal(calls.length, 0); assert.equal(summary.currentRequests, 1); assert.equal(summary.sentRequests, 2);
+    assert.equal(summary.settledMicroCny, 188); assert.equal(summary.retainedMicroCny, 3000000);
+    assert.equal(summary.closed, true); assert.equal(summary.requests[1].outboundStarted, false);
+  });
+}
+
+test('recovery cannot extend expired tariffs or reset cumulative cost when new reservation is blocked', async t => {
+  const { broker } = await fixture(t, { carryForward: inherited(), sessionId: RECOVERY.sessionId });
+  const calls = fakeUpstream(t, answer);
+  t.mock.method(Date, 'now', () => Date.parse('2026-10-15T23:59:59.999Z') - 60000 + 1);
+  const result = await send(broker, ready(broker, 'pilot-stream'));
+  assert.equal(JSON.parse(result.text).error.code, 'EXPIRED');
+  const summary = broker.snapshot();
+  assert.equal(calls.length, 0); assert.equal(summary.currentRequests, 0); assert.equal(summary.sentRequests, 1);
+  assert.equal(summary.settledMicroCny, 188); assert.equal(summary.retainedMicroCny, 0); assert.equal(summary.closed, true);
+});
+
+test('recovery OPEN fsync crossing tariff expiry fails before listener creation', async t => {
+  const { args, broker } = await fixture(t); await broker.close();
+  const sync = fs.fsyncSync; let bound = 0;
+  t.mock.method(http, 'createServer', () => { bound++; throw new Error('MUST_NOT_LISTEN'); });
+  t.mock.method(fs, 'fsyncSync', (...args) => { sync(...args); t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 16)); });
+  await assert.rejects(createBroker({ ...args, ledgerPath: `${args.ledgerPath}-expired-open`,
+    carryForward: inherited(), sessionId: RECOVERY.sessionId }), /EXPIRED/);
+  assert.equal(bound, 0);
 });

@@ -16,7 +16,8 @@ https.request = () => { originalHttpsCalls += 1; throw new Error('ORIGINAL_HTTPS
 https.get = () => { originalHttpsCalls += 1; throw new Error('ORIGINAL_HTTPS_FORBIDDEN'); };
 tls.connect = () => { originalHttpsCalls += 1; throw new Error('ORIGINAL_TLS_FORBIDDEN'); };
 const beforeImport = { now: Date.now, request: https.request, get: https.get, tls: tls.connect, connect: net.Socket.prototype.connect };
-const { createOfflineBroker } = require('../mock-provider.cjs');
+const { createOfflineBroker, createOfflineRecoveryBroker, isOfflineBroker } = require('../mock-provider.cjs');
+const { RECOVERY, createMockCarryForward, validateCarryForwardPrefix } = require('../carry-forward-policy.cjs');
 assert.equal(Date.now, beforeImport.now);
 assert.equal(https.request, beforeImport.request);
 assert.equal(https.get, beforeImport.get);
@@ -36,12 +37,13 @@ after(() => {
   for (const name of diagnosticNames) { if (diagnostics[name] !== undefined) process.env[name] = diagnostics[name]; }
   for (const dir of directories) fs.rmSync(dir, { recursive: true, force: true });
 });
-async function fixture(t) {
+async function fixture(t, { recovery = false, ...options } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offerpilot-mock-http-')); directories.push(dir);
   const ledgerPath = path.join(dir, 'MOCK-session-ledger.jsonl');
-  const broker = await createOfflineBroker({ ledgerPath, sessionId: 'mock-local-http', runId: '123',
-    runAttempt: 1, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40) });
-  t.after(() => broker.close());
+  const broker = await (recovery ? createOfflineRecoveryBroker : createOfflineBroker)({ ledgerPath,
+    sessionId: recovery ? RECOVERY.sessionId : 'mock-local-http', runId: '123',
+    runAttempt: 1, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40), ...options });
+  t.after(async () => { try { await broker.close(); } catch (error) { assert.equal(error.code, 'LEDGER'); assert.equal(broker.snapshot().journalFailed, true); } });
   return { broker, ledgerPath };
 }
 function bodyFor(caseId) {
@@ -203,4 +205,67 @@ test('offline strict proof factory requires the actual active network-locked bro
   await assert.rejects(prove({ mode: 'mock', broker: { ...broker, snapshot: () => broker.snapshot() } }), { safeCode: 'INVALID_HARNESS' });
   await broker.close();
   assert.throws(() => createOfflinePilotProof({ mode: 'mock', broker }), { safeCode: 'INVALID_HARNESS' });
+});
+
+test('recovery MOCK carries a synthetic prefix and sends only one new Pilot without connection warmup', async t => {
+  const { broker, ledgerPath } = await fixture(t, { recovery: true });
+  assert.equal(isOfflineBroker(broker), true); assert.equal(isOfflineBroker({ ...broker }), false);
+  const before = broker.snapshot();
+  assert.equal(before.sentRequests, 1); assert.equal(before.currentRequests, 0);
+  assert.equal(before.settledMicroCny, 188); assert.equal(before.mock.fakeRequests, 0);
+  assert.equal(before.carryForward.mode, 'mock');
+  assert.doesNotThrow(() => validateCarryForwardPrefix(before, 'mock'));
+  assert.deepEqual(before.carryForward.source, { synthetic: true, kind: 'synthetic-carry-forward-fixture' });
+  assert.ok(broker.remainingMs() > 118000 && broker.remainingMs() <= RECOVERY.executionMs);
+  for (const id of CASE_IDS.filter(id => id !== 'pilot-stream')) {
+    assert.throws(() => broker.prepareCase(id), /CASE/);
+    assert.throws(() => broker.armCase(id), /MOCK_NETWORK_DENIED/);
+  }
+  const token = ready(broker, 'pilot-stream');
+  const result = await send(broker, token, bodyFor('pilot-stream'));
+  assert.equal(result.status, 200); await waitUntil(() => !broker.snapshot().active);
+  const after = broker.snapshot();
+  assert.equal(after.currentRequests, 1); assert.equal(after.sentRequests, 2);
+  assert.equal(after.mock.fakeRequests, 1); assert.equal(after.mock.realProviderCalls, 0);
+  assert.equal(after.settledMicroCny, 252); assert.equal(after.retainedMicroCny, 0);
+  assert.doesNotThrow(() => validateCarryForwardPrefix(after, 'mock'));
+  assert.deepEqual(after.requests[0], before.requests[0]);
+  assert.equal(after.requests[1].caseId, 'pilot-stream'); assert.equal(after.requests[1].outboundStarted, true);
+  assert.throws(() => broker.prepareCase('pilot-stream'), /CASE/);
+  assert.throws(() => broker.armCase('pilot-stream'), /CASE/);
+  assert.equal((await send(broker, token, bodyFor('pilot-stream'))).status, 403);
+  assert.equal(broker.snapshot().mock.fakeRequests, 1);
+  const entries = fs.readFileSync(ledgerPath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(entries[0].event, 'CARRY_FORWARD_OPEN');
+  assert.equal(entries.filter(entry => entry.event === 'RESERVE').length, 1);
+  assert.ok(entries.every(entry => entry.requests[0].caseId === 'connection' && entry.requests[0].micro === 188));
+  assert.equal(originalHttpsCalls, 0);
+  await broker.close(); assert.equal(isOfflineBroker(broker), false);
+});
+
+test('network-locked MOCK adapter never enables synthetic history in the actual LIVE broker', async t => {
+  const { broker, ledgerPath } = await fixture(t, { recovery: true });
+  const { createBroker } = require('../broker.cjs');
+  t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 15, 12));
+  await assert.rejects(createBroker({ providerKey: 'FAKE_ONLY_PROVIDER_KEY', ledgerPath: `${ledgerPath}-live`,
+    sessionId: RECOVERY.sessionId, runId: '123', runAttempt: 1, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40),
+    carryForward: createMockCarryForward(), mode: 'mock' }), /LEDGER/);
+  assert.equal(fs.existsSync(`${ledgerPath}-live`), false);
+  assert.equal(broker.snapshot().mock.fakeRequests, 0); assert.equal(originalHttpsCalls, 0);
+});
+
+test('recovery MOCK retains only current uncertain reserve and closes on durable settlement failure', async t => {
+  const { broker } = await fixture(t, { recovery: true });
+  const sync = fs.fsyncSync; let syncs = 0;
+  t.mock.method(fs, 'fsyncSync', (...args) => {
+    if (++syncs === 2) throw new Error('FAKE_FINISH_FSYNC_FAILURE'); return sync(...args);
+  });
+  await send(broker, ready(broker, 'pilot-stream'), bodyFor('pilot-stream'));
+  await waitUntil(() => !broker.snapshot().active);
+  const summary = broker.snapshot();
+  assert.equal(summary.closed, true); assert.equal(summary.journalFailed, true);
+  assert.equal(summary.settledMicroCny, 188); assert.equal(summary.retainedMicroCny, 3000000);
+  assert.equal(summary.requests[0].status, 'SETTLED'); assert.equal(summary.requests[0].micro, 188);
+  assert.equal(summary.requests[1].status, 'LEDGER'); assert.equal(summary.requests[1].promptTokens, undefined);
+  assert.equal(summary.mock.fakeRequests, 1); assert.equal(originalHttpsCalls, 0);
 });

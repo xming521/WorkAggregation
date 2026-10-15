@@ -5,6 +5,11 @@ import { SCREEN_IDS, SKIP_CODES, GUARD_REASONS } from './mock-screenshots.mjs';
 import { sanitizeUiDiagnostic, CONTINUATION_CODES, MOCK_PILOT_CHECK_MAP } from './ui-diagnostics.mjs';
 import { CASES, PIN, demand, EVIDENCE_CODES } from './contract.mjs';
 import { HARU_SESSION_CHECKS, HARU_SESSION_STAGES, HARU_SESSION_DIAGNOSTIC_FLAGS } from './mock-haru-session.mjs';
+import { RECOVERY, validateCarryForwardPrefix } from './carry-forward-policy.cjs';
+const RECOVERY_SUCCESS = ['PILOT_HARU_RECOVERY_PASSED', 'PILOT_HARU_RECOVERY_COMPLETION_ONLY'];
+const FULL_SUCCESS = ['ALL_UI_CASES_PASSED', 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY'];
+const isRecovery = scope => scope === RECOVERY.scope;
+const validScope = scope => scope === undefined || scope === 'full-suite' || isRecovery(scope);
 const CHECKS = new Set('sustainedStreamingObserved freshConversationProven uiAdmissionProven naturalCompletionProven terminalIdentityProven terminalMirrorProven terminalTextProven ledgerUnchanged admissionObserverCleanupPassed settingsSavedThroughUi connectionTestClicked connectionSucceeded incrementalAssistantRendering haruRunningAndIdleMirrored haruVisibleAssistantMatchesSnapshot hitlVisible rejectedThroughUi syntheticWriteAbsent haruPendingAndIdleMirrored stopClickedWhileRunning stopAcknowledged haruRunningAndStoppedMirrored sourceAndResumeSelected disclosureAccepted generatedProposalVisible classificationPreviewVisible cancelledThroughUi sourceUnchanged inputReviewedThroughUi generatedDraftVisible finalSaveNotSubmitted providerRequestObserved providerRequestSettled oneProviderRequestVerified productDisconnectObserved providerDisconnectObserved ownerRunningTransitionObserved haruRunningTransitionObserved positiveRunningConversationMatched finalRunningConversationMatched brokerCleanupFailed mirrorObserverCleanupFailed streamObserverCleanupFailed'.split(' '));
 export function safeHaruSessionDiagnostic(value, isMock) {
   demand(isMock === true && value && HARU_SESSION_STAGES.includes(value.stage)
@@ -12,10 +17,12 @@ export function safeHaruSessionDiagnostic(value, isMock) {
     && HARU_SESSION_DIAGNOSTIC_FLAGS.every(key => typeof value[key] === 'boolean'), 'REPORT_INVALID');
   return { stage: value.stage, ...Object.fromEntries(HARU_SESSION_DIAGNOSTIC_FLAGS.map(key => [key, value[key]])) };
 }
-export function safeResults(results, isMock = false) {
-  demand(Array.isArray(results) && results.length === CASES.length, 'SCENARIO_EVIDENCE_INVALID');
+export function safeResults(results, isMock = false, scope) {
+  demand(validScope(scope), 'SCENARIO_EVIDENCE_INVALID');
+  const expected = isRecovery(scope) ? RECOVERY.allowedCases : CASES;
+  demand(Array.isArray(results) && results.length === expected.length, 'SCENARIO_EVIDENCE_INVALID');
   return results.map((row, index) => {
-    demand(row.id === CASES[index] && ['PASS', 'FAIL', 'BLOCKED'].includes(row.status) &&
+    demand(row.id === expected[index] && ['PASS', 'FAIL', 'BLOCKED'].includes(row.status) &&
       EVIDENCE_CODES.has(row.code), 'SCENARIO_EVIDENCE_INVALID');
     const checks = Object.fromEntries(Object.entries(row.checks || {}).map(([key, value]) => {
       demand((CHECKS.has(key) || (isMock && row.id === 'pilot-stream'
@@ -25,8 +32,11 @@ export function safeResults(results, isMock = false) {
     }));
     demand(isMock || row.id !== 'pilot-stream' || row.status !== 'PASS'
       || ['LIVE_COMPLETION_ONLY', 'LIVE_STREAMING_PROVEN'].includes(row.code), 'SCENARIO_EVIDENCE_INVALID');
-    demand(!['ALL_UI_CASES_PASSED', 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY'].includes(row.code)
+    demand(![...FULL_SUCCESS, ...RECOVERY_SUCCESS].includes(row.code)
       && (!isMock || !row.code.startsWith('LIVE_')), 'SCENARIO_EVIDENCE_INVALID');
+    demand(!isRecovery(scope) || row.status !== 'PASS' || (isMock
+      ? row.code === 'MOCK_PILOT_STREAMING_PROVEN'
+      : ['LIVE_COMPLETION_ONLY', 'LIVE_STREAMING_PROVEN'].includes(row.code)), 'SCENARIO_EVIDENCE_INVALID');
     const exclusiveLiveChecks = ['sustainedStreamingObserved', 'freshConversationProven', 'uiAdmissionProven',
       'naturalCompletionProven', 'terminalIdentityProven', 'terminalMirrorProven', 'terminalTextProven',
       'ledgerUnchanged', 'admissionObserverCleanupPassed'];
@@ -79,7 +89,7 @@ export function safeResults(results, isMock = false) {
     let continuation;
     if (row.continuation !== undefined) {
       const value = row.continuation;
-      demand(isMock === true && row.id === 'pilot-stream' && row.status === 'FAIL'
+      demand(!isRecovery(scope) && isMock === true && row.id === 'pilot-stream' && row.status === 'FAIL'
         && row.code === 'STREAM_NOT_OBSERVED' && row.diagnostic?.stage === 'PILOT_STREAM_READBACK'
         && ['PROVEN', 'BLOCKED'].includes(value?.status) && CONTINUATION_CODES.includes(value.code), 'SCENARIO_EVIDENCE_INVALID');
       continuation = { status: value.status, code: value.code };
@@ -146,6 +156,37 @@ export function numericLedger(snapshot) {
     }
     return safe;
   });
+  if (snapshot.carryForward !== undefined) {
+    let carry;
+    try { carry = validateCarryForwardPrefix(snapshot, snapshot.mode === 'MOCK' ? 'mock' : 'live'); }
+    catch { demand(false, 'LEDGER_SHAPE_INVALID'); }
+    const current = output.requests.slice(carry.priorRequestCount);
+    demand(current.every(row => row.caseId === 'pilot-stream' && row.cap > 0 && row.cap <= 4096), 'LEDGER_SHAPE_INVALID');
+    let currentSettled = 0, currentRetained = 0;
+    for (const row of current) {
+      if (row.status === 'SETTLED') {
+        let cost;
+        try { cost = usageCost({ prompt_tokens: row.promptTokens, completion_tokens: row.completionTokens,
+          prompt_cache_hit_tokens: row.cacheHitTokens, prompt_cache_miss_tokens: row.cacheMissTokens,
+          total_tokens: row.promptTokens + row.completionTokens }, row.cap); }
+        catch { demand(false, 'LEDGER_SHAPE_INVALID'); }
+        demand(cost.micro === row.micro && row.outboundStarted === true && row.upstreamResponded === true
+          && row.clientDisconnectObserved === false, 'LEDGER_SHAPE_INVALID');
+        currentSettled += row.micro;
+      } else {
+        demand(row.micro === output.reserveMicroCny, 'LEDGER_SHAPE_INVALID');
+        currentRetained += row.micro;
+      }
+    }
+    demand(snapshot.settledMicroCny === carry.priorSettledMicroCny + currentSettled
+      && snapshot.retainedMicroCny === carry.priorRetainedMicroCny + currentRetained, 'LEDGER_SHAPE_INVALID');
+    output.carryForward = structuredClone(carry);
+    output.currentRequests = snapshot.currentRequests;
+    output.currentSettledMicroCny = currentSettled;
+    output.currentRetainedMicroCny = currentRetained;
+  } else if (snapshot.currentRequests !== undefined) {
+    demand(snapshot.currentRequests === snapshot.sentRequests, 'LEDGER_SHAPE_INVALID');
+  }
   return output;
 }
 export function safeScreenshotEvidence(value, isMock) {
@@ -163,21 +204,52 @@ export function safeScreenshotEvidence(value, isMock) {
 export async function saveEvidence(directory, report, ledger, secrets = []) {
   demand(report.mode === undefined || ['live', 'mock'].includes(report.mode), 'REPORT_INVALID');
   const isMock = report.mode === 'mock';
+  demand(validScope(report.scope), 'REPORT_INVALID');
+  const recovery = isRecovery(report.scope);
+  const cost = numericLedger(ledger);
+  demand(recovery ? cost.unavailable === true || cost.carryForward !== undefined
+    : cost.carryForward === undefined, 'REPORT_INVALID');
+  if (recovery && cost.unavailable !== true) {
+    try { validateCarryForwardPrefix(ledger, isMock ? 'mock' : 'live'); }
+    catch { demand(false, 'REPORT_INVALID'); }
+    demand(isMock ? ledger.mode === 'MOCK' && ledger.mock?.transport === 'IN_PROCESS_SYNTHETIC_HTTPS'
+      && ledger.mock.externalNetwork === 'DENIED' && ledger.mock.realProviderCalls === 0
+      && ledger.mock.usageIsSynthetic === true && ledger.mock.fakeRequests === ledger.currentRequests
+      && ledger.mock.clockScope === 'BROKER_VM_ONLY'
+      : ledger.mode !== 'MOCK' && ledger.mock === undefined, 'REPORT_INVALID');
+  }
+  const currentRows = cost.requests?.slice(cost.carryForward?.priorRequestCount ?? 0) ?? [];
   const screenshotEvidence = safeScreenshotEvidence(report.screenshotEvidence, isMock);
-  const safe = { schema: 1, mode: isMock ? 'MOCK' : 'LIVE', realProviderCalled: !isMock && Boolean(ledger?.requests?.some(row => row.outboundStarted === true)), productCommit: PIN.commit, buildRunId: PIN.runId, artifactId: PIN.artifactId,
+  const safe = { schema: 1, mode: isMock ? 'MOCK' : 'LIVE', realProviderCalled: !isMock && currentRows.some(row => row.outboundStarted === true), productCommit: PIN.commit, buildRunId: PIN.runId, artifactId: PIN.artifactId,
     fullRegressionRunId: PIN.fullRegressionRunId,
     fullRegression: PIN.fullRegressionRunId === null ? 'not-run-package-only' : 'independent-not-certified',
     installerSha256: PIN.installerSha256, releaseReady: false, independentFullGateCertified: false,
     temporaryLoopbackDebugging: true, normalUndebuggedLaunchValidated: false, ordinaryUserUacSmartScreenValidated: false,
     route: isMock ? 'real-installed-ui-via-loopback-broker-to-synthetic-mock-transport' : 'real-installed-ui-via-loopback-budget-broker-to-real-provider',
     screenshotsCaptured: screenshotEvidence.captured.length > 0, screenshotEvidence, rawLogsCaptured: false, status: report.status,
-    code: report.code, cleanupCode: report.cleanupCode || 'CLEANUP_PENDING', scenarios: safeResults(report.scenarios, isMock), cleanupPassed: report.cleanupPassed === true };
+    code: report.code, cleanupCode: report.cleanupCode || 'CLEANUP_PENDING', scenarios: safeResults(report.scenarios, isMock, report.scope), cleanupPassed: report.cleanupPassed === true,
+    ...(report.scope === undefined ? {} : { scope: report.scope }),
+    ...(recovery ? { notRunCases: CASES.filter(id => !RECOVERY.allowedCases.includes(id))
+      .map(id => ({ id, status: 'NOT_RUN', code: 'OUTSIDE_RECOVERY_SCOPE' })) } : {}) };
   demand(['PASS', 'FAIL', 'BLOCKED'].includes(safe.status) && EVIDENCE_CODES.has(safe.code), 'REPORT_INVALID');
   demand(['CLEANUP_PASSED', 'CLEANUP_PENDING', 'BROKER_CLEANUP_FAILED', 'LEDGER_UNAVAILABLE', 'LEDGER_PERSISTENCE_FAILED', 'PROFILE_CLEANUP_FAILED', 'OWNED_PROCESS_CLEANUP_FAILED', 'EVIDENCE_WRITE_BLOCKED'].includes(safe.cleanupCode), 'REPORT_INVALID');
   demand(safe.status !== 'PASS' || (safe.cleanupPassed && safe.cleanupCode === 'CLEANUP_PASSED' &&
     safe.scenarios.every(row => row.status === 'PASS') && ledger?.journalFailed === false && ledger?.closed === true &&
-    ledger?.active === false && ledger.requests?.length === CASES.length &&
-    CASES.every(id => ledger.requests.filter(row => row.caseId === id).length === 1)), 'REPORT_INVALID');
+    ledger?.active === false && (recovery
+      ? cost.currentRequests === 1 && cost.sentRequests === 2 && cost.retainedMicroCny === 0
+        && currentRows.length === 1 && currentRows[0].caseId === 'pilot-stream'
+      : ledger.requests?.length === CASES.length && CASES.every(id => ledger.requests.filter(row => row.caseId === id).length === 1))), 'REPORT_INVALID');
+  if (report.executionTiming !== undefined) {
+    const timing = report.executionTiming;
+    demand(recovery && timing && typeof timing === 'object' && !Array.isArray(timing)
+      && Object.keys(timing).sort().join('|') === 'elapsedBeforeUiMs|remainingBeforeUiMs|windowMs'
+      && timing.windowMs === RECOVERY.executionMs
+      && Number.isSafeInteger(timing.elapsedBeforeUiMs) && timing.elapsedBeforeUiMs >= 0 && timing.elapsedBeforeUiMs <= 600000
+      && Number.isSafeInteger(timing.remainingBeforeUiMs) && timing.remainingBeforeUiMs >= 0
+      && timing.remainingBeforeUiMs <= RECOVERY.executionMs, 'REPORT_INVALID');
+    safe.executionTiming = { windowMs: RECOVERY.executionMs, elapsedBeforeUiMs: timing.elapsedBeforeUiMs,
+      remainingBeforeUiMs: timing.remainingBeforeUiMs };
+  }
   if (report.haruSessionDiagnostic !== undefined) {
     safe.haruSessionDiagnostic = safeHaruSessionDiagnostic(report.haruSessionDiagnostic, isMock);
   }
@@ -191,7 +263,7 @@ export async function saveEvidence(directory, report, ledger, secrets = []) {
     demand(livePilotProven ? ledger?.mode !== 'MOCK' && ledger?.mock === undefined
       : isMock && ledger?.mode === 'MOCK' && ledger.mock?.transport === 'IN_PROCESS_SYNTHETIC_HTTPS'
         && ledger.mock.externalNetwork === 'DENIED' && ledger.mock.realProviderCalls === 0
-        && ledger.mock.usageIsSynthetic === true && ledger.mock.fakeRequests === ledger.sentRequests,
+        && ledger.mock.usageIsSynthetic === true && ledger.mock.fakeRequests === (recovery ? ledger.currentRequests : ledger.sentRequests),
     'REPORT_INVALID');
     const rows = ledger?.requests?.filter(row => row.caseId === 'pilot-stream');
     demand(rows?.length === 1 && rows[0].status === 'SETTLED' && rows[0].outboundStarted === true
@@ -210,9 +282,15 @@ export async function saveEvidence(directory, report, ledger, secrets = []) {
   if (HARU_SESSION_CHECKS.some(key => Object.hasOwn(haruScope, key))) {
     safe.coverageLimitations.push('UNSENT_DRAFT_RESTART_PERSISTENCE_NOT_TESTED');
   }
-  demand(safe.status !== 'PASS' || safe.code === (completionOnly ? 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' : 'ALL_UI_CASES_PASSED'), 'REPORT_INVALID');
-  demand(safe.code !== 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' || (!isMock && completionOnly), 'REPORT_INVALID');
-  const texts = [JSON.stringify(safe, null, 2) + '\n', JSON.stringify({ ...numericLedger(ledger), mode: isMock ? 'MOCK' : 'LIVE', billingKind: isMock ? 'simulated-counters-only' : 'real-provider-conservative-accounting' }, null, 2) + '\n'];
+  const expectedSuccess = recovery
+    ? (completionOnly ? 'PILOT_HARU_RECOVERY_COMPLETION_ONLY' : 'PILOT_HARU_RECOVERY_PASSED')
+    : (completionOnly ? 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY' : 'ALL_UI_CASES_PASSED');
+  demand(safe.status !== 'PASS' || safe.code === expectedSuccess, 'REPORT_INVALID');
+  demand(recovery ? !FULL_SUCCESS.includes(safe.code) : !RECOVERY_SUCCESS.includes(safe.code), 'REPORT_INVALID');
+  demand(!RECOVERY_SUCCESS.includes(safe.code) || safe.status === 'PASS', 'REPORT_INVALID');
+  demand(!['ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY', 'PILOT_HARU_RECOVERY_COMPLETION_ONLY'].includes(safe.code)
+    || (!isMock && completionOnly), 'REPORT_INVALID');
+  const texts = [JSON.stringify(safe, null, 2) + '\n', JSON.stringify({ ...cost, mode: isMock ? 'MOCK' : 'LIVE', billingKind: isMock ? 'simulated-counters-only' : 'real-provider-conservative-accounting' }, null, 2) + '\n'];
   for (const secret of secrets) if (typeof secret === 'string' && secret.length > 0) {
     demand(texts.every(text => !text.includes(secret)), 'EVIDENCE_CONTAINS_CREDENTIAL');
   }

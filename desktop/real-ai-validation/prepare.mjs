@@ -11,6 +11,8 @@ import { DESKTOP_SOURCE_FILES } from '../installed-ui/desktop-source-manifest.mj
 import { PIN, demand, safeCode, childEnvironment, validateFixedFiles, validateLiveProduct } from './contract.mjs';
 import { githubReader } from './github-read.mjs';
 import { preflight } from './preflight.mjs';
+import { preparedCarryForward } from './carry-forward-evidence.mjs';
+import { RECOVERY } from './carry-forward-policy.cjs';
 
 export async function quietCommand(command, args, env, timeout = 180000) {
   return new Promise((resolve, reject) => {
@@ -28,8 +30,8 @@ export async function quietCommand(command, args, env, timeout = 180000) {
 export const exists = async (filename, access = fs.access) => {
   try { await access(filename); return true; } catch (error) { if (error?.code === 'ENOENT') return false; throw error; }
 };
-export async function prepare({ mode = 'live' } = {}) {
-  demand(['live', 'mock'].includes(mode), 'INVALID_HARNESS');
+export async function prepare({ mode = 'live', scope = mode === 'live' ? RECOVERY.scope : 'full-suite' } = {}) {
+  demand(['live', 'mock'].includes(mode) && (scope === RECOVERY.scope || (mode === 'mock' && scope === 'full-suite')), 'INVALID_HARNESS');
   if (mode === 'live') validateLiveProduct();
   demand(process.platform === 'win32' && process.env.RUNNER_TEMP && process.env.APPDATA, 'HOSTED_WINDOWS_REQUIRED');
   demand(process.env.RUNNER_ENVIRONMENT === 'github-hosted', 'HOSTED_WINDOWS_REQUIRED');
@@ -53,6 +55,11 @@ export async function prepare({ mode = 'live' } = {}) {
   const profile = path.join(process.env.APPDATA, 'OfferPilot Desktop');
   demand(!await exists(profile), 'PROFILE_NOT_FRESH');
   await fs.mkdir(root);
+  let carryForward;
+  if (mode === 'live') {
+    carryForward = preparedCarryForward({ mode, scope, root, helperSha: approval.helperSha, requestSha: approval.requestSha });
+    await fs.writeFile(carryForward.zipPath, approval.priorZip, { flag: 'wx', mode: 0o600 });
+  }
   const installer = path.join(process.env.AI_ARTIFACT_DIR, PIN.installer);
   demand(await hash(installer) === PIN.installerSha256, 'INSTALLER_SHA_MISMATCH');
   const installDir = path.join(root, '安装 Application');
@@ -80,9 +87,9 @@ export async function prepare({ mode = 'live' } = {}) {
   const fuse = await getCurrentFuseWire(exe);
   demand(fuse[FuseV1Options.EnableNodeCliInspectArguments] === FuseState.ENABLE && await hash(exe) === before,
     'EXISTING_INSPECT_FUSE_REQUIRED');
-  await fs.writeFile(path.join(root, 'prepared.json'), JSON.stringify({ schema: 1, mode, root, profile, installDir, exe, backend,
+  await fs.writeFile(path.join(root, 'prepared.json'), JSON.stringify({ schema: 1, mode, scope, root, profile, installDir, exe, backend,
     helperSha: approval.helperSha, requestSha: approval.requestSha, exeSha256: before,
-    artifact: sourceEvidence, checkedPayloadFiles: count, profileOwned: false }));
+    artifact: sourceEvidence, checkedPayloadFiles: count, profileOwned: false, ...(carryForward ? { carryForward } : {}) }));
   // No profile exists yet. Ownership is recorded atomically by run.mjs after exclusive mkdir.
   console.log('Pinned installer and installed payload verified without provider credentials.');
 }

@@ -7,6 +7,7 @@ const path = require('node:path');
 const tls = require('node:tls');
 const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { PRICE_REVIEW, POLICY, CASES, BudgetError, Ledger, envelope, UsageParser } = require('./broker-core.cjs');
+const { RECOVERY, validateCarryForward } = require('./carry-forward-policy.cjs');
 
 // No URL argument, fetch, SDK, proxy environment, redirect handler, or retry path.
 const UPSTREAM = Object.freeze({ protocol: 'https:', hostname: 'api.deepseek.com', port: 443,
@@ -35,7 +36,20 @@ function currentPriceWindow(timeoutMs = 0) {
       now + timeoutMs > Date.parse(PROVENANCE.validUntilUtc)) throw new BudgetError('EXPIRED');
 }
 
-async function createBroker({ providerKey, ledgerPath, sessionId, runId, runAttempt, helperCommit, requestCommit } = {}) {
+// A pure prior-known-cost projection for failure before a new broker exists.
+// It does not open a journal, install a MOCK boundary, or start an execution.
+function recoveryBaselineSnapshot(carryForward, { mode = 'live', runId, runAttempt, helperCommit, requestCommit } = {}) {
+  if (mode !== 'live' || typeof runId !== 'string' || !/^[0-9]{1,20}$/.test(runId) || runAttempt !== 1 ||
+      typeof helperCommit !== 'string' || !/^[a-f0-9]{40}$/.test(helperCommit) ||
+      typeof requestCommit !== 'string' || !/^[a-f0-9]{40}$/.test(requestCommit)) throw new BudgetError('LEDGER');
+  try { validateCarryForward(carryForward, 'live'); } catch { throw new BudgetError('LEDGER'); }
+  const ledger = new Ledger(undefined, { carryForward }); ledger.close();
+  return { ...ledger.snapshot(), provenance: { ...PROVENANCE, sessionId: RECOVERY.sessionId,
+    runId, runAttempt, helperCommit, requestCommit }, journalFailed: false };
+}
+
+async function createBroker({ providerKey, ledgerPath, sessionId, runId, runAttempt, helperCommit, requestCommit,
+  carryForward, executionStartedAt } = {}) {
   currentPriceWindow();
   // Fail before binding if process-wide Node tracing could disclose HTTP headers.
   if (process.env.NODE_DEBUG || process.env.NODE_DEBUG_NATIVE || process.env.NODE_OPTIONS ||
@@ -47,7 +61,12 @@ async function createBroker({ providerKey, ledgerPath, sessionId, runId, runAtte
       typeof runId !== 'string' || !/^[0-9]{1,20}$/.test(runId) || runAttempt !== 1 ||
       typeof helperCommit !== 'string' || !/^[a-f0-9]{40}$/.test(helperCommit) ||
       typeof requestCommit !== 'string' || !/^[a-f0-9]{40}$/.test(requestCommit)) throw new BudgetError('LEDGER');
-  const ledger = new Ledger();
+  if (carryForward !== undefined) {
+    try { validateCarryForward(carryForward, 'live'); } catch { throw new BudgetError('LEDGER'); }
+    if (sessionId !== RECOVERY.sessionId) throw new BudgetError('LEDGER');
+  }
+  const ledger = new Ledger(() => performance.now(), { carryForward, mode: 'live', executionStartedAt });
+  if (ledger.remainingMs() <= 0) throw new BudgetError('DEADLINE');
   const binding = Object.freeze({ ...PROVENANCE, sessionId, runId, runAttempt, helperCommit, requestCommit });
   let journal; let sequence = 0; let journalFailed = false;
   const snapshot = () => ({ ...ledger.snapshot(), provenance: { ...binding }, journalFailed });
@@ -66,8 +85,12 @@ async function createBroker({ providerKey, ledgerPath, sessionId, runId, runAtte
       journalFailed = true; ledger.close(); throw new BudgetError('LEDGER');
     }
   };
-  try { journal = fs.openSync(ledgerPath, 'wx', 0o600); persist('OPEN'); }
+  try { journal = fs.openSync(ledgerPath, 'wx', 0o600); persist(carryForward ? 'CARRY_FORWARD_OPEN' : 'OPEN'); }
   catch { try { if (journal !== undefined) fs.closeSync(journal); } catch {} throw new BudgetError('LEDGER'); }
+  // OPEN is durable before listening, token creation, or outbound. A slow fsync
+  // cannot reset the shared execution window or cross the price deadline.
+  try { currentPriceWindow(); if (ledger.remainingMs() <= 0) throw new BudgetError('DEADLINE'); }
+  catch (error) { ledger.close(); try { fs.closeSync(journal); } catch {} throw error; }
   const tokens = new Map();
   let armedToken = null; let activeAbort = null; let closing = null;
   const sockets = new Set();
@@ -212,7 +235,8 @@ async function createBroker({ providerKey, ledgerPath, sessionId, runId, runAtte
   return Object.freeze({
     origin: `http://127.0.0.1:${server.address().port}`,
     prepareCase(caseId) {
-      if (!Object.hasOwn(CASES, caseId) || tokens.has(caseId)) throw new BudgetError('CASE');
+      if (!Object.hasOwn(CASES, caseId) || (carryForward && !RECOVERY.allowedCases.includes(caseId)) ||
+          tokens.has(caseId)) throw new BudgetError('CASE');
       if (ledger.snapshot().closed || ledger.remainingMs() <= 0) throw new BudgetError('CLOSED');
       const clientToken = randomBytes(32).toString('hex'); tokens.set(caseId, clientToken);
       return Object.freeze({ clientToken });
@@ -222,7 +246,7 @@ async function createBroker({ providerKey, ledgerPath, sessionId, runId, runAtte
       ledger.armCase(caseId); armedToken = tokens.get(caseId);
     },
     cancelCase() { armedToken = null; activeAbort?.('CANCELLED'); ledger.cancelCase(); },
-    snapshot, close,
+    snapshot, remainingMs: () => ledger.remainingMs(), close,
   });
 }
-module.exports = { createBroker };
+module.exports = { createBroker, recoveryBaselineSnapshot };

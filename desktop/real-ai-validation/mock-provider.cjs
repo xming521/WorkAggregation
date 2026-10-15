@@ -13,6 +13,7 @@ const { Writable, PassThrough } = require('node:stream');
 const { performance } = require('node:perf_hooks');
 const { fixtureFor, MODE, CASE_IDS } = require('./mock-fixtures.cjs');
 const { PRICE_REVIEW } = require('./broker-core.cjs');
+const carryPolicy = require('./carry-forward-policy.cjs');
 const FAKE_KEY = 'MOCK_ONLY_NOT_A_REAL_PROVIDER_CREDENTIAL';
 const MOCK_EPOCH = Date.parse(`${PRICE_REVIEW.priceCheckedAt}T12:00:00.000Z`);
 let installed = false;
@@ -38,7 +39,8 @@ function validateRequest(options, callback) {
   if (!h || Object.keys(h).length !== 4 || h.Authorization !== `Bearer ${FAKE_KEY}` ||
       h['Content-Type'] !== 'application/json' || h['Accept-Encoding'] !== 'identity' ||
       !Number.isSafeInteger(h['Content-Length']) || h['Content-Length'] < 1 || h['Content-Length'] > 524288 ||
-      !owner.armedCase || owner.inflight) fail();
+      !owner.armedCase || owner.inflight ||
+      (owner.recovery && (owner.armedCase !== 'pilot-stream' || owner.fakeRequests >= 1))) fail();
 }
 
 class FakeClientRequest extends Writable {
@@ -148,6 +150,16 @@ function loadOfflineBroker() {
     const localRequire = (id) => {
       if (allowedBuiltins.has(id)) return require(id);
       if (name === 'broker.cjs' && id === './broker-core.cjs') return load('broker-core.cjs');
+      if (id === './carry-forward-policy.cjs') {
+        // Share the original policy closure/WeakSet across VM realms. Only
+        // this permanently network-locked loader may substitute MOCK mode;
+        // production createBroker has no mode/transport/capability override.
+        if (!installed || !owner) fail();
+        return Object.freeze({ ...carryPolicy, validateCarryForward(carry, mode) {
+          if (!installed || !owner || owner.closed || mode !== 'live') fail();
+          return carryPolicy.validateCarryForward(carry, 'mock');
+        } });
+      }
       fail();
     };
     const code = fs.readFileSync(filename, 'utf8');
@@ -159,18 +171,19 @@ function loadOfflineBroker() {
   return load('broker.cjs');
 }
 
-async function createOfflineBroker({ ledgerPath, sessionId, runId, runAttempt, helperCommit, requestCommit } = {}) {
+async function createOffline(recovery, { ledgerPath, sessionId, runId, runAttempt, helperCommit, requestCommit, executionStartedAt } = {}) {
   if (creating || owner) fail();
   installOfflineBoundary(); // Must precede even requiring the real live broker.
   creating = true;
-  const state = { armedCase: null, prepared: new Set(), inflight: null, fakeRequests: 0, closed: false };
+  const state = { recovery, armedCase: null, prepared: new Set(), inflight: null, fakeRequests: 0, closed: false };
   owner = state;
   try {
     const { createBroker } = loadOfflineBroker();
-    const broker = await createBroker({ providerKey: FAKE_KEY, ledgerPath, sessionId, runId, runAttempt, helperCommit, requestCommit });
+    const broker = await createBroker({ providerKey: FAKE_KEY, ledgerPath, sessionId, runId, runAttempt, helperCommit, requestCommit,
+      executionStartedAt, ...(recovery ? { carryForward: carryPolicy.createMockCarryForward() } : {}) });
     let closing;
     const offline = Object.freeze({
-      mode: MODE, origin: broker.origin,
+      mode: MODE, origin: broker.origin, remainingMs: () => broker.remainingMs(),
       prepareCase(caseId) {
         if (!CASE_IDS.includes(caseId)) fail();
         const prepared = broker.prepareCase(caseId); state.prepared.add(caseId); return prepared;
@@ -200,4 +213,8 @@ async function createOfflineBroker({ ledgerPath, sessionId, runId, runAttempt, h
   } catch (error) { state.inflight?.destroy(); owner = null; throw error; }
   finally { creating = false; }
 }
-module.exports = { createOfflineBroker, isOfflineBroker };
+const createOfflineBroker = options => createOffline(false, options);
+// Fixed synthetic seed only: callers cannot supply or restore a ledger. This
+// entry retains the same network-lock/private-brand checks as the seven cases.
+const createOfflineRecoveryBroker = options => createOffline(true, options);
+module.exports = { createOfflineBroker, createOfflineRecoveryBroker, isOfflineBroker };

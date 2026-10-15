@@ -4,6 +4,7 @@ import { POLICY, CASES, Ledger, usageCost } from './broker-core.cjs';
 import { readMirrorObservation, isRunningMirrorProven } from './mirror-observer.mjs';
 import { sanitizePilotProofDiagnostic, sanitizeRendererDiagnostic } from './ui-diagnostics.mjs';
 import { installAdmissionCapture } from './admission-capture.mjs';
+import { RECOVERY, validateCarryForwardPrefix } from './carry-forward-policy.cjs';
 
 const CASE = 'pilot-stream';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -187,26 +188,34 @@ export function isLiveTerminalMirrorProven(pair, admitted) {
     v.conversationId === admitted.conversation_id && v.currentTaskState === 'idle' && v.loading === false && v.hasPending === false);
 }
 
+function carryForwardProven(value, mode) {
+  if (value?.carryForward === undefined) return value?.currentRequests === undefined || value.currentRequests === value.sentRequests;
+  try { validateCarryForwardPrefix(value, mode); return true; } catch { return false; }
+}
 export function liveLedgerFingerprint(value) {
   const reviewedShape = sameKeys(value.denied, DENIED) && Array.isArray(value.requests)
     && value.requests.every(row => sameKeys(row, ROW));
   return JSON.stringify([reviewedShape, value.model, value.budgetMicroCny, value.reserveMicroCny, value.sentRequests,
     value.settledMicroCny, value.retainedMicroCny, value.active, value.closed, value.journalFailed,
-    DENIED.map(key => value.denied?.[key]), value.requests?.map(row => ROW.map(key => row[key]))]);
+    DENIED.map(key => value.denied?.[key]), value.requests?.map(row => ROW.map(key => row[key])),
+    value.currentRequests, value.carryForward]);
 }
 export function offlineSnapshot(value) {
   return value?.mode === 'MOCK' && value.mock?.transport === 'IN_PROCESS_SYNTHETIC_HTTPS'
     && value.mock.externalNetwork === 'DENIED' && value.mock.realProviderCalls === 0
-    && value.mock.usageIsSynthetic === true && value.mock.fakeRequests === value.sentRequests
+    && value.mock.usageIsSynthetic === true && value.mock.fakeRequests === (value.carryForward === undefined ? value.sentRequests : value.currentRequests)
     && value.mock.clockScope === 'BROKER_VM_ONLY';
 }
-const snapshotMode = (mode, value) => mode === 'live'
-  ? value?.mode !== 'MOCK' && value?.mock === undefined : mode === 'mock' && offlineSnapshot(value);
+const snapshotMode = (mode, value) => carryForwardProven(value, mode) && (mode === 'live'
+  ? value?.mode !== 'MOCK' && value?.mock === undefined : mode === 'mock' && offlineSnapshot(value));
 export function isLiveLedgerProven(value, before, previousCount) {
   return snapshotMode('live', value) && snapshotMode('live', before) && ledgerProven(value, before, previousCount);
 }
 function ledgerProven(value, before, previousCount) {
   if (!integer(previousCount)
+    || JSON.stringify(value?.carryForward) !== JSON.stringify(before?.carryForward)
+    || (before?.carryForward !== undefined && (previousCount !== 1 || before.currentRequests !== 0
+      || before.settledMicroCny !== 188 || before.retainedMicroCny !== 0 || value?.currentRequests !== 1))
     || before?.sentRequests !== previousCount || before.requests?.length !== previousCount
     || before.requests.some(row => row.caseId === CASE) || value?.model !== POLICY.model
     || value.active !== false || value.closed !== false || value.journalFailed !== false
@@ -223,7 +232,10 @@ function ledgerProven(value, before, previousCount) {
       || row.cap > CASES[row.caseId].maxTokens || !integer(row.micro)
       || (index < previousCount && JSON.stringify(ROW.map(key => row[key])) !== JSON.stringify(ROW.map(key => before.requests[index][key])))) return false;
     try {
-      const cost = usageCost({ prompt_tokens: row.promptTokens, completion_tokens: row.completionTokens,
+      // Historical cost is bound to its original reviewed source and row. Only
+      // the current segment is calculated under this helper's price policy.
+      const cost = value.carryForward !== undefined && index < value.carryForward.priorRequestCount
+        ? { micro: row.micro } : usageCost({ prompt_tokens: row.promptTokens, completion_tokens: row.completionTokens,
         prompt_cache_hit_tokens: row.cacheHitTokens, prompt_cache_miss_tokens: row.cacheMissTokens,
         total_tokens: row.promptTokens + row.completionTokens }, row.cap);
       if (cost.micro !== row.micro) return false;
@@ -346,6 +358,22 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     && page !== haru && typeof send === 'function' && Number.isFinite(deadlineMs), 'HARNESS_INVALID');
   let alive = true, admission, capture, primaryFailure, admitted = null, managerSeen = false;
   const started = performance.now();
+  // Recovery is a new bounded segment. Its observation cannot be extended by
+  // the wall clock moving backwards, even after the provider has settled.
+  const initialObservationMs = Math.min(75000, deadlineMs - Date.now());
+  let recovery = false, lastBrokerRemaining = RECOVERY.executionMs;
+  const remainingMs = () => {
+    const wallRemaining = deadlineMs - Date.now();
+    if (!recovery) return wallRemaining;
+    requireProof(typeof broker.remainingMs === 'function', 'OBSERVE_DEADLINE');
+    const brokerRemaining = broker.remainingMs();
+    const elapsed = performance.now() - started;
+    requireProof(Number.isFinite(brokerRemaining) && brokerRemaining >= 0
+      && brokerRemaining <= lastBrokerRemaining && brokerRemaining <= RECOVERY.executionMs
+      && Number.isFinite(elapsed) && elapsed >= 0 && Number.isFinite(initialObservationMs), 'OBSERVE_DEADLINE');
+    lastBrokerRemaining = brokerRemaining;
+    return Math.min(wallRemaining, initialObservationMs - elapsed, brokerRemaining);
+  };
   const diagnostic = { pollCount: 0 };
   const remember = (error, stage = diagnostic.lastReadStage) => {
     try {
@@ -373,14 +401,17 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     && ledgerProven(value, before, count);
   const within = async (action, stage) => {
     diagnostic.lastReadStage = stage;
-    const remaining = deadlineMs - Date.now();
+    const remaining = remainingMs();
     const left = Math.min(5000, remaining); requireProof(alive && left > 0, 'OBSERVE_DEADLINE');
     let timer;
     try {
-      const value = await Promise.race([Promise.resolve().then(action), new Promise((_, reject) => {
+      const value = await Promise.race([Promise.resolve().then(() => {
+        if (recovery) requireProof(alive && remainingMs() > 0, 'OBSERVE_DEADLINE');
+        return action();
+      }), new Promise((_, reject) => {
         timer = setTimeout(() => reject(proofError(remaining <= 5000 ? 'OBSERVE_DEADLINE' : 'OPERATION_TIMEOUT', stage)), left);
       })]);
-      requireProof(alive && Date.now() < deadlineMs, 'OBSERVE_DEADLINE'); return value;
+      requireProof(alive && remainingMs() > 0, 'OBSERVE_DEADLINE'); return value;
     } catch (error) {
       if (error?.captureInvalid === true) { diagnostic.admissionValid = false; diagnostic.admissionBodyOutcome = 'CAPTURE_INVALID'; }
       remember(error, stage); throw error;
@@ -392,8 +423,11 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     const origin = new URL(page.url()).origin;
     requireProof(/^http:\/\/127\.0\.0\.1:\d+$/.test(origin), 'HARNESS_INVALID');
     const before = structuredClone(broker.snapshot());
+    recovery = before.carryForward !== undefined;
     requireProof(snapshotMode(mode, before) && before.sentRequests === requestCountBefore
-      && before.requests?.length === requestCountBefore && before.active === false && before.closed === false && before.journalFailed === false, 'BASELINE_LEDGER_INVALID');
+      && before.requests?.length === requestCountBefore
+      && (before.carryForward === undefined || (requestCountBefore === 1 && before.currentRequests === 0
+        && before.settledMicroCny === 188 && before.retainedMicroCny === 0)) && before.active === false && before.closed === false && before.journalFailed === false, 'BASELINE_LEDGER_INVALID');
     const baseline = await within(() => readMirrorObservation(page, haru), 'INITIAL_MIRROR');
     requireProof(healthyMirror(baseline) && [baseline.owner, baseline.haru].every(v => v.conversationId === null
       && v.currentTaskState === 'idle' && v.loading === false && v.hasPending === false), 'FRESH_MIRROR_INVALID');
@@ -410,7 +444,7 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     ctx.mark(mode === 'live' ? 'LIVE_SEND_OBSERVE' : 'MOCK_PILOT_PROOF_SEND');
     await within(send, 'SEND');
     ctx.mark(mode === 'live' ? 'LIVE_TERMINAL_OBSERVE' : 'MOCK_PILOT_PROOF_OBSERVE');
-    while (Date.now() < deadlineMs) {
+    while (remainingMs() > 0) {
       diagnostic.pollCount = Math.min(65535, diagnostic.pollCount + 1);
       const submitted = admission.read();
       const [pair, stream, response] = await within(() => Promise.all([
@@ -483,6 +517,7 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
             && stream.readFailed === false && stream.originalGrowthWithStopCount >= 2;
           const running = v => v.bridgeRunningObserved === true && v.domRunningObserved === true && v.runningConversationId === admitted.conversation_id;
           await within(() => capture.assertValid(true), 'ADMISSION_READ');
+          requireProof(remainingMs() > 0, 'OBSERVE_DEADLINE');
           return { code: sustained ? 'STREAMING_PROVEN' : 'COMPLETION_ONLY', checks: {
             sustainedStreamingObserved: sustained, incrementalAssistantRendering: sustained,
             ownerRunningTransitionObserved: running(after.owner), haruRunningTransitionObserved: running(after.haru),
@@ -504,6 +539,11 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     try { await capture?.dispose(); } catch { cleanupFailed = true; }
     if (cleanupFailed) {
       if (!primaryFailure) { const error = proofError('ADMISSION_CLEANUP_FAILED', 'CLEANUP'); remember(error); throw attach(error); }
+    }
+    // Cleanup has its own bounded timer, but cannot revive an expired proof.
+    if (!primaryFailure && recovery) {
+      try { requireProof(remainingMs() > 0, 'OBSERVE_DEADLINE'); }
+      catch (error) { remember(error, 'CLEANUP'); throw attach(proofError(diagnostic.fault, diagnostic.faultStage)); }
     }
   }
 }

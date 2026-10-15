@@ -56,14 +56,14 @@ test('only actual selected human approval is sufficient', () => {
     assert.throws(() => validateReview(value, 17, REVIEWER.id));
 });
 test('whole-session latch rejects any prior paid job, even different request SHA', () => {
-  validatePriorJobs({ total_count: 1, jobs: [{ name: PAID_JOB, conclusion: 'skipped' }] });
+  validatePriorJobs({ total_count: 1, jobs: [{ name: PAID_JOB, status: 'completed', conclusion: 'skipped' }] });
   for (const value of [{ total_count: 0, jobs: [] }, { total_count: 1, jobs: [] },
     { total_count: 1, jobs: [{ name: 'wrong job', conclusion: 'skipped' }] },
     ...['success', 'failure', 'cancelled', null].map(conclusion => ({ total_count: 1, jobs: [{ name: PAID_JOB, conclusion }] }))])
     assert.throws(() => validatePriorJobs(value));
 });
 test('history must contain all run numbers and current run', () => {
-  const a = { id: 1, run_number: 1, path: WORKFLOW }, b = { id: 2, run_number: 2, path: WORKFLOW };
+  const a = { id: 1, run_number: 1, path: WORKFLOW, run_attempt: 1 }, b = { id: 2, run_number: 2, path: WORKFLOW, run_attempt: 1 };
   assert.deepEqual(validateHistory({ total_count: 2, workflow_runs: [b, a] }, '2'), [a]);
   for (const runs of [{ total_count: 2, workflow_runs: [b] }, { total_count: 1, workflow_runs: [b] },
     { total_count: 1, workflow_runs: [a] }, { total_count: 0, workflow_runs: [] }]) assert.throws(() => validateHistory(runs, '2'));
@@ -72,4 +72,22 @@ test('EXE environment cannot inherit provider, GitHub, proxy or Node hooks', () 
   const env = childEnvironment({ APPDATA: 'app', PATH: 'path', OFFERPILOT_REAL_AI_KEY: 'fake-secret', GH_TOKEN: 'fake-gh',
     HTTPS_PROXY: 'fake', NODE_OPTIONS: '--require fake', NODE_DEBUG: 'http', OPENAI_API_KEY: 'fake', DEEPSEEK_API_KEY: 'fake' });
   assert.deepEqual(Object.keys(env).sort(), ['APPDATA', 'LITELLM_LOCAL_MODEL_COST_MAP', 'PATH', 'PYTHONUNBUFFERED', 'PYTHONUTF8'].sort());
+});
+
+test('recovery activation marker explicitly binds source, scope and new execution limits', () => {
+  const message = marker(helperSha);
+  for (const text of ['pilot-haru-carry-forward-only', '38694575612', '11953258616',
+    '8a31c0a40981a543b85103217b7d3c2a5cd9ebeb080b43664a4c81bd9ad3e917',
+    'OfferPilot-AI-Additional-Requests: 1', 'OfferPilot-AI-Execution-Seconds: 120']) assert.ok(message.includes(text));
+  for (const [old, replacement] of [['pilot-haru-carry-forward-only', 'all-cases'], ['Additional-Requests: 1', 'Additional-Requests: 2'],
+    ['Execution-Seconds: 120', 'Execution-Seconds: 600'], ['38694575612', '38694575613']]) {
+    const f = fixture(); f.event.head_commit.message = message.replace(old, replacement); f.head.message = f.event.head_commit.message;
+    assert.throws(() => trigger(f), { safeCode: 'REQUEST_MARKER_MISMATCH' });
+  }
+});
+test('history blocks duplicate IDs, reruns and more than one complete API page', () => {
+  const all = Array.from({ length: 101 }, (_, i) => ({ id: i + 1, run_number: i + 1, path: WORKFLOW, run_attempt: 1 }));
+  assert.throws(() => validateHistory({ total_count: 101, workflow_runs: all }, '101'));
+  assert.throws(() => validateHistory({ total_count: 2, workflow_runs: [{ ...all[0], id: 2 }, all[1]] }, '2'));
+  assert.throws(() => validateHistory({ total_count: 2, workflow_runs: [{ ...all[0], run_attempt: 2 }, all[1]] }, '2'));
 });

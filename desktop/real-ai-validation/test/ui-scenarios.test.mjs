@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { RECOVERY, createMockCarryForward, carryForwardEvidence, verifyPriorZip } from '../carry-forward-policy.cjs';
+import { Ledger } from '../broker-core.cjs';
 import { prepareSyntheticProfile, runUiScenarios, safeUiCode, scenarios, assertProviderCase, canContinueMockScenario } from '../ui-scenarios.mjs';
 
 // These are local fake-Page contract tests. They do not run an installed EXE,
 // launch Playwright, contact a provider, or establish a real UI pass.
+const liveCarry = verifyPriorZip(await fs.readFile(new URL('./fixtures/prior-paid-38694575612.zip', import.meta.url)));
 const fixture = { applicationId: 1, eventId: 2, resumeId: 3, offerId: 4,
   jdVersionId: 5, company: 'OfferPilot 合成验收公司', resumeTitle: 'OfferPilot 合成验收简历' };
 function fakeSeed(existing = []) {
@@ -19,22 +22,25 @@ function fakeSeed(existing = []) {
   return { api, calls };
 }
 function fakeHarness({ testOk = true, saveOk = true, forward = true, failClick = false, budget = false,
-  terminal = 'SETTLED', streamFailure = false, cleanupFailure, ledgerChanged = false, denyFreshBaseline = false } = {}) {
+  terminal = 'SETTLED', streamFailure = false, cleanupFailure, ledgerChanged = false, denyFreshBaseline = false, recovery = false, carryMode = 'mock', remainingMs = 120000 } = {}) {
   const events = [];
   const filled = new Map();
   let active = null;
-  const records = [];
+  const carry = recovery ? (carryMode === 'live' ? liveCarry : createMockCarryForward()) : null;
+  const records = carry ? structuredClone(carry.requests) : [];
   let current = null;
   let mutated = false;
   const broker = {
-    ...(streamFailure ? { mode: 'MOCK' } : {}),
+    ...((streamFailure || recovery) ? { mode: 'MOCK' } : {}),
+    remainingMs: () => remainingMs,
     origin: 'http://127.0.0.1:49321',
     prepareCase(caseId) { events.push(`prepare:${caseId}`); current = caseId; return { clientToken: `local-fixture-token-${caseId}-not-a-provider-key` }; },
     armCase(caseId) { events.push(`arm:${caseId}`); if (streamFailure && caseId === 'pilot-hitl-reject') throw new Error('end synthetic integration test'); active = caseId; },
     cancelCase() { events.push('cancel'); if (current === 'pilot-stream' && cleanupFailure === 'broker') throw new Error('cleanup failed'); active = null; },
     snapshot() { return { model: 'deepseek-flash', budgetMicroCny: 10_000_000, reserveMicroCny: 3_000_000,
-      sentRequests: records.length, settledMicroCny: 10, retainedMicroCny: budget ? 9_000_000 : 0,
-      active: false, closed: false, denied: mutated ? { AUTH: 1 } : {}, requests: records.map((row) => ({ ...row })) }; },
+      ...(recovery ? { carryForward: carryForwardEvidence(carry), currentRequests: records.length - 1 } : {}),
+      sentRequests: records.length, settledMicroCny: recovery ? records.reduce((sum, row) => sum + row.micro, 0) : 10, retainedMicroCny: budget ? 9_000_000 : 0,
+      active: false, closed: false, journalFailed: false, denied: recovery ? { ...new Ledger().snapshot().denied, AUTH: mutated ? 1 : 0 } : mutated ? { AUTH: 1 } : {}, requests: records.map((row) => ({ ...row })) }; },
   };
   class Locator {
     constructor(path = '') { this.path = path; }
@@ -68,7 +74,8 @@ function fakeHarness({ testOk = true, saveOk = true, forward = true, failClick =
       }
       if (streamFailure && this.path.endsWith('role:button:发送')) {
         assert.equal(active, 'pilot-stream');
-        records.push({ caseId: current, status: 'SETTLED', cap: 4096, outboundStarted: true, upstreamResponded: true });
+        records.push({ caseId: current, status: 'SETTLED', cap: 4096, outboundStarted: true, upstreamResponded: true,
+          ...(recovery ? { envelope: 'UNCHANGED', micro: 64, promptTokens: 20, completionTokens: 3, cacheHitTokens: 0, cacheMissTokens: 20, clientDisconnectObserved: false } : {}) });
       }
       if (streamFailure && this.path.includes('新建对话')) events.push(`new-conversation:${current}`);
     }
@@ -115,7 +122,7 @@ function fakeHarness({ testOk = true, saveOk = true, forward = true, failClick =
     }
   }
   const page = new Page('owner');
-  return { page, haru: new Page('haru'), api: async () => { throw new Error('unexpected direct API'); }, broker, fixture,
+  return { mode: 'mock', ...(recovery ? { scope: RECOVERY.scope } : {}), page, haru: new Page('haru'), api: async () => { throw new Error('unexpected direct API'); }, broker, fixture,
     capture: async (screenId, _page, caseId) => { events.push(`capture:${screenId}:${caseId || screenId}`); }, events };
 }
 
@@ -451,7 +458,7 @@ test('failed fresh-session baseline cannot arm the next request after diagnostic
 for (const mode of ['mock', 'live']) for (const captureFails of [false, true]) {
   test(`blocked ${mode} proof has only permitted failure captures; captureFails=${captureFails}`, async t => {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
-    const fake = fakeHarness({ streamFailure: true });
+    const fake = fakeHarness({ streamFailure: true, recovery: mode === 'live', carryMode: mode });
     if (mode === 'live') delete fake.broker.mode;
     const captures = [];
     let done = false;
@@ -472,8 +479,9 @@ for (const mode of ['mock', 'live']) for (const captureFails of [false, true]) {
     }
     assert.equal(done, true);
     const result = await pending;
-    assert.equal(result.results[1].status, 'BLOCKED');
-    assert.equal(result.results[1].code, mode === 'mock' ? 'MOCK_PILOT_COMPLETION_UNPROVEN' : 'LIVE_COMPLETION_UNPROVEN');
+    const pilot = result.results.find(row => row.id === 'pilot-stream');
+    assert.equal(pilot.status, 'BLOCKED');
+    assert.equal(pilot.code, mode === 'mock' ? 'MOCK_PILOT_COMPLETION_UNPROVEN' : 'LIVE_COMPLETION_UNPROVEN');
     assert.deepEqual(captures, mode === 'mock' ? [
       { screen: 'failure-owner', role: 'owner', stage: 'pilot-stream' },
       { screen: 'failure-haru', role: 'haru', stage: 'pilot-stream' },
@@ -484,3 +492,61 @@ for (const mode of ['mock', 'live']) for (const captureFails of [false, true]) {
     assert.ok(fake.events.includes('observer-remove:pilot-stream:haru'));
   });
 }
+
+
+test('fixed recovery loop configures only Pilot and never reruns connection or other scenarios', async () => {
+  const fake = fakeHarness({ streamFailure: true, recovery: true });
+  const result = await runUiScenarios({ ...fake, mockPilotProof: async ({ send }) => {
+    await send(); return { code: 'MOCK_PILOT_STREAMING_PROVEN', checks: {} };
+  } });
+  assert.equal(result.allPassed, true);
+  assert.deepEqual(result.results.map(row => row.id), ['pilot-stream']);
+  assert.equal(result.results[0].status, 'PASS');
+  assert.deepEqual(fake.events.filter(value => value.startsWith('prepare:')), ['prepare:pilot-stream']);
+  assert.deepEqual(fake.events.filter(value => value.startsWith('arm:')), ['arm:pilot-stream']);
+  assert.ok(fake.events.includes('save:pilot-stream'));
+  assert.equal(fake.events.some(value => value.startsWith('test-click:')), false);
+  assert.equal(fake.broker.snapshot().requests[0].micro, 188);
+  assert.equal(fake.broker.snapshot().sentRequests, 2);
+});
+
+test('recovery with under 75 seconds remaining refuses arm and spend, without widening its window', async () => {
+  const fake = fakeHarness({ streamFailure: true, recovery: true, remainingMs: 74999 });
+  const result = await runUiScenarios({ ...fake, mockPilotProof: async ({ send }) => { await send(); assert.fail('cannot return a proof'); } });
+  assert.deepEqual(result.results.map(row => row.id), ['pilot-stream']);
+  assert.equal(result.results[0].code, 'SUITE_DEADLINE');
+  assert.equal(fake.events.some(value => value.startsWith('arm:')), false);
+  assert.equal(fake.broker.snapshot().sentRequests, 1);
+});
+
+test('live UI cannot select the legacy seven-case scope or silently drop its inherited baseline', async () => {
+  for (const scope of ['full-suite', RECOVERY.scope]) {
+    const fake = fakeHarness(); delete fake.broker.mode;
+    const result = await runUiScenarios({ ...fake, mode: 'live', scope });
+    assert.equal(result.allPassed, false);
+    assert.equal(fake.events.some(value => value.startsWith('prepare:') || value.startsWith('arm:')), false);
+  }
+});
+
+test('recovery cannot publish PASS after monotonic budget expires during proof despite wall clock rollback', async t => {
+  const fake = fakeHarness({ streamFailure: true, recovery: true });
+  let left = 120000;
+  fake.broker.remainingMs = () => left;
+  const wall = Date.now();
+  const result = await runUiScenarios({ ...fake, mockPilotProof: async ({ send }) => {
+    await send(); left = 0; t.mock.method(Date, 'now', () => wall - 60000);
+    return { code: 'MOCK_PILOT_STREAMING_PROVEN', checks: {} };
+  } });
+  assert.equal(result.allPassed, false);
+  assert.equal(result.results[0].status, 'BLOCKED');
+  assert.equal(result.results[0].code, 'SUITE_DEADLINE');
+  assert.equal(fake.broker.snapshot().sentRequests, 2);
+});
+
+for (const remainingMs of [Infinity, NaN, -1, 120001]) test(`recovery rejects invalid monotonic remaining ${remainingMs} before arm`, async () => {
+  const fake = fakeHarness({ streamFailure: true, recovery: true, remainingMs });
+  const result = await runUiScenarios({ ...fake, mockPilotProof: async ({ send }) => { await send(); return { checks: {} }; } });
+  assert.equal(result.allPassed, false); assert.equal(result.results[0].code, 'SUITE_DEADLINE');
+  assert.equal(fake.events.some(value => value.startsWith('arm:')), false);
+  assert.equal(fake.broker.snapshot().sentRequests, 1);
+});
