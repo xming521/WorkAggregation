@@ -6,6 +6,7 @@ import { createOfflineBroker } from './mock-provider.cjs';
 import { createOfflinePilotProof } from './offline-pilot-completion.mjs';
 import { createMockHaruSession } from './mock-haru-session.mjs';
 import { demand, safeCode } from './contract.mjs';
+import { finishValidationProcess } from './run-finalization.mjs';
 try {
   demand(!process.env.OFFERPILOT_REAL_AI_KEY, 'SECRET_PRESENT_DURING_PREPARATION');
   if (process.argv[2] === 'prepare') await prepare({ mode: 'mock' });
@@ -13,6 +14,6 @@ try {
     const result = await executeValidation({ mode: 'mock', brokerFactory: createOfflineBroker,
       screenshotFactory: createMockScreenshots, mockPilotProofFactory: createOfflinePilotProof,
       mockHaruSessionFactory: createMockHaruSession });
-    process.exitCode = result.exitCode;
+    finishValidationProcess(result);
   } else demand(false, 'INVALID_HARNESS');
 } catch (error) { console.error(`MOCK validation blocked: ${safeCode(error)}`); process.exitCode = 1; }

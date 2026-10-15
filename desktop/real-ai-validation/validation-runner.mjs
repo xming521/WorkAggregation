@@ -16,6 +16,7 @@ import { prepareSyntheticProfile, runUiScenarios } from './ui-scenarios.mjs';
 import { refreshSyntheticProfile } from './seed-refresh.mjs';
 import { assertHaruRestartFacts } from './mock-haru-session.mjs';
 import { createRunLifetime } from './run-lifetime.mjs';
+import { trackAppResource, waitForResourceSettlement } from './run-finalization.mjs';
 
 export async function executeValidation({ mode, brokerFactory, providerKey, screenshotFactory, mockContinuation, mockHaruSessionFactory, mockPilotProofFactory } = {}) {
   demand(['live', 'mock'].includes(mode) && typeof brokerFactory === 'function' &&
@@ -27,7 +28,8 @@ export async function executeValidation({ mode, brokerFactory, providerKey, scre
   if (mode === 'live') validateLiveProduct();
 const blocked = code => CASES.map(id => ({ id, status: 'BLOCKED', code, checks: {} }));
 const report = { mode, status: 'BLOCKED', code: 'NOT_STARTED', scenarios: blocked('NOT_STARTED'), cleanupPassed: false };
-let app, broker, lifetime, screenshotEvidence, ledger = {}, failure, cleanupFailure;
+let app, broker, lifetime, screenshotEvidence, ledger = {}, failure, cleanupFailure, finalEvidenceSaved = false, appLaunchPending = false;
+const appResources = [];
 const root = process.env.RUNNER_TEMP && path.join(process.env.RUNNER_TEMP, mode === 'live' ? 'offerpilot-bounded-ai' : 'offerpilot-bounded-ai-mock');
 const evidence = process.env.AI_EVIDENCE_DIR;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -54,8 +56,11 @@ async function launchOwned(prepared) {
   demand((await ownedSnapshot(prepared)).processes.length === 0
     && await hash(prepared.exe) === prepared.exeSha256, 'PREEXISTING_PRODUCT_PROCESS');
   lifetime.assertActive();
+  appLaunchPending = true;
   app = await _electron.launch({ executablePath: prepared.exe, cwd: prepared.installDir,
     env: childEnvironment(process.env), chromiumSandbox: true, bypassCSP: false, timeout: 90000 });
+  appResources.push(trackAppResource(app));
+  appLaunchPending = false;
   lifetime.assertActive();
   app.context().on('request', request => {
     try { const url = new URL(request.url()); if (['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)
@@ -223,23 +228,32 @@ try {
   // Save the durable-cost projection before deleting its owned scratch journal.
   if (evidence) { try { await saveEvidence(evidence, { ...report, status: 'BLOCKED', code: 'CLEANUP_PENDING', cleanupCode: 'CLEANUP_PENDING', cleanupPassed: false }, ledger, [providerKey]); }
     catch { cleanupFailure = 'EVIDENCE_WRITE_BLOCKED'; } }
-  if (app) { try { await Promise.race([app.close(), pause(15000).then(() => { throw new Error(); })]); }
-    catch { /* Independently owned process cleanup below is authoritative. */ } }
-  try { await cleanOwnedFiles(process.env, mode); report.cleanupPassed = true; } catch { cleanupFailure = 'PROFILE_CLEANUP_FAILED'; }
+  let appClosing;
+  if (appResources.length) {
+    appClosing = Promise.allSettled(appResources.map(resource => Promise.resolve().then(() => resource.app.close())
+      .then(() => { resource.closeConfirmed = true; })));
+    await waitForResourceSettlement(appClosing, 15000);
+  }
+  try { await cleanOwnedFiles(process.env, mode); report.cleanupPassed = true; }
+  catch (error) { cleanupFailure = safeCode(error) === 'OWNED_PROCESS_CLEANUP_FAILED'
+    ? 'OWNED_PROCESS_CLEANUP_FAILED' : 'PROFILE_CLEANUP_FAILED'; }
+  if (appClosing) await waitForResourceSettlement(appClosing, 2000);
   report.cleanupCode = cleanupFailure || 'CLEANUP_PASSED';
   if (failure || cleanupFailure) {
     report.status = 'BLOCKED';
     report.code = failure || (['NOT_STARTED', 'ALL_UI_CASES_PASSED', 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY'].includes(report.code) ? cleanupFailure : report.code);
   }
   if (evidence) {
-    try { await saveEvidence(evidence, report, ledger, [providerKey]); }
+    try { await saveEvidence(evidence, report, ledger, [providerKey]); finalEvidenceSaved = true; }
     catch { report.status = 'BLOCKED'; report.code = failure || report.code; report.cleanupCode = 'EVIDENCE_WRITE_BLOCKED'; }
   }
   console.log(mode === 'mock' ? `MOCK installed UI validation: ${report.status}; no real provider evidence.` :
     report.status === 'PASS' ? (report.code === 'ALL_UI_CASES_PASSED_WITH_COMPLETION_ONLY'
       ? 'Bounded real-provider installed UI cases completed; sustained Pilot streaming NOT proven; experimental evidence only.'
       : 'Bounded real-provider installed UI cases passed; experimental evidence only.') : `Real AI validation blocked or incomplete: ${report.code}`);
-  return { ...report, exitCode: report.status === 'PASS' && report.cleanupPassed ? 0 : 1 };
+  return { ...report, finalEvidenceSaved,
+    appResourcesReleased: !appLaunchPending && appResources.every(resource => resource.launcherClosed && resource.closeConfirmed),
+    exitCode: report.status === 'PASS' && report.cleanupPassed ? 0 : 1 };
 }
 
 }

@@ -24,7 +24,7 @@ export const STREAM_DIAGNOSTIC_COUNTS = Object.freeze(['originalGrowthCount', 'o
 export const PILOT_PROOF_FAULTS = Object.freeze(['UNEXPECTED_FAILURE', 'HARNESS_INVALID', 'OBSERVE_DEADLINE',
   'OPERATION_TIMEOUT', 'MOCK_STREAMING_UNPROVEN', 'READ_FAILED', 'BASELINE_LEDGER_INVALID', 'FRESH_MIRROR_INVALID', 'HISTORY_INVALID',
   'ADMISSION_INVALID', 'ADMISSION_DUPLICATE', 'ADMISSION_REDIRECTED', 'ADMISSION_READ_FAILED', 'ADMISSION_METADATA_FAILED', 'ADMISSION_CLEANUP_FAILED',
-  'MIRROR_INVALID', 'STATUS_IDENTITY_INVALID', 'STATUS_PROTOCOL_INVALID', 'STATUS_UNSAFE', 'STATUS_RECOVERY_INVALID',
+  'MIRROR_INVALID', 'RENDERER_FORMAT_UNSUPPORTED', 'STATUS_IDENTITY_INVALID', 'STATUS_PROTOCOL_INVALID', 'STATUS_UNSAFE', 'STATUS_RECOVERY_INVALID',
   'STATUS_STATE_INVALID', 'STATUS_TERMINAL_INVALID', 'LEDGER_INVALID', 'RENDERER_UNPROVEN', 'FINAL_STABILITY_UNPROVEN']);
 export const PILOT_PROOF_READ_STAGES = Object.freeze(['INITIAL_MIRROR', 'HISTORY_READ', 'SEND', 'ADMISSION_READ',
   'STATUS_AND_MIRROR_READ', 'TERMINAL_RENDER_READ', 'FINAL_MIRROR_READ', 'POLL_WAIT', 'CLEANUP']);
@@ -43,6 +43,7 @@ export function sanitizePilotProofDiagnostic(value) {
     lastReadStage: PILOT_PROOF_READ_STAGES.includes(value?.lastReadStage) ? value.lastReadStage : null,
     elapsedMs: count(value?.elapsedMs, 600000), elapsedCapped: nullableBool(value?.elapsedCapped),
     pollCount: count(value?.pollCount, 65535), admissionObserved: nullableBool(value?.admissionObserved),
+    rendererReady: nullableBool(value?.rendererReady), rendererTextMatched: nullableBool(value?.rendererTextMatched),
     admissionValid: nullableBool(value?.admissionValid), naturalCompletionProven: nullableBool(value?.naturalCompletionProven),
     admissionHttpStatus: Number.isSafeInteger(value?.admissionHttpStatus) && value.admissionHttpStatus >= 100 && value.admissionHttpStatus <= 599
       ? value.admissionHttpStatus : null,

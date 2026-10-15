@@ -173,7 +173,7 @@ export async function saveEvidence(directory, report, ledger, secrets = []) {
     screenshotsCaptured: screenshotEvidence.captured.length > 0, screenshotEvidence, rawLogsCaptured: false, status: report.status,
     code: report.code, cleanupCode: report.cleanupCode || 'CLEANUP_PENDING', scenarios: safeResults(report.scenarios, isMock), cleanupPassed: report.cleanupPassed === true };
   demand(['PASS', 'FAIL', 'BLOCKED'].includes(safe.status) && EVIDENCE_CODES.has(safe.code), 'REPORT_INVALID');
-  demand(['CLEANUP_PASSED', 'CLEANUP_PENDING', 'BROKER_CLEANUP_FAILED', 'LEDGER_UNAVAILABLE', 'LEDGER_PERSISTENCE_FAILED', 'PROFILE_CLEANUP_FAILED', 'EVIDENCE_WRITE_BLOCKED'].includes(safe.cleanupCode), 'REPORT_INVALID');
+  demand(['CLEANUP_PASSED', 'CLEANUP_PENDING', 'BROKER_CLEANUP_FAILED', 'LEDGER_UNAVAILABLE', 'LEDGER_PERSISTENCE_FAILED', 'PROFILE_CLEANUP_FAILED', 'OWNED_PROCESS_CLEANUP_FAILED', 'EVIDENCE_WRITE_BLOCKED'].includes(safe.cleanupCode), 'REPORT_INVALID');
   demand(safe.status !== 'PASS' || (safe.cleanupPassed && safe.cleanupCode === 'CLEANUP_PASSED' &&
     safe.scenarios.every(row => row.status === 'PASS') && ledger?.journalFailed === false && ledger?.closed === true &&
     ledger?.active === false && ledger.requests?.length === CASES.length &&

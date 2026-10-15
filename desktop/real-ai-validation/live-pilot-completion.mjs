@@ -237,14 +237,20 @@ function ledgerProven(value, before, previousCount) {
 // Raw text and IDs exist only for this short in-memory comparison. The proof
 // returned by the orchestrator contains booleans and fixed result codes only.
 export async function readLiveTerminalRenderer({ role, deadline }) {
-  if (Date.now() >= deadline) return null;
+  const result = status => ({ status });
+  if (Date.now() >= deadline) return result('NOT_READY');
   const bridge = window.offerpilotDesktop;
-  if (bridge?.role !== role || typeof bridge.getState !== 'function') return null;
+  if (bridge?.role !== role || typeof bridge.getState !== 'function') return result('UNSAFE');
   const state = await bridge.getState(), s = state?.snapshot;
-  if (Date.now() >= deadline || state?.connected !== true || !Number.isSafeInteger(state.generation)
-    || state.generation < 0 || !s || !Number.isSafeInteger(s.conversationId) || s.conversationId <= 0
-    || s.taskState !== 'idle' || s.loading !== false || s.hasPending !== false || s.stopping !== false
-    || s.canStop !== false || s.canSend !== true || s.error !== '' || s.stopMessage !== '' || !Array.isArray(s.messages)) return null;
+  if (state?.connected !== true || !Number.isSafeInteger(state.generation) || state.generation < 0
+    || !s || !Number.isSafeInteger(s.conversationId) || s.conversationId <= 0
+    || s.hasPending !== false || s.stopping !== false || s.error !== '' || s.stopMessage !== ''
+    || !Array.isArray(s.messages)) return result('UNSAFE');
+  const identity = { conversationId: s.conversationId, generation: state.generation };
+  const pending = () => ({ status: 'NOT_READY', ...identity });
+  const controlsPending = Date.now() >= deadline || s.taskState === 'running' || s.loading === true || s.canSend !== true;
+  if (!['idle', 'running'].includes(s.taskState) || typeof s.loading !== 'boolean'
+    || (s.taskState === 'idle' && s.loading === false && s.canStop !== false)) return result('UNSAFE');
   const visible = node => {
     if (document.visibilityState !== 'visible' || !node || !node.isConnected
       || ![...node.getClientRects()].some(rect => rect.width > 0 && rect.height > 0)) return false;
@@ -256,18 +262,50 @@ export async function readLiveTerminalRenderer({ role, deadline }) {
     return true;
   };
   const roots = [...document.querySelectorAll(role === 'owner' ? '[data-onboarding-target="pilot"]' : 'main[aria-label="Haru 桌面小窗"]')];
-  if (roots.length !== 1 || !visible(roots[0])) return null;
+  if (roots.length !== 1 || !visible(roots[0])) return result('UNSAFE');
   const root = roots[0];
-  if (root.querySelectorAll('article[aria-label^="本轮任务："], [role="group"][aria-label="AI 修改提议"]').length) return null;
+  if (root.querySelectorAll('article[aria-label^="本轮任务："], [role="group"][aria-label="AI 修改提议"]').length) return result('UNSUPPORTED_FORMAT');
   const nodes = [...root.querySelectorAll(role === 'owner' ? '[class*="bubbleAssistant"]' : '.desktop-haru-messages article[data-role="assistant"] p')];
-  // A new single plain-text turn must have exactly one assistant, including
-  // hidden nodes. Never choose an old, hidden, duplicate, or structured reply.
   const messages = s.messages.filter(v => v?.role === 'assistant');
-  if (nodes.length !== 1 || messages.length !== 1 || !visible(nodes[0])) return null;
-  const content = nodes[0].innerText, bridgeContent = messages[0].content;
-  if (typeof content !== 'string' || !content.trim() || content.length > 12000
-    || typeof bridgeContent !== 'string' || !bridgeContent.trim() || bridgeContent.length > 12000) return null;
-  return { content, bridgeContent, conversationId: s.conversationId, generation: state.generation };
+  if (nodes.length > 1 || messages.length > 1) return result('UNSAFE');
+  if (nodes.length === 0 || messages.length === 0) return pending();
+  if (!visible(nodes[0])) return result('UNSAFE');
+  // PIN renders a plain response as Markdown div > p > text/BR in Pilot,
+  // and literal p > text in Haru. No HTML stripping or Markdown guessing.
+  // textContent preserves CJK soft breaks that CSS innerText may collapse.
+  const plain = node => {
+    let text = '';
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) text += child.textContent;
+      else if (role === 'owner' && child.nodeType === 1 && child.tagName === 'BR'
+        && child.childNodes.length === 0) text += '\n';
+      else return null;
+    }
+    return text;
+  };
+  let content;
+  if (role === 'owner') {
+    const children = [...nodes[0].childNodes];
+    if (children.length !== 1 || children[0].nodeType !== 1 || children[0].tagName !== 'DIV'
+      || typeof children[0].className !== 'string' || !children[0].className.includes('markdown')) return result('UNSUPPORTED_FORMAT');
+    const markdown = children[0];
+    if (!visible(markdown)) return result('UNSAFE');
+    const parts = [];
+    for (const child of markdown.childNodes) {
+      if (child.nodeType === 3 && !child.textContent.trim()) continue;
+      if (child.nodeType !== 1 || child.tagName !== 'P') return result('UNSUPPORTED_FORMAT');
+      if (!visible(child)) return result('UNSAFE');
+      const text = plain(child); if (text === null) return result('UNSUPPORTED_FORMAT'); parts.push(text);
+    }
+    if (!parts.length) return pending();
+    content = parts.join('\n\n');
+  } else content = plain(nodes[0]);
+  if (content === null) return result('UNSUPPORTED_FORMAT');
+  const bridgeContent = messages[0].content;
+  if (typeof content !== 'string' || content.length > 12000 || typeof bridgeContent !== 'string'
+    || bridgeContent.length > 12000) return result('UNSAFE');
+  if (controlsPending || !content.trim() || !bridgeContent.trim()) return pending();
+  return { status: 'READY', content, bridgeContent, ...identity };
 }
 
 export async function proveLivePilotCompletion(args) {
@@ -387,9 +425,21 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
           const [owner, companion] = await within(() => Promise.all([['owner', page], ['haru', haru]].map(([role, surface]) =>
             surface.evaluate(readLiveTerminalRenderer, { role, deadline: deadlineMs }))), 'TERMINAL_RENDER_READ');
           const compact = compactPlainMessage(content);
-          requireProof([owner, companion].every(v => v && v.conversationId === admitted.conversation_id && v.generation === baseline.owner.generation)
-            && normalizePlainText(owner.content) === normalizePlainText(content)
-            && companion.content === compact && owner.bridgeContent === compact && companion.bridgeContent === compact, 'RENDERER_UNPROVEN');
+          requireProof([owner, companion].every(v => v && ['READY', 'NOT_READY', 'UNSUPPORTED_FORMAT', 'UNSAFE'].includes(v.status)), 'RENDERER_UNPROVEN');
+          requireProof(![owner, companion].some(v => v.status === 'UNSUPPORTED_FORMAT'), 'RENDERER_FORMAT_UNSUPPORTED');
+          requireProof(![owner, companion].some(v => v.status === 'UNSAFE'), 'RENDERER_UNPROVEN');
+          requireProof([owner, companion].every(v => v.conversationId === admitted.conversation_id
+            && v.generation === baseline.owner.generation), 'RENDERER_UNPROVEN');
+          const rendererReady = [owner, companion].every(v => v.status === 'READY');
+          const textMatched = rendererReady && normalizePlainText(owner.content) === normalizePlainText(content)
+            && companion.content === compact && owner.bridgeContent === compact && companion.bridgeContent === compact;
+          diagnostic.rendererReady = rendererReady; diagnostic.rendererTextMatched = textMatched;
+          if (!textMatched) {
+            // Backend completion precedes asynchronous React/bridge projection.
+            // Keep the original overall deadline and never substitute wrong text.
+            await within(() => new Promise(resolve => setTimeout(resolve, 50)), 'POLL_WAIT');
+            continue;
+          }
           const after = await within(() => readMirrorObservation(page, haru), 'FINAL_MIRROR_READ');
           admission.read();
           const afterLedger = broker.snapshot();
@@ -412,7 +462,7 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
       }
       await within(() => new Promise(resolve => setTimeout(resolve, 50)), 'POLL_WAIT');
     }
-    fail('OBSERVE_DEADLINE');
+    fail(diagnostic.rendererTextMatched === false ? 'RENDERER_UNPROVEN' : 'OBSERVE_DEADLINE');
   } catch (error) { remember(error); primaryFailure = attach(proofError(diagnostic.fault, diagnostic.faultStage)); throw primaryFailure; }
   finally {
     alive = false;

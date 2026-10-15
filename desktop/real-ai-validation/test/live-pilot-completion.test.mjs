@@ -22,10 +22,16 @@ function renderer(role) {
   let current = state(), nextTimer = 0, hook;
   const listeners = new Set(), mutations = new Set(), timers = new Set(), calls = [];
   const makeNode = text => ({ isConnected: true, hidden: false, parentElement: null,
-    textContent: text, innerText: text, style: { display: 'block', visibility: 'visible', opacity: '1' },
+    nodeType: 1, tagName: 'DIV', childNodes: [], textContent: text, get innerText() { return this.textContent; }, set innerText(value) { this.textContent = value; }, style: { display: 'block', visibility: 'visible', opacity: '1' },
     getClientRects: () => [{ width: 100, height: 40 }], getAttribute: () => null, disabled: false });
   const root = makeNode(''), body = makeNode(SECRET), running = makeNode('正在处理');
   body.parentElement = root;
+  const proseText = { nodeType: 3, get textContent() { return body.textContent; } };
+  const paragraph = makeNode(''); paragraph.tagName = 'P'; paragraph.childNodes = [proseText];
+  const markdown = makeNode(''); markdown.className = '_markdown_pinned'; markdown.childNodes = [paragraph];
+  paragraph.parentElement = markdown; markdown.parentElement = body;
+  body.childNodes = role === 'owner' ? [markdown] : [proseText];
+  if (role === 'haru') body.tagName = 'P';
   let structured = false, secondBody, duplicateRoot = false;
   root.querySelectorAll = selector => {
     if (selector.startsWith('article[aria-label^="本轮任务："]')) return structured ? [makeNode('')] : [];
@@ -58,7 +64,7 @@ function renderer(role) {
     context.__argument = structuredClone(arg);
     return vm.runInContext(`(${fn.toString()})(__argument)`, context);
   } };
-  return { page, context, root, body, calls, responses, frame,
+  return { page, context, root, body, paragraph, markdown, calls, responses, frame,
     duplicateRoot() { duplicateRoot = true; },
     onEvaluate(fn) { hook = fn; },
     alterState(fn) { fn(current); },
@@ -184,10 +190,10 @@ for (const [name, change] of [
   ['canSend false', f => f.haru.alterState(s => { s.snapshot.canSend = false; })],
   ['error', f => f.haru.alterState(s => { s.snapshot.error = SECRET; })],
 ]) test(`${name} cannot prove completion`, async t => {
-  const fake = await harness(t); fake.transport.afterSend = () => change(fake); await blocked(fake);
+  const fake = await harness(t, { deadline: 140 }); fake.transport.afterSend = () => change(fake); await blocked(fake);
 });
 test('rendered Markdown is unproven rather than regex-repaired', async t => {
-  const fake = await harness(t, { content: '**hello**' }); fake.transport.afterSend = () => { fake.owner.body.innerText = 'hello'; }; await blocked(fake);
+  const fake = await harness(t, { content: '**hello**', deadline: 140 }); fake.transport.afterSend = () => { fake.owner.body.innerText = 'hello'; }; await blocked(fake);
 });
 for (const history of [{ items: [], next: null }, { total: 0, conversations: [] }, [{ id: 999 }], null, '[]garbage', 'x'.repeat(8193)]) {
   test('only complete empty array history is fresh', async t => {
@@ -859,4 +865,46 @@ for (const mode of ['manager-loss', 'pre-manager-identity-change']) test(`statef
   await assert.rejects(fake.prove(), error => {
     assert.equal(error.pilotProofDiagnostic.fault, mode === 'manager-loss' ? 'STATUS_RECOVERY_INVALID' : 'STATUS_IDENTITY_INVALID'); return true;
   }); assert.equal(reads, 2); assert.equal(fake.sends(), 1);
+});
+
+test('CJK soft-break layout does not turn exact plain DOM text into wrong output', async t => {
+  const content = '一、检查边界。\n二、检查零值。'; const fake = await harness(t, { content });
+  Object.defineProperty(fake.owner.body, 'innerText', { get: () => content.replace(/\n/g, ''), set: value => { fake.owner.body.textContent = value; } });
+  assert.equal((await fake.prove()).code, 'LIVE_COMPLETION_ONLY');
+});
+for (const mode of ['empty', 'textpending', 'controls']) test(`asynchronous ${mode} projection waits inside original deadline and verifies exact final text`, async t => {
+  const fake = await harness(t, { deadline: 1000 }); let comparisons = 0;
+  fake.transport.afterSend = () => {
+    if (mode === 'controls') fake.haru.alterState(s => { s.snapshot.canSend = false; });
+    else fake.owner.body.textContent = mode === 'empty' ? '' : 'OLDER_SYNTHETIC_CONTENT';
+  };
+  fake.transport.terminalHook = () => {
+    if (++comparisons === 3) {
+      fake.owner.body.textContent = SECRET;
+      fake.haru.alterState(s => { s.snapshot.canSend = true; });
+    }
+  };
+  assert.equal((await fake.prove()).code, 'LIVE_COMPLETION_ONLY'); assert.equal(comparisons, 3); assert.equal(fake.sends(), 1);
+});
+for (const mode of ['strong', 'button', 'hidden-paragraph', 'duplicate', 'identity']) test(`renderer ${mode} is immediately blocked, never classified as pending text`, async t => {
+  const fake = await harness(t, { deadline: 1000 }); let comparisons = 0;
+  fake.transport.terminalHook = () => { comparisons++; };
+  fake.transport.afterSend = () => {
+    if (mode === 'strong' || mode === 'button') fake.owner.paragraph.childNodes = [{ nodeType: 1, tagName: mode === 'strong' ? 'STRONG' : 'BUTTON', childNodes: [], textContent: SECRET }];
+    if (mode === 'hidden-paragraph') fake.owner.paragraph.style.visibility = 'hidden';
+    if (mode === 'duplicate') fake.owner.hiddenLast();
+    if (mode === 'identity') fake.haru.alterState(s => { s.snapshot.conversationId = 74; });
+  };
+  await assert.rejects(fake.prove(), error => {
+    assert.equal(error.pilotProofDiagnostic.fault, ['strong', 'button'].includes(mode) ? 'RENDERER_FORMAT_UNSUPPORTED' : mode === 'identity' ? 'MIRROR_INVALID' : 'RENDERER_UNPROVEN'); return true;
+  }); assert.equal(comparisons, mode === 'identity' ? 0 : 1); assert.equal(fake.sends(), 1);
+});
+test('PIN plain renderer templates preserve Markdown text nodes and literal Haru compact text', () => {
+  const bubble = readPinnedSource('web/src/components/ChatPanel/MessageBubble.tsx');
+  assert.match(bubble, /<div className=\{styles.markdown\}>\s+<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\}/);
+  assert.match(bubble, /\{turn.content\}\s+<\/ReactMarkdown>/);
+  const haru = readPinnedSource('web/src/features/assistantSurface/DesktopHaruWindow.tsx');
+  assert.match(haru, /<p>\{message.content\}<\/p>/);
+  const css = readPinnedSource('web/src/features/assistantSurface/DesktopHaruWindow.css');
+  assert.match(css, /\.desktop-haru-chat p \{[^}]*white-space: pre-wrap/);
 });

@@ -18,8 +18,19 @@ export async function cleanOwnedFiles(env = process.env, mode = 'live') {
   const command = mode => ['-NoProfile', '-NonInteractive', '-File', path.resolve('desktop/installed-ui/windows.ps1'), '-Mode', mode];
   const snapshot = JSON.parse(await quietCommand('pwsh.exe', command('snapshot'), windowsEnv, 30000));
   await quietCommand('pwsh.exe', command('cleanup'), { ...windowsEnv, UI_OWNED_IDENTITIES: JSON.stringify(snapshot.processes) }, 30000);
-  const after = JSON.parse(await quietCommand('pwsh.exe', command('snapshot'), windowsEnv, 30000));
-  demand(after.processes.length === 0, 'OWNED_PROCESS_CLEANUP_FAILED');
+  // Stop-Process returns before Windows necessarily finishes terminating every
+  // process. Observe exit without issuing another kill or adopting new identities.
+  const exitDeadline = performance.now() + 15000;
+  while (true) {
+    const remaining = Math.ceil(exitDeadline - performance.now());
+    demand(remaining > 0, 'OWNED_PROCESS_CLEANUP_FAILED');
+    let after;
+    try { after = JSON.parse(await quietCommand('pwsh.exe', command('snapshot'), windowsEnv, remaining)); }
+    catch { demand(false, 'OWNED_PROCESS_CLEANUP_FAILED'); }
+    demand(performance.now() <= exitDeadline, 'OWNED_PROCESS_CLEANUP_FAILED');
+    if (after.processes.length === 0) break;
+    await new Promise(resolve => setTimeout(resolve, Math.min(200, Math.max(0, exitDeadline - performance.now()))));
+  }
   if (prepared.profileOwned === true) await fs.rm(profile, { recursive: true, force: true, maxRetries: 0 });
   else demand(!await exists(profile), 'UNOWNED_PROFILE_PRESERVED');
   demand(!await exists(profile), 'PROFILE_CLEANUP_FAILED');
