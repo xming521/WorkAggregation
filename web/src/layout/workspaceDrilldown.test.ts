@@ -85,7 +85,7 @@ describe('workspace drill-down layout contract', () => {
     const drawers = offerCompare.match(/<Drawer\b/g) ?? [];
     expect(drawers).toHaveLength(1);
     const settingsDrawer = offerCompare.slice(offerCompare.indexOf('<Drawer'), offerCompare.indexOf('</Drawer>'));
-    expect(settingsDrawer).toContain('title="调整对比项"');
+    expect(settingsDrawer).toContain('title={t("调整对比项")}');
     expect(settingsDrawer).toContain('open={settingsOpen}');
     expect(settingsDrawer).toContain('onClose={() => setSettingsOpen(false)}');
     expect(offerCompare).not.toMatch(/return\s*\(?\s*<Drawer\b/);

@@ -1,3 +1,5 @@
+import { liveText } from '@/i18n/liveText';
+import { t, useLocale, getLocale } from '@/i18n';
 import { getJobMailPendingCount, JOB_MAIL_COUNT_KEY } from '@/services/jobMail';
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -124,7 +126,7 @@ function isPilotEscapeBlocked(event: KeyboardEvent, confirmationActive: boolean)
   const target = event.target instanceof Element ? event.target : document.activeElement;
   if (!target) return false;
   if (target.closest('input, textarea, select, [contenteditable]')) return true;
-  return Boolean(target.closest('[role="dialog"], [role="group"][aria-label="AI 修改提议"]'));
+  return Boolean(target.closest('[role="dialog"], [data-pilot-proposal]'));
 }
 
 export function adaptivePracticeOwnerIdentity(focus: AdaptivePracticeFocus | undefined): string {
@@ -956,6 +958,7 @@ class ViewErrorBoundary extends Component<{ children: ReactNode }, { hasError: b
 }
 
 export default function AppShell() {
+  useLocale();
   return (
     <PilotAttachmentProvider>
       <AssistantSurfaceProvider>
@@ -966,6 +969,7 @@ export default function AppShell() {
 }
 
 function AppShellContent() {
+  useLocale();
   const assistantSurface = useAssistantSurface();
   const pilotController = usePilotConversationController();
   const [offerNegotiationEntryPoint, setOfferNegotiationEntryPoint] = useState<'ui' | 'pilot'>('ui');
@@ -1358,7 +1362,7 @@ function AppShellContent() {
 
   const pipelineActions = useMemo(
     () => derivePipelineInsights({ apps, events: evs, offers: ofrs, practiceStats, weeklyTarget: 6, now }),
-    [apps, evs, ofrs, practiceStats, now]
+    [apps, evs, ofrs, practiceStats, now, getLocale()]
   );
   const actions = useMemo(() => toLegacyActionItems(pipelineActions), [pipelineActions]);
 
@@ -1404,7 +1408,7 @@ function AppShellContent() {
         selectedApplication: selectedApp ?? undefined,
         coachedOffer,
       }),
-    [view, selectedApp, coachedOffer]
+    [view, selectedApp, coachedOffer, getLocale()]
   );
   const moduleTabs = moduleTabsForView(view);
   const selectedOfferScope = selectedApp
@@ -1435,7 +1439,7 @@ function AppShellContent() {
     if (view !== 'pilot' || !pilotController.pending) return;
     const focusPending = window.setTimeout(() => {
       const proposal = document.querySelector<HTMLElement>(
-        '[data-pilot-surface-host] [role="group"][aria-label="AI 修改提议"]',
+        '[data-pilot-surface-host] [data-pilot-proposal]',
       );
       const focusable = proposal?.querySelector<HTMLElement>(
         'input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled), [tabindex]:not([tabindex="-1"])',
@@ -1543,10 +1547,10 @@ function AppShellContent() {
       if (task.kind === 'focused_existing') return;
     }
     const initialMessage = action?.type === 'application_submission_snapshot'
-      ? '确认本次实际投递材料'
+      ? t("确认本次实际投递材料")
       : action?.type === 'application_outcome_record'
-        ? '确认记录本次投递结果'
-        : '保存岗位资料';
+        ? t("确认记录本次投递结果")
+        : t("保存岗位资料");
     setCoachOfferId(undefined);
     setChatStartRequest({
       requestKey: ++nextChatStartRequestKey.current,
@@ -1639,7 +1643,7 @@ function AppShellContent() {
     const active = coreTaskController.getState().active;
     if (active && active.ref.applicationId !== app.id) {
       if (taskSurfaceGuardRef.current.pending || taskSurfaceGuardRef.current.unsaved || hasLivePilotWork()) {
-        message.warning('当前任务还有未完成内容，请先处理后再切换投递');
+        message.warning(liveText(() => t("当前任务还有未完成内容，请先处理后再切换投递")));
         return;
       }
       closeCoreTaskOwnerWithGuard(coreTaskController, { pending: false, unsaved: false });
@@ -1746,7 +1750,7 @@ function AppShellContent() {
       ? { kind: 'choose' as const, applicationId }
       : resolvePilotInterviewReviewIntent(applicationId, eventId, evs);
     if (eventId !== undefined && intent.kind !== 'event') {
-      message.warning('指定的面试当前不可用，请从面试列表重新选择。');
+      message.warning(liveText(() => t("指定的面试当前不可用，请从面试列表重新选择。")));
       return;
     }
     const trustedEventId = intent.kind === 'event' ? intent.eventId : undefined;
@@ -1756,7 +1760,7 @@ function AppShellContent() {
       const active = coreTaskController.getState().active;
       if (active && active.ref.applicationId !== applicationId
         && (taskSurfaceGuardRef.current.pending || taskSurfaceGuardRef.current.unsaved || hasLivePilotWork())) {
-        message.warning('当前任务还有未完成内容，请先处理后再切换投递');
+        message.warning(liveText(() => t("当前任务还有未完成内容，请先处理后再切换投递")));
         return;
       }
       if (active && active.ref.applicationId !== applicationId) {
@@ -1804,7 +1808,7 @@ function AppShellContent() {
       now: now.valueOf(),
     });
     if (!app || !exactEvent.ok) {
-      message.warning('指定的面试当前不可用，请刷新面试列表后重试。');
+      message.warning(liveText(() => t("指定的面试当前不可用，请刷新面试列表后重试。")));
       return { kind: 'unavailable', reason: 'task_owner_unavailable' };
     }
     const result = launchCoreTask(request);
@@ -1869,7 +1873,7 @@ function AppShellContent() {
         ownerGeneration: active.generation,
         surfaceGuard: taskSurfaceGuardRef.current,
       })) {
-        message.warning('当前练习还有待确认或未保存内容，请先处理后再切换。');
+        message.warning(liveText(() => t("当前练习还有待确认或未保存内容，请先处理后再切换。")));
         return { kind: 'replacement_denied', reason: 'replacement_guard_denied', generation: active.generation };
       }
     }
@@ -1976,7 +1980,7 @@ function AppShellContent() {
     const resolved = resolveUniqueInterviewEvent(applicationId, eventId, evs);
     const event = resolved.ok ? resolved.event : null;
     if (!event || typeof event.scheduled_at !== 'string' || event.scheduled_at.length === 0) {
-      message.warning('该面试日程当前不可编辑，请刷新后重试。');
+      message.warning(liveText(() => t("该面试日程当前不可编辑，请刷新后重试。")));
       return;
     }
     setEvidenceFocus({ kind: 'event', id: event.id, scheduledAt: event.scheduled_at });
@@ -1985,16 +1989,16 @@ function AppShellContent() {
 
   const openOfferNegotiation = (offer: Offer, entrypoint: 'ui' | 'pilot' = 'ui') => {
     if (listOfferBindingState(offer) === 'unbound') {
-      message.warning('历史未绑定 Offer 仅支持只读查看');
+      message.warning(liveText(() => t("历史未绑定 Offer 仅支持只读查看")));
       return;
     }
     if (!Number.isSafeInteger(offer.id) || offer.id <= 0) {
-      message.warning('当前 Offer 信息暂不可用');
+      message.warning(liveText(() => t("当前 Offer 信息暂不可用")));
       return;
     }
     const application = apps.find((item) => item.id === offer.application_id);
     if (!application) {
-      message.warning('所属投递当前不可见');
+      message.warning(liveText(() => t("所属投递当前不可见")));
       return;
     }
     const launchResult = launchCoreTaskViaController(coreTaskController, {
@@ -2019,20 +2023,20 @@ function AppShellContent() {
     brief: OfferNegotiationPilotBrief,
   ): boolean => {
     if (listOfferBindingState(offer) === 'unbound') {
-      message.warning('历史未绑定 Offer 无法进入谈薪对话');
+      message.warning(liveText(() => t("历史未绑定 Offer 无法进入谈薪对话")));
       return false;
     }
     if (!Number.isSafeInteger(offer.id) || offer.id <= 0 || !Number.isSafeInteger(offer.application_id)) {
-      message.warning('当前 Offer 信息暂不可用');
+      message.warning(liveText(() => t("当前 Offer 信息暂不可用")));
       return false;
     }
     const application = apps.find((item) => item.id === offer.application_id);
     if (!application) {
-      message.warning('所属投递当前不可见');
+      message.warning(liveText(() => t("所属投递当前不可见")));
       return false;
     }
     if (hasLivePilotWork()) {
-      message.warning('Pilot 当前有待处理内容，请先处理后再开始谈薪对话');
+      message.warning(liveText(() => t("Pilot 当前有待处理内容，请先处理后再开始谈薪对话")));
       return false;
     }
 
@@ -2098,7 +2102,7 @@ function AppShellContent() {
         if (view === 'pilot') setView('board');
         openApplicationDetail(app);
       } else {
-        message.warning('引用的记录已不存在');
+        message.warning(liveText(() => t("引用的记录已不存在")));
       }
       return;
     }
@@ -2124,14 +2128,14 @@ function AppShellContent() {
   const openCanonicalApplication = (appId: number) => {
     const app = apps.find((item) => item.id === appId);
     if (!app) {
-      message.warning('所属投递当前不可见');
+      message.warning(liveText(() => t("所属投递当前不可见")));
       return;
     }
     const active = coreTaskController.getState().active;
     if (active
       && active.ref.applicationId !== app.id
       && (taskSurfaceGuardRef.current.pending || taskSurfaceGuardRef.current.unsaved || hasLivePilotWork())) {
-      message.warning('当前任务还有未完成内容，请先处理后再切换投递');
+      message.warning(liveText(() => t("当前任务还有未完成内容，请先处理后再切换投递")));
       return;
     }
     navigateToView('board');
@@ -2311,7 +2315,7 @@ function AppShellContent() {
     ? evs.filter((event) => event.event_type === 'interview' && dayjs(event.scheduled_at).isSame(dayjs(), 'day') && !['done', 'completed', 'cancelled', 'deleted', 'soft_deleted'].includes(event.status)).length
     : 0;
   const calendarSummary = calendarWorkspaceActive && !isLoading && !appsError && !eventsLoading && !eventsError && !offersLoading && !offersError && !practiceLoading && !practiceError
-    ? [calendarTodayInterviews ? `今天有 ${calendarTodayInterviews} 场面试` : '', actions.length ? `${actions.length} 项待处理` : ''].filter(Boolean).join(' · ')
+    ? [calendarTodayInterviews ? t("今天有 {value0} 场面试", { value0: calendarTodayInterviews }) : '', actions.length ? t("{value0} 项待处理", { value0: actions.length }) : ''].filter(Boolean).join(' · ')
     : undefined;
   const workspaceContent = selectedApp ? (
     <ApplicationDetail
@@ -2601,40 +2605,40 @@ function AppShellContent() {
   if (!selectedApp) {
     if (['dashboard', 'reminders', 'board', 'applications-list'].includes(view)) {
       topBarPrimaryAction = {
-        label: '添加投递',
-        ariaLabel: '添加投递',
+        label: t("添加投递"),
+        ariaLabel: t("添加投递"),
         onClick: () => setAddOpen(true),
       };
     } else if (view === 'interview') {
       topBarPrimaryAction = {
-        label: '开始面试练习',
-        ariaLabel: '开始面试练习',
+        label: t("开始面试练习"),
+        ariaLabel: t("开始面试练习"),
         onClick: () => { openFreePractice(); },
       };
     } else if (view === 'questions') {
       topBarPrimaryAction = {
-        label: '开始刷题',
-        ariaLabel: '开始刷题',
+        label: t("开始刷题"),
+        ariaLabel: t("开始刷题"),
         onClick: () => setQuestionPracticeRequestToken((token) => token + 1),
       };
     } else if (view === 'offers') {
       topBarPrimaryAction = {
-        label: apps.length === 0 ? '添加投递' : '录入 Offer',
-        ariaLabel: apps.length === 0 ? '添加投递后录入 Offer' : '录入 Offer',
+        label: apps.length === 0 ? t("添加投递") : t("录入 Offer"),
+        ariaLabel: apps.length === 0 ? t("添加投递后录入 Offer") : t("录入 Offer"),
         onClick: apps.length === 0
           ? () => setAddOpen(true)
           : () => setOfferCreateRequestToken((token) => token + 1),
       };
     } else if (view === 'resumes') {
       topBarPrimaryAction = {
-        label: '上传简历',
-        ariaLabel: '上传简历',
+        label: t("上传简历"),
+        ariaLabel: t("上传简历"),
         onClick: () => setResumeUploadRequestToken((token) => token + 1),
       };
     } else if (view === 'reviews') {
       topBarPrimaryAction = {
-        label: '添加经历',
-        ariaLabel: '添加经历素材',
+        label: t("添加经历"),
+        ariaLabel: t("添加经历素材"),
         onClick: () => openInterviewStoryDraft({ entrypoint: 'ui' }, { preserveView: true }),
       };
     }
@@ -2675,7 +2679,7 @@ function AppShellContent() {
         <Content
           ref={contentRef}
           tabIndex={-1}
-          aria-label="主要内容"
+          aria-label={t("主要内容")}
           className={`op-app-content${isPilotView ? ' op-app-content-pilot' : ''}${calendarWorkspaceActive ? ' op-app-content-calendar' : ''}`}
           style={{
             padding: isPilotView ? 0 : '0 24px 24px',
@@ -2697,8 +2701,7 @@ function AppShellContent() {
             </div>
           ) : appsError ? (
             <div style={{ textAlign: 'center', padding: 48, color: 'var(--op-muted)' }}>
-              加载失败，请稍后重试
-            </div>
+              {t("加载失败，请稍后重试")}</div>
           ) : (
             <ViewErrorBoundary key={selectedApp ? `application-${selectedApp.id}` : view}>
               {workspaceContent}

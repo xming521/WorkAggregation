@@ -1,3 +1,6 @@
+import { liveText } from '@/i18n/liveText';
+import { localizedModal } from '@/i18n/modal';
+import { t, useLocale, getLocale, setLocale } from '@/i18n';
 import JobMailSettings from '@/features/jobMail/JobMailSettings';
 import ContextPolicySettings from './ContextPolicySettings';
 import ConfirmedMemorySettings from './ConfirmedMemorySettings';
@@ -5,7 +8,7 @@ import ProactiveSettings from './ProactiveSettings';
 import ProactiveInbox from './ProactiveInbox';
 import { ApiOutlined, CopyOutlined, DownloadOutlined, FileSearchOutlined, ReloadOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Divider, Empty, Input, Modal, Pagination, Select, Skeleton, Space, Spin, Switch, Tag, Typography, message } from 'antd';
+import { Alert, Button, Divider, Empty, Input, Pagination, Select, Skeleton, Space, Spin, Switch, Tag, Typography, message } from 'antd';
 import { exportBackup, getLogs, getSettings, getSettingsBackup, type LogEntry, type LogsPage, type Settings } from '@/services/chat';
 import { ONBOARDING_QUERY_KEY, setOnboardingForceOpen } from '@/services/onboarding';
 import { buildDiagnosticsText } from '@/lib/diagnostics';
@@ -38,6 +41,7 @@ export default function SettingsView({
   onPilotMascotResetPosition = () => undefined,
   systemReducedMotion = false,
 }: Props) {
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const [logLevel, setLogLevel] = useState('');
   const [logPage, setLogPage] = useState(1);
@@ -58,9 +62,9 @@ export default function SettingsView({
     mutationFn: () => setOnboardingForceOpen(true),
     onSuccess: (status) => {
       queryClient.setQueryData(ONBOARDING_QUERY_KEY, status);
-      message.success('已重新打开新手引导');
+      message.success(liveText(() => t("已重新打开新手引导")));
     },
-    onError: () => message.error('新手引导打开失败'),
+    onError: () => message.error(liveText(() => t("新手引导打开失败"))),
   });
   const backupMutation = useMutation({
     mutationFn: getSettingsBackup,
@@ -72,10 +76,10 @@ export default function SettingsView({
       anchor.download = `offerpilot-settings-backup-v${backup.version}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
-      message.success('设置备份已导出');
+      message.success(liveText(() => t("设置备份已导出")));
     },
     onError: () => {
-      message.error('设置备份导出失败');
+      message.error(liveText(() => t("设置备份导出失败")));
     },
   });
   useEffect(() => {
@@ -86,7 +90,7 @@ export default function SettingsView({
   const logs = logsPage?.entries ?? [];
   const diagnosticsText = useMemo(
     () => (settings ? buildDiagnosticsText(settings, logs) : ''),
-    [settings, logs],
+    [settings, logs, getLocale()],
   );
 
   async function copyDiagnostics() {
@@ -94,13 +98,13 @@ export default function SettingsView({
     try {
       if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(diagnosticsText);
-      message.success('诊断信息已复制');
+      message.success(liveText(() => t("诊断信息已复制")));
     } catch {
-      Modal.info({
-        title: '复制诊断信息失败，请手动复制',
+      localizedModal('info', () => ({
+        title: t("复制诊断信息失败，请手动复制"),
         content: <Input.TextArea value={diagnosticsText} readOnly autoSize={{ minRows: 8, maxRows: 18 }} />,
         width: 720,
-      });
+      }));
     }
   }
 
@@ -130,9 +134,20 @@ export default function SettingsView({
     >
       <div>
         <Typography.Title level={2} style={{ margin: 0, color: 'var(--op-ink)' }}>
-          设置
-        </Typography.Title>
+          {t("设置")}</Typography.Title>
       </div>
+
+      <section style={panelStyle} aria-labelledby="language-settings-title">
+        <Typography.Title id="language-settings-title" level={4} style={panelTitleStyle}>{t('界面语言')}</Typography.Title>
+        <Select
+          aria-label={t('界面语言')}
+          value={locale}
+          onChange={setLocale}
+          options={[{ value: 'zh-CN', label: '简体中文' }, { value: 'en-US', label: 'English' }]}
+          style={{ width: 220, maxWidth: '100%' }}
+        />
+        <Typography.Text type="secondary">{t('立即切换并保存在此设备；不会翻译你输入的内容或已有 AI 回复。')}</Typography.Text>
+      </section>
 
       <section style={panelStyle}>
         <Space align="start" size={12}>
@@ -141,11 +156,9 @@ export default function SettingsView({
           </span>
           <div>
             <Typography.Title level={4} style={panelTitleStyle}>
-              AI 与模型
-            </Typography.Title>
+              {t("AI 与模型")}</Typography.Title>
             <Typography.Text style={{ color: 'var(--op-muted)' }}>
-              管理模型供应商、模型、密钥与写入确认策略。
-            </Typography.Text>
+              {t("管理模型供应商、模型、密钥与写入确认策略。")}</Typography.Text>
           </div>
         </Space>
         <Divider style={{ margin: 0 }} />
@@ -156,24 +169,23 @@ export default function SettingsView({
             gap: 12,
           }}
         >
-          <RuntimeField label="运行模式" value={formatRuntimeMode(settings?.runtime_mode)} />
-          <RuntimeField label="版本" value={settings?.version ?? '-'} />
-          <RuntimeField label="密钥状态" value={settings?.has_api_key ? '已配置' : '未配置'} />
+          <RuntimeField label={t("运行模式")} value={formatRuntimeMode(settings?.runtime_mode)} />
+          <RuntimeField label={t("版本")} value={settings?.version ?? '-'} />
+          <RuntimeField label={t("密钥状态")} value={settings?.has_api_key ? t("已配置") : t("未配置")} />
         </div>
         <details style={detailsStyle}>
-          <summary style={detailsSummaryStyle}>高级运行信息</summary>
+          <summary style={detailsSummaryStyle}>{t("高级运行信息")}</summary>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 12 }}>
-            <RuntimeField label="多供应商" value={`${settings?.providers.length ?? 0} 个`} />
+            <RuntimeField label={t("多供应商")} value={t("{value0} 个", { value0: settings?.providers.length ?? 0 })} />
             <RuntimeField label="Fallback" value={fallbackLabel(settings)} />
-            <RuntimeField label="日志级别" value={settings?.log_level ?? '-'} />
-            <RuntimeField label="访问控制" value={settings?.auth_enabled ? '已开启' : '未开启'} />
+            <RuntimeField label={t("日志级别")} value={settings?.log_level ?? '-'} />
+            <RuntimeField label={t("访问控制")} value={settings?.auth_enabled ? t("已开启") : t("未开启")} />
           </div>
         </details>
         <div>
           <Space wrap>
             <Button type="primary" icon={<SettingOutlined />} onClick={() => setAISettingsOpen(true)}>
-              配置 AI
-            </Button>
+              {t("配置 AI")}</Button>
           </Space>
         </div>
       </section>
@@ -188,12 +200,12 @@ export default function SettingsView({
         <Space align="start" size={12}>
           <span style={panelIconStyle}><DownloadOutlined /></span>
           <div>
-            <Typography.Title id="data-backup-settings-title" level={4} style={panelTitleStyle}>数据与备份</Typography.Title>
-            <Typography.Text style={{ color: 'var(--op-muted)' }}>导出本机设置或完整工作区数据。</Typography.Text>
+            <Typography.Title id="data-backup-settings-title" level={4} style={panelTitleStyle}>{t("数据与备份")}</Typography.Title>
+            <Typography.Text style={{ color: 'var(--op-muted)' }}>{t("导出本机设置或完整工作区数据。")}</Typography.Text>
           </div>
         </Space>
         <Divider style={{ margin: 0 }} />
-        <RuntimeField label="数据目录" value={settings?.data_dir ?? '-'} />
+        <RuntimeField label={t("数据目录")} value={settings?.data_dir ?? '-'} />
         <div>
           <Space wrap>
             <Button
@@ -201,20 +213,17 @@ export default function SettingsView({
               loading={backupMutation.isPending}
               onClick={() => backupMutation.mutate()}
             >
-              导出备份
-            </Button>
+              {t("导出备份")}</Button>
             <Button
               icon={<DownloadOutlined />}
-              onClick={() => void exportBackup('/backups/export').catch(() => message.error('完整数据导出失败'))}
+              onClick={() => void exportBackup('/backups/export').catch(() => message.error(liveText(() => t("完整数据导出失败"))))}
             >
-              导出完整数据
-            </Button>
+              {t("导出完整数据")}</Button>
             <Button
               loading={reopenOnboardingMutation.isPending}
               onClick={() => reopenOnboardingMutation.mutate()}
             >
-              重新打开新手引导
-            </Button>
+              {t("重新打开新手引导")}</Button>
           </Space>
         </div>
       </section>
@@ -227,15 +236,13 @@ export default function SettingsView({
             </span>
             <div>
               <Typography.Title id="pilot-mascot-settings-title" level={4} style={panelTitleStyle}>
-                Haru 与外观
-              </Typography.Title>
+                {t("Haru 与外观")}</Typography.Title>
               <Typography.Text style={{ color: 'var(--op-muted)' }}>
-                调整 Haru 在桌面工作区的显示、大小、位置和动态效果。
-              </Typography.Text>
+                {t("调整 Haru 在桌面工作区的显示、大小、位置和动态效果。")}</Typography.Text>
             </div>
           </Space>
           <Switch
-            aria-label="显示 Haru"
+            aria-label={t("显示 Haru")}
             checked={pilotMascotVisible}
             onChange={onPilotMascotVisibleChange}
           />
@@ -249,9 +256,9 @@ export default function SettingsView({
           }}
         >
           <label style={preferenceFieldStyle}>
-            <span style={preferenceLabelStyle}>角色大小</span>
+            <span style={preferenceLabelStyle}>{t("角色大小")}</span>
             <Select
-              aria-label="Haru 角色大小"
+              aria-label={t("Haru 角色大小")}
               value={pilotMascotZoom}
               onChange={onPilotMascotZoomChange}
               options={[0.8, 0.9, 1, 1.1, 1.2, 1.3].map((value) => ({
@@ -262,15 +269,15 @@ export default function SettingsView({
             />
           </label>
           <label style={preferenceFieldStyle}>
-            <span style={preferenceLabelStyle}>动画级别</span>
+            <span style={preferenceLabelStyle}>{t("动画级别")}</span>
             <Select
-              aria-label="Haru 动画级别"
+              aria-label={t("Haru 动画级别")}
               value={pilotMascotAnimationLevel}
               onChange={(value) => onPilotMascotAnimationLevelChange(value)}
               options={[
-                { value: 'full', label: '完整' },
-                { value: 'minimal', label: '简洁' },
-                { value: 'off', label: '关闭' },
+                { value: 'full', label: t("完整") },
+                { value: 'minimal', label: t("简洁") },
+                { value: 'off', label: t("关闭") },
               ]}
               style={{ width: '100%' }}
             />
@@ -279,27 +286,25 @@ export default function SettingsView({
         <div>
           <Button
             icon={<ReloadOutlined />}
-            aria-label="重置 Haru 位置"
+            aria-label={t("重置 Haru 位置")}
             onClick={onPilotMascotResetPosition}
           >
-            重置位置
-          </Button>
+            {t("重置位置")}</Button>
         </div>
         <Typography.Text role="status" style={{ color: 'var(--op-muted)', fontSize: 12 }}>
           {systemReducedMotion
-            ? '系统已开启减少动态效果，Haru 将以静态方式显示。'
-            : 'Haru 会遵循系统的减少动态效果设置。'}
+            ? t("系统已开启减少动态效果，Haru 将以静态方式显示。")
+            : t("Haru 会遵循系统的减少动态效果设置。")}
         </Typography.Text>
         <Typography.Text style={{ color: 'var(--op-muted)', fontSize: 12 }}>
-          Haru character © Live2D Inc.，依据官方样例数据条款使用。{' '}
+          {t("Haru character © Live2D Inc.，依据官方样例数据条款使用。")}{' '}
           <a href="https://www.live2d.com/en/learn/sample/" target="_blank" rel="noreferrer">
-            查看 Live2D 样例与许可说明
-          </a>
+            {t("查看 Live2D 样例与许可说明")}</a>
         </Typography.Text>
       </section>
 
       <section style={panelStyle} aria-labelledby="voice-settings-title">
-        <Typography.Title id="voice-settings-title" level={4} style={panelTitleStyle}>语音</Typography.Title>
+        <Typography.Title id="voice-settings-title" level={4} style={panelTitleStyle}>{t("语音")}</Typography.Title>
         <OfflineWhisperModelCard />
       </section>
 
@@ -310,26 +315,24 @@ export default function SettingsView({
           </span>
           <div style={{ flex: 1 }}>
             <Typography.Title level={4} style={panelTitleStyle}>
-              高级与诊断
-            </Typography.Title>
+              {t("高级与诊断")}</Typography.Title>
             <Typography.Text style={{ color: 'var(--op-muted)' }}>
-              最近的本地运行日志。
-            </Typography.Text>
+              {t("最近的本地运行日志。")}</Typography.Text>
           </div>
         </Space>
         <details style={detailsStyle}>
-          <summary style={detailsSummaryStyle}>查看运行日志与诊断</summary>
+          <summary style={detailsSummaryStyle}>{t("查看运行日志与诊断")}</summary>
           <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
             <Space wrap>
               <Select
-                aria-label="日志筛选"
+                aria-label={t("日志筛选")}
                 value={logLevel}
                 onChange={(value) => {
                   setLogLevel(value);
                   setLogPage(1);
                 }}
                 options={[
-                  { value: '', label: '全部日志' },
+                  { value: '', label: t("全部日志") },
                   { value: 'DEBUG', label: 'DEBUG' },
                   { value: 'INFO', label: 'INFO' },
                   { value: 'WARNING', label: 'WARNING' },
@@ -337,8 +340,8 @@ export default function SettingsView({
                 ]}
                 style={{ width: 130 }}
               />
-              <Button icon={<CopyOutlined />} onClick={copyDiagnostics} disabled={!settings}>复制诊断信息</Button>
-              <Button icon={<ReloadOutlined />} onClick={refreshLogs} loading={logsQuery.isFetching} aria-label="刷新日志" />
+              <Button icon={<CopyOutlined />} onClick={copyDiagnostics} disabled={!settings}>{t("复制诊断信息")}</Button>
+              <Button icon={<ReloadOutlined />} onClick={refreshLogs} loading={logsQuery.isFetching} aria-label={t("刷新日志")} />
             </Space>
             <Divider style={{ margin: 0 }} />
             {!logsPage ? (
@@ -346,11 +349,10 @@ export default function SettingsView({
             <Alert
               type="error"
               showIcon
-              message="日志加载失败"
+              message={t("日志加载失败")}
               action={
-                <Button aria-label="重试日志加载" onClick={() => void logsQuery.refetch()}>
-                  重试日志加载
-                </Button>
+                <Button aria-label={t("重试日志加载")} onClick={() => void logsQuery.refetch()}>
+                  {t("重试日志加载")}</Button>
               }
             />
           ) : (
@@ -362,17 +364,16 @@ export default function SettingsView({
               <Alert
                 type="warning"
                 showIcon
-                message="日志刷新失败，正在显示上一页结果"
+                message={t("日志刷新失败，正在显示上一页结果")}
                 action={
-                  <Button aria-label="重试日志加载" onClick={() => void logsQuery.refetch()}>
-                    重试日志加载
-                  </Button>
+                  <Button aria-label={t("重试日志加载")} onClick={() => void logsQuery.refetch()}>
+                    {t("重试日志加载")}</Button>
                 }
               />
             ) : null}
-            {logsQuery.isFetching ? <Spin size="small" aria-label="正在加载日志页" /> : null}
+            {logsQuery.isFetching ? <Spin size="small" aria-label={t("正在加载日志页")} /> : null}
             <div
-              aria-label="运行日志列表"
+              aria-label={t("运行日志列表")}
               role="region"
               style={{ height: 360, overflowY: 'auto', overscrollBehavior: 'contain' }}
             >
@@ -440,6 +441,7 @@ const preferenceLabelStyle = {
 } as const;
 
 function RuntimeField({ label, value }: { label: string; value: string }) {
+  useLocale();
   return (
     <div
       style={{
@@ -460,8 +462,9 @@ function RuntimeField({ label, value }: { label: string; value: string }) {
 }
 
 function LogList({ entries }: { entries: LogEntry[] }) {
+  useLocale();
   if (!entries.length) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无日志" />;
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("暂无日志")} />;
   }
   return (
     <div style={{ display: 'grid', gap: 8 }}>
@@ -504,13 +507,13 @@ function levelColor(level: string) {
 }
 
 function formatRuntimeMode(value: string | undefined) {
-  if (value === 'local') return '本地模式';
-  if (value === 'server') return '服务器模式';
+  if (value === 'local') return t("本地模式");
+  if (value === 'server') return t("服务器模式");
   return '-';
 }
 
 function fallbackLabel(settings?: Settings) {
-  if (!settings?.fallback_provider_ids.length) return '未启用';
+  if (!settings?.fallback_provider_ids.length) return t("未启用");
   return settings.fallback_provider_ids
     .map((providerId) => settings.providers.find((item) => item.id === providerId)?.label || providerId)
     .join(' → ');

@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { Button, Input, Select, Table, Tag } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
 import { useMemo, useState } from 'react';
@@ -26,16 +27,13 @@ interface ApplicationListViewProps {
   onViewStateChange?: (state: ApplicationViewState) => void;
 }
 
-const STATUS_FILTERS = [
-  { value: 'all', label: '全部状态' },
-  ...KANBAN_COLUMNS.map((status) => ({ value: status, label: STATUS_LABELS[status] })),
-];
+
 
 const SORT_OPTIONS: { value: ApplicationSortBy; label: string }[] = [
-  { value: 'updated_desc', label: '最近更新优先' },
-  { value: 'updated_asc', label: '最早更新优先' },
-  { value: 'applied_desc', label: '最近投递优先' },
-  { value: 'applied_asc', label: '最早投递优先' },
+  { value: 'updated_desc', get label() { return t("最近更新优先"); } },
+  { value: 'updated_asc', get label() { return t("最早更新优先"); } },
+  { value: 'applied_desc', get label() { return t("最近投递优先"); } },
+  { value: 'applied_asc', get label() { return t("最早投递优先"); } },
 ];
 
 export default function ApplicationListView({
@@ -47,6 +45,12 @@ export default function ApplicationListView({
   viewState,
   onViewStateChange,
 }: ApplicationListViewProps) {
+const STATUS_FILTERS = [
+  { value: 'all', get label() { return t("全部状态"); } },
+  ...KANBAN_COLUMNS.map((status) => ({ value: status, label: STATUS_LABELS[status] })),
+];
+
+  useLocale();
   const [localViewState, setLocalViewState] = useState<ApplicationViewState>(DEFAULT_APPLICATION_VIEW_STATE);
   const currentViewState = viewState ?? localViewState;
   const { keyword, status, sortBy } = currentViewState;
@@ -63,7 +67,7 @@ export default function ApplicationListView({
 
   const columns: ColumnsType<Application> = [
     {
-      title: '投递',
+      title: t("投递"),
       key: 'application',
       render: (_, row) => (
         <div className={styles.meta}>
@@ -73,7 +77,7 @@ export default function ApplicationListView({
       ),
     },
     {
-      title: '状态',
+      title: t("状态"),
       dataIndex: 'status',
       width: 120,
       render: (value: ApplicationStatus) => (
@@ -81,19 +85,19 @@ export default function ApplicationListView({
       ),
     },
     {
-      title: '来源',
+      title: t("来源"),
       dataIndex: 'source',
       width: 120,
       render: (value: string) => <span className={styles.muted}>{value || '-'}</span>,
     },
     {
-      title: '下一事件',
+      title: t("下一事件"),
       key: 'next_event',
       width: 220,
       render: (_, row) => <span className={styles.muted}>{formatNextApplicationEvent(row, events)}</span>,
     },
     {
-      title: '更新时间',
+      title: t("更新时间"),
       dataIndex: 'updated_at',
       width: 150,
       render: (value: string) => <span className={styles.muted}>{dayjs(value).format('YYYY-MM-DD HH:mm')}</span>,
@@ -109,35 +113,33 @@ export default function ApplicationListView({
             size="small"
             icon={<RobotOutlined />}
             onClick={() => onAskPilot(row)}
-          >
-            问 Pilot
-          </Button>
+          >{t("问 Pilot")}</Button>
         </div>
       ),
     },
   ];
 
   return (
-    <section aria-label="投递列表">
+    <section aria-label={t("投递列表")}>
       <div className={styles.toolbar}>
         <Input.Search
           className={styles.search}
           allowClear
-          placeholder="搜索公司、岗位、备注"
+          placeholder={t("搜索公司、岗位、备注")}
           value={keyword}
           onChange={(event) => updateViewState({ keyword: event.target.value })}
         />
         <Select
-          aria-label="状态"
+          aria-label={t("状态")}
           value={status}
           options={STATUS_FILTERS}
           onChange={(value) => updateViewState({ status: value })}
           style={{ width: 140 }}
         />
         <Select
-          aria-label="排序"
+          aria-label={t("排序")}
           value={sortBy}
-          options={SORT_OPTIONS}
+          options={SORT_OPTIONS.map((option) => ({ ...option }))}
           onChange={(value) => updateViewState({ sortBy: value })}
           style={{ width: 160 }}
         />

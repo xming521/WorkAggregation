@@ -1,3 +1,5 @@
+import { liveText } from '@/i18n/liveText';
+import { t, useLocale } from '@/i18n';
 import { useState } from 'react';
 import { Modal, Input, Button, message, Spin, Tag, Divider } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
@@ -14,6 +16,7 @@ interface JDAnalyzeModalProps {
 const LABEL_STYLE = { color: '#64748b', fontWeight: 600, marginBottom: 4 };
 
 export default function JDAnalyzeModal({ open, application, onClose }: JDAnalyzeModalProps) {
+  useLocale();
   const [jdText, setJdText] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalyzeJDResponse | null>(null);
@@ -21,16 +24,16 @@ export default function JDAnalyzeModal({ open, application, onClose }: JDAnalyze
   const handleAnalyze = async () => {
     if (!application) return;
     if (!jdText.trim()) {
-      message.warning('请粘贴 JD 文本');
+      message.warning(liveText(() => t("请粘贴 JD 文本")));
       return;
     }
     setLoading(true);
     try {
       const res = await analyzeJD({ jd_text: jdText, application_id: application.id });
       setResult(res);
-      message.success('分析完成');
+      message.success(liveText(() => t("分析完成")));
     } catch (e: any) {
-      message.error(e?.response?.data?.error ?? '分析失败');
+      message.error(e?.response?.data?.error ?? t("分析失败"));
     } finally {
       setLoading(false);
     }
@@ -44,44 +47,41 @@ export default function JDAnalyzeModal({ open, application, onClose }: JDAnalyze
 
   return (
     <Modal
-      title="JD 智能分析"
+      title={t("JD 智能分析")}
       open={open}
       onCancel={close}
       width={640}
       footer={
         result
-          ? [<Button key="close" onClick={close}>关闭</Button>]
+          ? [<Button key="close" onClick={close}>{t("关闭")}</Button>]
           : [
-              <Button key="cancel" onClick={close}>取消</Button>,
+              <Button key="cancel" onClick={close}>{t("取消")}</Button>,
               <Button
                 key="ok"
                 type="primary"
                 icon={<RobotOutlined />}
                 loading={loading}
                 onClick={handleAnalyze}
-              >
-                开始分析
-              </Button>,
+              >{t("开始分析")}</Button>,
             ]
       }
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48 }}>
-          <Spin tip="AI 分析中…" />
+          <Spin tip={t("AI 分析中…")} />
         </div>
       ) : result ? (
         <AnalysisView result={result.result} />
       ) : (
         <>
-          <p style={LABEL_STYLE}>粘贴 JD 文本进行分析：</p>
+          <p style={LABEL_STYLE}>{t("粘贴 JD 文本进行分析：")}</p>
           <Input.TextArea
             rows={8}
             value={jdText}
             onChange={(e) => setJdText(e.target.value)}
-            placeholder="复制招聘 JD 全文粘贴到这里…"
+            placeholder={t("复制招聘 JD 全文粘贴到这里…")}
           />
-          <p style={{ marginTop: 8, color: '#94a3b8', fontSize: 12 }}>
-            分析结果会保存到本地，并关联到「{application?.company_name} · {application?.position_name}」。
+          <p style={{ marginTop: 8, color: '#94a3b8', fontSize: 12 }}>{t("分析结果会保存到本地，并关联到「")}{application?.company_name} · {application?.position_name}」。
           </p>
         </>
       )}
@@ -90,20 +90,21 @@ export default function JDAnalyzeModal({ open, application, onClose }: JDAnalyze
 }
 
 function AnalysisView({ result }: { result: AnalyzeJDResponse['result'] }) {
+  useLocale();
   return (
     <div>
-      <p style={LABEL_STYLE}>摘要</p>
+      <p style={LABEL_STYLE}>{t("摘要")}</p>
       <p>{result.summary}</p>
 
       <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
-        <span><Tag color="blue">年限 {result.experience_years}</Tag></span>
-        <span><Tag color="purple">学历 {result.education}</Tag></span>
+        <span><Tag color="blue">{t("年限 ")}{result.experience_years}</Tag></span>
+        <span><Tag color="purple">{t("学历 ")}{result.education}</Tag></span>
       </div>
 
       {result.tech_stack.length > 0 && (
         <>
           <Divider style={{ margin: '8px 0' }} />
-          <p style={LABEL_STYLE}>技术栈</p>
+          <p style={LABEL_STYLE}>{t("技术栈")}</p>
           <div>
             {result.tech_stack.map((t) => (
               <Tag key={t} color="cyan">{t}</Tag>
@@ -115,7 +116,7 @@ function AnalysisView({ result }: { result: AnalyzeJDResponse['result'] }) {
       {result.requirements.length > 0 && (
         <>
           <Divider style={{ margin: '8px 0' }} />
-          <p style={LABEL_STYLE}>关键要求</p>
+          <p style={LABEL_STYLE}>{t("关键要求")}</p>
           <ul>
             {result.requirements.map((r) => <li key={r}>{r}</li>)}
           </ul>
@@ -125,7 +126,7 @@ function AnalysisView({ result }: { result: AnalyzeJDResponse['result'] }) {
       {result.highlights.length > 0 && (
         <>
           <Divider style={{ margin: '8px 0' }} />
-          <p style={LABEL_STYLE}>亮点</p>
+          <p style={LABEL_STYLE}>{t("亮点")}</p>
           <ul>
             {result.highlights.map((h) => <li key={h}>{h}</li>)}
           </ul>
@@ -135,7 +136,7 @@ function AnalysisView({ result }: { result: AnalyzeJDResponse['result'] }) {
       {result.suggestions.length > 0 && (
         <>
           <Divider style={{ margin: '8px 0' }} />
-          <p style={LABEL_STYLE}>准备建议</p>
+          <p style={LABEL_STYLE}>{t("准备建议")}</p>
           <ul>
             {result.suggestions.map((s) => <li key={s}>{s}</li>)}
           </ul>

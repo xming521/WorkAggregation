@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider, App as AntApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
+import { useLocale } from './i18n';
 import App from './App';
 import { ThemeProvider, useThemeMode } from './theme/ThemeContext';
 import { lightTheme, darkTheme } from './theme/antdTheme';
@@ -16,8 +18,9 @@ const queryClient = new QueryClient({
 
 function ThemedApp() {
   const { mode } = useThemeMode();
+  const locale = useLocale();
   return (
-    <ConfigProvider locale={zhCN} theme={mode === 'dark' ? darkTheme : lightTheme}>
+    <ConfigProvider locale={locale === 'zh-CN' ? zhCN : enUS} theme={mode === 'dark' ? darkTheme : lightTheme}>
       <AntApp>
         <App />
       </AntApp>

@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import {
   useCallback,
   useEffect,
@@ -32,7 +33,7 @@ import type {
   UITurn,
 } from '@/components/ChatPanel/model';
 import { buildChatRequestContext, buildTurns, pendingActionForConversation, pendingAutoSelectReducer } from '@/components/ChatPanel/model';
-import { pageContextKey } from '@/lib/pilotPageContext';
+import { displayPilotPageLabel, pageContextKey } from '@/lib/pilotPageContext';
 import { usePilotPresentation } from '@/features/actionPresentation/usePilotPresentation';
 import type { AssistantTaskState } from './assistantSurfaceReducer';
 import { sameExecution, usePilotExecution } from './usePilotExecution';
@@ -111,15 +112,19 @@ export function mergePilotRequestAttachments(
   return result;
 }
 
-function contextDisplayLabel(context: PilotPageContext): string {
-  return context.entity?.label || context.label;
+// Track only labels authored here. User and server-provided context names stay
+// byte-for-byte intact, including names that happen to match a translation key.
+const fallbackContextLabels = new WeakMap<PilotPageContext, () => string>();
+export function contextDisplayLabel(context: PilotPageContext | undefined): string | undefined {
+  if (!context) return undefined;
+  return fallbackContextLabels.get(context)?.() ?? (context.entity?.label || displayPilotPageLabel(context));
 }
 
 function conversationPageContext(conversation: Conversation | undefined): PilotPageContext | undefined {
   if (!conversation) return undefined;
   if (conversation.context_type === 'application' && conversation.context_ref) {
     const label = conversation.context_label || `投递 #${conversation.context_ref}`;
-    return {
+    const context: PilotPageContext = {
       view: 'applications-list',
       label,
       entity: {
@@ -128,12 +133,26 @@ function conversationPageContext(conversation: Conversation | undefined): PilotP
         label,
       },
     };
+    if (!conversation.context_label) {
+      fallbackContextLabels.set(context, () => t('投递 #{id}', { id: conversation.context_ref! }));
+    }
+    return context;
   }
-  return {
+  const context: PilotPageContext = {
     view: 'dashboard',
     label: conversation.context_label || '工作台',
   };
+  fallbackContextLabels.set(context, conversation.context_label
+    ? () => conversation.context_label!
+    : () => t('工作台'));
+  return context;
 }
+
+const controllerErrorSources = new Set([
+  '任务已结束，暂时无法读取记录，请重新打开对话。',
+  '回复状态暂时无法读取，请重新打开对话。',
+  '加载对话失败，请重试。',
+]);
 
 const unavailableActions: PilotConversationActions = {
   sendMessage: async () => 'ignored',
@@ -148,6 +167,7 @@ const unavailableActions: PilotConversationActions = {
 };
 
 export function usePilotConversationControllerState(observationEnabled = true) {
+  const locale = useLocale();
   const [turns, setTurns] = useState<UITurn[]>([]);
   const [conversationId, setConversationId] = useState<number>();
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -291,8 +311,8 @@ export function usePilotConversationControllerState(observationEnabled = true) {
       return;
     }
     setContextChangeNotice({
-      currentConversationLabel: contextDisplayLabel(currentContext),
-      currentPageLabel: contextDisplayLabel(nextContext),
+      currentConversationLabel: contextDisplayLabel(currentContext) ?? '',
+      currentPageLabel: contextDisplayLabel(nextContext) ?? '',
       currentContext,
       followingContext: nextContext,
     });
@@ -673,7 +693,7 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     dispatchPendingAutoSelect,
     draftContext,
     setDraftContext,
-    lastError,
+    lastError: lastError && controllerErrorSources.has(lastError) ? t(lastError) : lastError,
     setLastError,
     lastFailedText,
     setLastFailedText,
@@ -697,7 +717,11 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     pinnedContext,
     pinConversationContext,
     activateConversationContext,
-    contextChangeNotice,
+    contextChangeNotice: contextChangeNotice ? {
+      ...contextChangeNotice,
+      currentConversationLabel: contextDisplayLabel(contextChangeNotice.currentContext) ?? '',
+      currentPageLabel: contextDisplayLabel(contextChangeNotice.followingContext) ?? '',
+    } : null,
     switchToFollowingContext,
     dismissContextChangeNotice,
     requestContextSnapshot,
@@ -752,6 +776,7 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     approvePending,
     rejectPending,
   }), [
+    locale,
     undoOperation,
     displayTurns,
     presentationSnapshot,

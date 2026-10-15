@@ -1,3 +1,4 @@
+import { t, translateKnownLabel } from '@/i18n';
 import type { ViewMode } from '@/layout/navigation';
 import { STATUS_LABELS, type Application } from '@/types/application';
 import type { PilotContextChip, PilotPageContext } from '@/types/chat';
@@ -6,19 +7,19 @@ import { OFFER_STATUS_LABELS, type Offer } from '@/types/offer';
 export type { PilotContextChip, PilotPageContext } from '@/types/chat';
 
 export const PILOT_VIEW_LABELS: Record<ViewMode, string> = {
-  dashboard: '今日',
-  board: '投递看板',
-  'applications-list': '投递列表',
-  calendar: '投递日历',
-  reminders: '提醒',
-  interview: '面试',
-  reviews: '经历素材',
+  get dashboard() { return t("今日"); },
+  get board() { return t("投递看板"); },
+  get 'applications-list'() { return t("投递列表"); },
+  get calendar() { return t("投递日历"); },
+  get reminders() { return t("提醒"); },
+  get interview() { return t("面试"); },
+  get reviews() { return t("经历素材"); },
   offers: 'Offer',
-  knowledge: '参考资料',
-  questions: '题库',
-  resumes: '简历',
+  get knowledge() { return t("参考资料"); },
+  get questions() { return t("题库"); },
+  get resumes() { return t("简历"); },
   pilot: 'Pilot',
-  settings: '设置',
+  get settings() { return t("设置"); },
 };
 
 interface BuildPilotPageContextOptions {
@@ -44,18 +45,29 @@ export function buildPilotPageContext({
       kind: 'application',
       id: String(selectedApplication.id),
       label: `${selectedApplication.company_name} · ${selectedApplication.position_name}`,
-      description: `当前状态：${STATUS_LABELS[selectedApplication.status]}`,
+      description: t("当前状态：{value0}", { value0: STATUS_LABELS[selectedApplication.status] }),
     };
   } else if (coachedOffer) {
     context.entity = {
       kind: 'offer',
       id: String(coachedOffer.id),
       label: `${coachedOffer.company_name} · ${coachedOffer.position_name} Offer`,
-      description: `Offer 状态：${OFFER_STATUS_LABELS[coachedOffer.status]}`,
+      description: t("Offer 状态：{value0}", { value0: OFFER_STATUS_LABELS[coachedOffer.status] }),
     };
   }
 
   return context;
+}
+
+/** View names are UI-owned; entity and user labels remain unchanged. */
+export function displayPilotPageLabel(context: PilotPageContext): string {
+  const sources: Record<string, string> = {
+    dashboard: '今日', board: '投递看板', 'applications-list': '投递列表',
+    calendar: '投递日历', reminders: '提醒', interview: '面试', reviews: '经历素材',
+    offers: 'Offer', knowledge: '参考资料', questions: '题库', resumes: '简历',
+    pilot: 'Pilot', settings: '设置',
+  };
+  return sources[context.view] ? translateKnownLabel(sources[context.view], context.label) : context.label;
 }
 
 export function pageContextKey(context?: PilotPageContext): string {
@@ -76,12 +88,12 @@ export function pageContextKey(context?: PilotPageContext): string {
 
 export function pageContextChips(context: PilotPageContext): PilotContextChip[] {
   return [
-    { key: 'view', label: '页面', value: context.label },
+    { key: 'view', label: t("页面"), value: displayPilotPageLabel(context) },
     ...(context.entity
       ? [
           {
             key: 'entity',
-            label: context.entity.kind === 'application' ? '投递' : 'Offer',
+            label: context.entity.kind === 'application' ? t("投递") : 'Offer',
             value: context.entity.label,
           },
         ]

@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input, Button } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
@@ -37,6 +38,7 @@ export default function Composer({
   onboardingFocusToken,
   onSend,
 }: Props) {
+  const locale = useLocale();
   const [localValue, setLocalValue] = useState('');
   const [sel, setSel] = useState(0);
   const [onboardingFocusActive, setOnboardingFocusActive] = useState(false);
@@ -80,7 +82,7 @@ export default function Composer({
     return capabilities.filter(
       (c) => c.label.toLowerCase().includes(slashQuery) || c.hint.toLowerCase().includes(slashQuery),
     );
-  }, [slashQuery, capabilities]);
+  }, [slashQuery, capabilities, locale]);
 
   async function pickCapability(cap: Capability) {
     const needsMore = /[：:]$/.test(cap.prompt.trim());
@@ -113,7 +115,7 @@ export default function Composer({
       className={`${styles.composer} ${onboardingFocusActive ? styles.composerOnboardingFocus : ''}`}
     >
       {quickQuestions.length > 0 ? (
-        <div className={styles.quickQuestions} aria-label="快捷提问">
+        <div className={styles.quickQuestions} aria-label={t("快捷提问")}>
           {quickQuestions.map((question, index) => (
             <button
               key={question}
@@ -169,7 +171,7 @@ export default function Composer({
               void submit();
             }
           }}
-          placeholder={placeholder ?? '问问领航员，或输入 / 唤起能力'}
+          placeholder={placeholder ?? t("问问领航员，或输入 / 唤起能力")}
           autoSize={{ minRows: 1, maxRows: 4 }}
           variant="borderless"
           disabled={disabled}
@@ -180,16 +182,14 @@ export default function Composer({
           icon={<SendOutlined />}
           disabled={disabled || !value.trim()}
           onClick={() => void submit()}
-          aria-label="发送"
+          aria-label={t("发送")}
         />
       </div>
       <div className={styles.hint}>
         {disabledReason ? (
           <span>{disabledReason}</span>
         ) : (
-          <span>
-            输入 <kbd>/</kbd> 唤起能力 · <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行
-          </span>
+          <span>{t("输入 ")}<kbd>/</kbd>{t(" 唤起能力 · ")}<kbd>Enter</kbd>{t(" 发送 · ")}<kbd>Shift+Enter</kbd>{t(" 换行")}</span>
         )}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import type { ChatResponse, ChatStreamEvent, PilotExecution } from '@/types/chat';
 import { authHeaders } from './authToken';
 import type { PilotTimelinePage } from '@/features/actionPresentation/contracts';
@@ -34,7 +35,7 @@ export class RuntimeSubscriptionError extends Error {
   readonly acceptedTurn = true;
   readonly code = 'runtime_subscription_detached';
   constructor(readonly target: RuntimeIdentity) {
-    super('连接已断开，任务仍可能在运行。重新打开对话可查看已保存的结果。');
+    super(t("连接已断开，任务仍可能在运行。重新打开对话可查看已保存的结果。"));
     this.name = 'RuntimeSubscriptionError';
   }
 }
@@ -43,10 +44,10 @@ export class RuntimeEndedError extends Error {
   readonly acceptedTurn = true;
   readonly code: string;
   constructor(readonly target: RuntimeIdentity, readonly state: string) {
-    super(({ failed: '任务执行失败，请查看已保存的记录。', stopped: '任务已停止，已提交的更改仍保留。',
-      interrupted: '执行已中断，请查看已保存的记录。', result_unknown: '执行结果待核对，请查看已保存的记录。',
-      completed: '任务已完成，请查看已保存的结果。', waiting_confirmation: '任务正在等待确认，请刷新确认状态。',
-    } as Record<string, string>)[state] ?? '任务状态已变化，请重新读取已保存的记录。');
+    super(({ failed: t("任务执行失败，请查看已保存的记录。"), stopped: t("任务已停止，已提交的更改仍保留。"),
+      interrupted: t("执行已中断，请查看已保存的记录。"), result_unknown: t("执行结果待核对，请查看已保存的记录。"),
+      completed: t("任务已完成，请查看已保存的结果。"), waiting_confirmation: t("任务正在等待确认，请刷新确认状态。"),
+    } as Record<string, string>)[state] ?? t("任务状态已变化，请重新读取已保存的记录。"));
     this.name = 'RuntimeEndedError'; this.code = `runtime_${state}`;
   }
 }
@@ -163,7 +164,7 @@ export async function observeRuntimeTurn(target: RuntimeIdentity, options?: Runt
     const kind = raw.event ?? raw.kind;
     if (kind === 'resync_required') {
       options?.onEvent?.({ ...raw, event: 'status', seq: raw.event_seq ?? raw.seq ?? high,
-        data: { phase: 'resync', label: '部分实时进度已省略，正在恢复已保存记录。' } });
+        data: { phase: 'resync', label: t("部分实时进度已省略，正在恢复已保存记录。") } });
       throw new Error('runtime_resync_required');
     }
     if (kind === 'subscribed' || kind === 'heartbeat') return;

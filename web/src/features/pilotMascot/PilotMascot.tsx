@@ -1,3 +1,4 @@
+import { t, useLocale, formatNumber } from '@/i18n';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 import { CloseOutlined, MessageOutlined, MinusOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
@@ -97,6 +98,7 @@ export default function PilotMascot({
   runtime = live2dPilotMascotRuntime,
   triggerRef: externalTriggerRef,
 }: Props) {
+  useLocale();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const internalTriggerRef = useRef<HTMLButtonElement>(null);
   const triggerRef = externalTriggerRef ?? internalTriggerRef;
@@ -189,12 +191,12 @@ export default function PilotMascot({
   }, [menuOpen]);
 
   const setZoom = (nextZoom: number) => onZoomChange(normalizePilotMascotZoom(nextZoom));
-  const actionLabel = notification
+  const actionLabel = t(notification
     ? notification.status === 'success' ? '查看 Pilot 已完成回答' : '查看 Pilot 回答错误'
     : placement === 'pilot-page'
       ? '聚焦 Pilot 输入框'
-      : panelOpen ? '收起 OfferPilot 领航员' : '打开 OfferPilot 领航员';
-  const buttonLabel = loadFailed ? `${actionLabel}（Haru 暂时休息中）` : actionLabel;
+      : panelOpen ? '收起 OfferPilot 领航员' : '打开 OfferPilot 领航员');
+  const buttonLabel = loadFailed ? t('{action}（Haru 暂时休息中）', { action: actionLabel }) : actionLabel;
 
   const frame = compact || panelOpen || placement === 'pilot-page' || (studioPlacement && viewport.height < 740)
     ? MASCOT_FRAME.compact
@@ -208,8 +210,8 @@ export default function PilotMascot({
   const measuredSafeAreas = typeof document !== 'undefined' && studioPlacement
     ? [
       document.querySelector<HTMLElement>('[data-interview-studio] > header'),
-      document.querySelector<HTMLElement>('[data-interview-studio] [aria-label="回答区"]'),
-      ...(studioEvidenceOpen ? [document.querySelector<HTMLElement>('[data-interview-studio] [aria-label="本轮依据"]')] : []),
+      document.querySelector<HTMLElement>('[data-interview-studio] #interview-answer-panel, [data-interview-studio] [data-interview-studio-answer], [data-interview-studio] [aria-label="回答区"], [data-interview-studio] [aria-label="Answer area"]'),
+      ...(studioEvidenceOpen ? [document.querySelector<HTMLElement>('[data-interview-studio] #interview-evidence-panel, [data-interview-studio] [aria-label="本轮依据"], [data-interview-studio] [aria-label="Evidence for this round"]')] : []),
       ...Array.from(document.querySelectorAll<HTMLElement>(
         '[data-interview-studio] [data-interview-studio-question], ' +
         '[data-interview-studio] [data-interview-studio-evidence-trigger], ' +
@@ -259,8 +261,8 @@ export default function PilotMascot({
     const observer = new ResizeObserver(() => setSafeAreaRevision((revision) => revision + 1));
     [
       studio.querySelector<HTMLElement>(':scope > header'),
-      studio.querySelector<HTMLElement>('[aria-label="回答区"]'),
-      studio.querySelector<HTMLElement>('[aria-label="本轮依据"]'),
+      studio.querySelector<HTMLElement>('#interview-answer-panel, [data-interview-studio-answer], [aria-label="回答区"], [aria-label="Answer area"]'),
+      studio.querySelector<HTMLElement>('#interview-evidence-panel, [aria-label="本轮依据"], [aria-label="Evidence for this round"]'),
       ...Array.from(studio.querySelectorAll<HTMLElement>(
         '[data-interview-studio-question], [data-interview-studio-evidence-trigger], [data-interview-studio-follow-up], [role="alert"]',
       )),
@@ -341,13 +343,13 @@ export default function PilotMascot({
       data-notification={notification?.status}
       data-animation-level={animationLevel}
       data-interview-studio-companion={studioPlacement ? 'true' : undefined}
-      aria-label="Haru 助手"
+      aria-label={t("Haru 助手")}
       style={{ width: frameWidth, height: frameHeight, left: `${frameLeft}px`, top: `${frameTop}px`, right: 'auto', bottom: 'auto' }}
     >
       {notification || (!panelOpen && activity !== 'idle') ? (
         <div className={styles.bubble} role="status" aria-live="polite">
-          <strong>{copy.label}</strong>
-          <span>{copy.detail}</span>
+          <strong>{t(copy.label)}</strong>
+          <span>{t(copy.detail)}</span>
         </div>
       ) : null}
       <button
@@ -381,7 +383,7 @@ export default function PilotMascot({
         {loadFailed ? (
           <span className={styles.fallback} role="status" aria-live="polite">
             <MessageOutlined />
-            <span>Haru 暂时休息中</span>
+            <span>{t("Haru 暂时休息中")}</span>
           </span>
         ) : null}
         <span className={styles.nameplate} aria-hidden="true">
@@ -392,14 +394,14 @@ export default function PilotMascot({
       {menuOpen ? (
         <div id="pilot-mascot-menu" className={styles.contextMenu} role="menu" ref={menuRef}>
           <div className={styles.zoomHeading} aria-hidden="true">
-            <span>角色大小</span>
-            <strong>{zoomPercent}%</strong>
+            <span>{t("角色大小")}</span>
+            <strong>{formatNumber(zoomPercent)}%</strong>
           </div>
           <div className={styles.zoomControls}>
             <button
               type="button"
               role="menuitem"
-              aria-label="缩小角色"
+              aria-label={t("缩小角色")}
               disabled={normalizedZoom <= PILOT_MASCOT_MIN_ZOOM}
               onClick={() => setZoom(normalizedZoom - 0.1)}
             >
@@ -408,7 +410,7 @@ export default function PilotMascot({
             <button
               type="button"
               role="menuitem"
-              aria-label="恢复默认大小"
+              aria-label={t("恢复默认大小")}
               disabled={normalizedZoom === 1}
               onClick={() => setZoom(1)}
             >
@@ -417,7 +419,7 @@ export default function PilotMascot({
             <button
               type="button"
               role="menuitem"
-              aria-label="放大角色"
+              aria-label={t("放大角色")}
               disabled={normalizedZoom >= PILOT_MASCOT_MAX_ZOOM}
               onClick={() => setZoom(normalizedZoom + 0.1)}
             >
@@ -434,22 +436,22 @@ export default function PilotMascot({
             }}
           >
             <CloseOutlined />
-            隐藏角色
+            {t("隐藏角色")}
           </button>
-          <button type="button" role="menuitem" aria-label="恢复默认位置" onClick={resetPosition}>
+          <button type="button" role="menuitem" aria-label={t("恢复默认位置")} onClick={resetPosition}>
             <ReloadOutlined />
-            恢复默认位置
+            {t("恢复默认位置")}
           </button>
-          <div className={styles.positionPresets} role="group" aria-label="角色位置">
+          <div className={styles.positionPresets} role="group" aria-label={t("角色位置")}>
             {([
               ['左下', 0.16, 0.82],
               ['右下', 0.84, 0.82],
               ['右中', 0.84, 0.52],
             ] as const).map(([label, xRatio, yRatio]) => (
-              <button key={label} type="button" role="menuitem" onClick={() => { setPosition({ xRatio, yRatio }); setMenuOpen(false); }}>{label}</button>
+              <button key={label} type="button" role="menuitem" onClick={() => { setPosition({ xRatio, yRatio }); setMenuOpen(false); }}>{t(label)}</button>
             ))}
           </div>
-          <span>可在设置中恢复显示</span>
+          <span>{t("可在设置中恢复显示")}</span>
         </div>
       ) : null}
     </aside>

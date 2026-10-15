@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { setLocale } from '@/i18n';
 import { act, StrictMode, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -46,7 +47,7 @@ function review() { return <JobMailReview suggestionId={suggestionId} onClose={c
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((res) => { resolve = res; }); return { promise, resolve }; }
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  vi.clearAllMocks(); sessionStorage.clear(); suggestion = structuredClone(baseSuggestion); status = structuredClone(baseStatus);
+  setLocale('zh-CN'); vi.clearAllMocks(); sessionStorage.clear(); suggestion = structuredClone(baseSuggestion); status = structuredClone(baseStatus);
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   api.getJobMailStatus.mockImplementation(async () => structuredClone(status)); api.getJobMailSuggestion.mockImplementation(async () => structuredClone(suggestion));
@@ -61,7 +62,7 @@ beforeEach(() => {
   api.syncJobMail.mockResolvedValue({ id: 'run-id', status: 'running' }); api.cancelJobMailSync.mockResolvedValue({});
   api.disconnectJobMail.mockImplementation(async () => { status.connection!.status = 'disconnected'; return status; }); api.connectSyntheticJobMail.mockResolvedValue(connectedStatus); api.importJobMail.mockResolvedValue({ items: [suggestion], deduplicated: false }); api.ignoreJobMail.mockResolvedValue({ ...suggestion, status: 'ignored' });
 });
-afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.restoreAllMocks(); });
+afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); setLocale('zh-CN'); vi.restoreAllMocks(); });
 
 describe('job mail settings in StrictMode', () => {
   it('fails closed for real connection and never requests a credential', async () => {
@@ -217,5 +218,46 @@ describe('manual import', () => {
   it('requires plain-text preview and explicit submission, without business writes', async () => {
     await render(<JobMailImport onClose={close} />); const inputs = container.querySelectorAll('input'); await change(inputs[0], '面试邀请'); await change(inputs[1], 'hr@example.com'); await change(inputs[2], '2026-10-09T02:00:00Z'); await change(container.querySelector('textarea')!, '<img src="https://malicious.test/track"> 2026-10-15T15:00:00+08:00 面试45分钟');
     await click(button('预览将提交的文本')); expect(api.importJobMail).not.toHaveBeenCalled(); expect(container.querySelector('img')).toBeNull(); await click(button('返回编辑')); expect(api.importJobMail).not.toHaveBeenCalled(); await click(button('预览将提交的文本')); await click(button('提交文本并生成待确认建议')); expect(api.importJobMail).toHaveBeenCalledTimes(1); expect(container.textContent).toContain('邮件文本已处理'); expect(api.confirmJobMail).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('job mail live localization', () => {
+  it('keeps pasted email content and updates a retained validation error in both directions', async () => {
+    await render(<JobMailImport onClose={close} />);
+    await click(button('预览将提交的文本'));
+    expect(container.textContent).toContain('请填写主题和单封邮件正文。');
+    await act(async () => setLocale('en-US'));
+    expect(container.textContent).toContain('Enter a subject and the body of a single email.');
+    const subject = container.querySelector<HTMLInputElement>('input')!;
+    await change(subject, '保留用户邮件主题');
+    const body = container.querySelector<HTMLTextAreaElement>('textarea')!;
+    await change(body, '用户邮件原文，不应被翻译');
+    await click(button('Preview text to submit'));
+    expect(container.textContent).toContain('complete timestamp with timezone');
+    await act(async () => setLocale('zh-CN'));
+    expect(container.querySelector('input')).toBe(subject);
+    expect(subject.value).toBe('保留用户邮件主题');
+    expect(body.value).toBe('用户邮件原文，不应被翻译');
+    expect(container.textContent).toContain('请按邮件核实接收时间，填写含时区的完整时间。');
+    expect(api.importJobMail).not.toHaveBeenCalled();
+  });
+
+  it('keeps an exact pending preview when switching languages and does not write or regenerate it', async () => {
+    await render(review());
+    await change(container.querySelector('[aria-label="地点"]')!, '用户填写的会议地点');
+    await click(button('预览最终变更'));
+    expect(api.previewJobMail).toHaveBeenCalledTimes(1);
+    const submittedInput = api.previewJobMail.mock.calls[0][1];
+    await act(async () => setLocale('en-US'));
+    expect(container.textContent).toContain('Final confirmation summary');
+    expect(container.textContent).toContain('用户填写的会议地点');
+    expect(button('Confirm adding to calendar')).toBeDefined();
+    expect(api.previewJobMail).toHaveBeenCalledTimes(1);
+    expect(api.confirmJobMail).not.toHaveBeenCalled();
+    await act(async () => setLocale('zh-CN'));
+    expect(container.textContent).toContain('最终确认摘要');
+    expect(api.previewJobMail.mock.calls[0][1]).toBe(submittedInput);
+    expect(api.confirmJobMail).not.toHaveBeenCalled();
   });
 });

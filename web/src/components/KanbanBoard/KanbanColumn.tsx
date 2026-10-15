@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useDroppable } from '@dnd-kit/core';
 import type React from 'react';
 import type { Application, ApplicationStatus } from '@/types/application';
@@ -23,6 +24,7 @@ export default function KanbanColumn({
   onOpenDetail,
   onRequestStatusChange,
 }: KanbanColumnProps) {
+  useLocale();
   const { isOver, setNodeRef } = useDroppable({ id: status });
 
   return (
@@ -38,7 +40,7 @@ export default function KanbanColumn({
       </div>
       <div className={styles.columnBody}>
         {cards.length === 0 ? (
-          <div className={styles.emptyColumn}>暂无{label}的投递</div>
+          <div className={styles.emptyColumn}>{t("暂无{status}的投递", { status: label })}</div>
         ) : (
           cards.map((card) => (
             <KanbanCard

@@ -42,10 +42,10 @@ describe('CommandPalette resume commands', () => {
   });
 
   it('uses the unified settings destination wording', () => {
-    expect(source).toContain("label: '打开设置'");
+    expect(source).toMatch(/label: t\(["']打开设置["']\)/);
     expect(source).not.toContain('打开 AI 设置');
     expect(source).toContain('打开 Offer 中心');
-    expect(source).toContain("hint: '今日'");
+    expect(source).toContain('hint: t("今日")');
   });
 
   it('builds application search commands without soft-deleted rows', () => {

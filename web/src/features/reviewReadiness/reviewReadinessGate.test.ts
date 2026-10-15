@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, posix, relative } from 'node:path';
+import { join, posix, relative } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -1418,11 +1418,13 @@ function importTargetsSource(
   moduleName: string,
   targetPath: string,
 ): boolean {
+  const importer = importerPath.replace(/\\/g, '/');
+  const specifier = moduleName.replace(/\\/g, '/');
   let resolved: string;
-  if (moduleName.startsWith('@/')) {
-    resolved = `web/src/${moduleName.slice(2)}`;
-  } else if (moduleName.startsWith('.')) {
-    resolved = join(dirname(importerPath), moduleName);
+  if (specifier.startsWith('@/')) {
+    resolved = `web/src/${specifier.slice(2)}`;
+  } else if (specifier.startsWith('.')) {
+    resolved = posix.join(posix.dirname(importer), specifier);
   } else {
     return false;
   }

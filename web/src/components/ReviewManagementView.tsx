@@ -1,3 +1,5 @@
+import { liveText } from '@/i18n/liveText';
+import { t, useLocale } from '@/i18n';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -32,9 +34,9 @@ import InterviewKnowledgeCaptureDrawer, {
 const { Text, Paragraph } = Typography;
 
 const MOOD_OPTIONS = [
-  { value: 'good', label: '好' },
-  { value: 'normal', label: '一般' },
-  { value: 'bad', label: '差' },
+  { value: 'good', get label() { return t("好"); } },
+  { value: 'normal', get label() { return t("一般"); } },
+  { value: 'bad', get label() { return t("差"); } },
 ];
 
 interface Props {
@@ -65,6 +67,7 @@ function inDateRange(date: string, range: [Dayjs | null, Dayjs | null] | null) {
 }
 
 export default function ReviewManagementView({ applications, interviewReviewProposalAttempts, onInterviewReviewProposalAttemptChange, onInterviewNoteChanged, interviewKnowledgeCaptureDrafts, onInterviewKnowledgeCaptureDraftChange, onInterviewKnowledgeCaptureNoteChanged }: Props) {
+  useLocale();
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<InterviewNote | null>(null);
@@ -85,11 +88,11 @@ export default function ReviewManagementView({ applications, interviewReviewProp
   const createMut = useMutation({
     mutationFn: createStandaloneNote,
     onSuccess: () => {
-      message.success('已保存面试复盘');
+      message.success(liveText(() => t("已保存面试复盘")));
       setDrawerOpen(false);
       invalidateNotes();
     },
-    onError: () => message.error('保存失败'),
+    onError: () => message.error(liveText(() => t("保存失败"))),
   });
 
   const updateMut = useMutation({
@@ -97,21 +100,21 @@ export default function ReviewManagementView({ applications, interviewReviewProp
     onSuccess: (_data, variables) => {
       onInterviewNoteChanged?.(variables.id);
       onInterviewKnowledgeCaptureNoteChanged?.(variables.id);
-      message.success('已更新面试复盘');
+      message.success(liveText(() => t("已更新面试复盘")));
       setEditing(null);
       setDrawerOpen(false);
       invalidateNotes();
     },
-    onError: () => message.error('更新失败'),
+    onError: () => message.error(liveText(() => t("更新失败"))),
   });
 
   const deleteMut = useMutation({
     mutationFn: deleteNote,
     onSuccess: () => {
-      message.success('已删除面试复盘');
+      message.success(liveText(() => t("已删除面试复盘")));
       invalidateNotes();
     },
-    onError: () => message.error('删除失败'),
+    onError: () => message.error(liveText(() => t("删除失败"))),
   });
 
   const filtered = useMemo(() => {
@@ -192,11 +195,10 @@ export default function ReviewManagementView({ applications, interviewReviewProp
     <div>
       <Space style={{ marginBottom: 16, width: '100%', alignItems: 'center' }} wrap>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新建复盘
-        </Button>
+          {t("新建复盘")}</Button>
         <Input.Search
           allowClear
-          placeholder="搜索公司、岗位、问题、反思"
+          placeholder={t("搜索公司、岗位、问题、反思")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: 320 }}
@@ -204,7 +206,7 @@ export default function ReviewManagementView({ applications, interviewReviewProp
         <Select
           allowClear
           showSearch
-          placeholder="按投递筛选"
+          placeholder={t("按投递筛选")}
           optionFilterProp="label"
           value={applicationID}
           onChange={setApplicationID}
@@ -216,11 +218,11 @@ export default function ReviewManagementView({ applications, interviewReviewProp
         />
         <Select
           allowClear
-          placeholder="按心情筛选"
+          placeholder={t("按心情筛选")}
           value={mood}
           onChange={setMood}
           style={{ width: 140 }}
-          options={MOOD_OPTIONS}
+          options={MOOD_OPTIONS.map((option) => ({ ...option }))}
         />
         <DatePicker.RangePicker
           value={dateRange}
@@ -234,19 +236,19 @@ export default function ReviewManagementView({ applications, interviewReviewProp
           <Spin size="large" />
         </div>
       ) : filtered.length === 0 ? (
-        <Empty description={notesQuery.data?.length ? '没有匹配的复盘' : '还没有面试复盘'} />
+        <Empty description={notesQuery.data?.length ? t("没有匹配的复盘") : t("还没有面试复盘")} />
       ) : (
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
           {filtered.map((note) => (
             <Card
               key={note.id}
               size="small"
-              title={`${note.company} / ${note.position || '未填写岗位'} / ${note.round || '未标注轮次'}`}
+              title={t("{company} / {position} / {round}", { company: note.company, position: note.position || t('未填写岗位'), round: note.round || t('未标注轮次') })}
               extra={
                 <Space>
                   {note.date && <Text type="secondary">{note.date}</Text>}
                   {note.mood && <Tag color="green">{note.mood}</Tag>}
-                  <Tooltip title="编辑">
+                  <Tooltip title={t("编辑")}>
                     <Button
                       type="text"
                       icon={<EditOutlined />}
@@ -263,17 +265,15 @@ export default function ReviewManagementView({ applications, interviewReviewProp
                     );
                     setKnowledgeCaptureNote(note);
                   }}>
-                    保存为复盘沉淀
-                  </Button>
-                  <Tooltip title="删除">
+                    {t("保存为复盘沉淀")}</Button>
+                  <Tooltip title={t("删除")}>
                     <Button type="text" onClick={() => setProposalNote(note)}>
-                      复盘建议
-                    </Button>
+                      {t("复盘建议")}</Button>
                     <Popconfirm
-                      title="删除这条复盘？"
+                      title={t("删除这条复盘？")}
                       onConfirm={() => deleteMut.mutate(note.id)}
-                      okText="删除"
-                      cancelText="取消"
+                      okText={t("删除")}
+                      cancelText={t("取消")}
                     >
                       <Button type="text" danger icon={<DeleteOutlined />} />
                     </Popconfirm>
@@ -281,9 +281,9 @@ export default function ReviewManagementView({ applications, interviewReviewProp
                 </Space>
               }
             >
-              {note.questions && <Paragraph ellipsis={{ rows: 2 }}>问题：{note.questions}</Paragraph>}
-              {note.self_reflection && <Paragraph ellipsis={{ rows: 2 }}>反思：{note.self_reflection}</Paragraph>}
-              {note.difficulty_points && <Paragraph ellipsis={{ rows: 2 }}>难点：{note.difficulty_points}</Paragraph>}
+              {note.questions && <Paragraph ellipsis={{ rows: 2 }}>{t("问题：")}{note.questions}</Paragraph>}
+              {note.self_reflection && <Paragraph ellipsis={{ rows: 2 }}>{t("反思：")}{note.self_reflection}</Paragraph>}
+              {note.difficulty_points && <Paragraph ellipsis={{ rows: 2 }}>{t("难点：")}{note.difficulty_points}</Paragraph>}
             </Card>
           ))}
         </Space>

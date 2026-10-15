@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getPilotExecution, interruptPilotExecution } from '@/services/chat';
 import type { PilotExecution, PilotInterruptResult } from '@/types/chat';
@@ -46,6 +47,7 @@ const messages: Record<PilotInterruptResult['status'], string> = {
 
 /** Read and interrupt only: this hook never resumes or launches execution. */
 export function usePilotExecution(conversationId: number | undefined, onStopped: (target: PilotExecution) => void) {
+  const locale = useLocale();
   const [execution, setExecution] = useState<PilotExecution | null>(null);
   const [retry, setRetry] = useState<StopCommand>();
   const [stopping, setStopping] = useState(false);
@@ -143,6 +145,6 @@ export function usePilotExecution(conversationId: number | undefined, onStopped:
     }
   }, []);
 
-  return useMemo(() => ({ execution, stopping, stopMessage, stop, acceptExecution, retryingStop: Boolean(retry),
-    canStop: Boolean(retry) || execution?.state === 'running' }), [execution, stopping, stopMessage, stop, acceptExecution, retry]);
+  return useMemo(() => ({ execution, stopping, stopMessage: t(stopMessage), stop, acceptExecution, retryingStop: Boolean(retry),
+    canStop: Boolean(retry) || execution?.state === 'running' }), [execution, stopping, stopMessage, stop, acceptExecution, retry, locale]);
 }
