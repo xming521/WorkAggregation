@@ -34,11 +34,23 @@ function matches(value, admitted, optionalRequest = false) {
   return object(value) && IDS.every(key => optionalRequest && key === 'request_id' && !(key in value)
     || value[key] === admitted[key]);
 }
-function unsafe(value) {
+function unsafe(value, allowNoWrite = false, path = []) {
   if (!object(value) && !Array.isArray(value)) return false;
-  return Object.entries(value).some(([key, child]) => ['operation_id', 'undo', 'write_status', 'write_error', 'pending_action', 'confirmation_token'].includes(key)
+  if (!Array.isArray(value)) {
+    const prototype = Object.getPrototypeOf(value);
+    // Accept a plain JSON object from another renderer/VM realm, while
+    // rejecting custom/inherited payload prototypes.
+    if (prototype !== null && (Object.getPrototypeOf(prototype) !== null
+      || !Object.hasOwn(prototype, 'constructor') || typeof prototype.constructor !== 'function'
+      || prototype.constructor.name !== 'Object' || prototype.constructor.prototype !== prototype)) return true;
+  }
+  return Object.entries(value).some(([key, child]) => ['operation_id', 'undo', 'write_error', 'pending_action', 'confirmation_token', '__proto__', 'prototype', 'constructor'].includes(key)
+    // PIN's ordinary no-tool result explicitly projects write_status="none".
+    // This exception applies only to that exact terminal message envelope.
+    || (key === 'write_status' && !(allowNoWrite && path.length === 2 && path[0] === 'terminal' && path[1] === 'response'
+      && Object.hasOwn(value, 'type') && value.type === 'message' && child === 'none'))
     || (['degraded', 'replayed'].includes(key) && child !== false) || (key === 'type' && ['turn_recovered', 'confirmation_required'].includes(child))
-    || unsafe(child));
+    || unsafe(child, allowNoWrite, [...path, key]));
 }
 export function projectAdmission(value, status) {
   requireProof(status === 202 && object(value) && value.protocol_version === 'pilot-runtime-v1' && value.replayed === false && !unsafe(value), 'ADMISSION_INVALID');
@@ -50,7 +62,7 @@ export function projectAdmission(value, status) {
 export function projectTerminal(value, admitted) {
   requireProof(matches(value, admitted) && matches(value.execution, admitted), 'STATUS_IDENTITY_INVALID');
   requireProof(value.protocol_version === 'pilot-runtime-v1' && value.execution.protocol_version === 'pilot-runtime-v1', 'STATUS_PROTOCOL_INVALID');
-  requireProof(!unsafe(value), 'STATUS_UNSAFE');
+  requireProof(!unsafe(value, true), 'STATUS_UNSAFE');
   requireProof(value.recovery?.requires_resync === false && value.recovery?.auto_resume === false, 'STATUS_RECOVERY_INVALID');
   if (['queued', 'running'].includes(value.state) && value.execution.state === value.state
     && !value.terminal?.response) return null;

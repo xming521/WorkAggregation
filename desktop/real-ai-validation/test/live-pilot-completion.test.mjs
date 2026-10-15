@@ -80,7 +80,7 @@ const terminal = () => ({ ...ID, protocol_version: 'pilot-runtime-v1', state: 'c
   actual_worker_alive: false, recovery: { requires_resync: false, auto_resume: false },
   execution: { ...ID, protocol_version: 'pilot-runtime-v1', state: 'completed', worker_done: true, actual_worker_alive: false },
   terminal: { response: { turn_id: ID.turn_id, conversation_id: ID.conversation_id,
-    execution_generation: ID.execution_generation, type: 'message', message: SECRET } } });
+    execution_generation: ID.execution_generation, type: 'message', message: SECRET, write_status: 'none' } } });
 function ledger(stream = true) {
   const book = new Ledger();
   for (const caseId of ['connection', ...(stream ? ['pilot-stream'] : [])]) {
@@ -679,4 +679,44 @@ test('admission metadata failure is distinct from a response-body failure', asyn
     request: () => ({ method: () => 'POST', frame: () => frame, redirectedFrom() { throw new Error('PRIVATE'); } }),
     body: () => assert.fail('must not read body after metadata failure') });
   assert.equal(fault, 'ADMISSION_METADATA_FAILED'); assert.throws(() => gate.read()); gate.dispose();
+});
+
+test('PIN ordinary message reports write_status none and is a no-write terminal', async () => {
+  const service = await readPinnedSource('src/offerpilot/pilot_runtime/service.py');
+  const sink = await readPinnedSource('src/offerpilot/pilot_runtime/event_sink.py');
+  assert.match(service, /if not attempted:\s+return "none", ""/);
+  assert.match(service, /MessageOutcome\(\s+message=reply,\s+conversation_id=conversation_id,\s+write_status=cast\(Any, write_status\)/);
+  assert.match(sink, /_optional\(payload, "write_status", outcome\.write_status\)/);
+  const value = terminal(); value.terminal.response.write_status = 'none';
+  assert.equal(projectTerminal(value, ID), SECRET);
+});
+
+for (const writeStatus of [null, false, 0, '', 'NONE', 'success', 'failed', 'cancelled', {}, ['none']]) {
+  test(`terminal no-write exception rejects non-exact value ${JSON.stringify(writeStatus)}`, () => {
+    const value = terminal(); value.terminal.response.write_status = writeStatus;
+    assert.throws(() => projectTerminal(value, ID));
+  });
+}
+for (const [name, mutate] of [
+  ['top-level duplicate', v => { v.write_status = 'none'; }],
+  ['execution duplicate', v => { v.execution.write_status = 'none'; }],
+  ['nested duplicate', v => { v.terminal.response.extra = { write_status: 'none' }; }],
+  ['array duplicate', v => { v.terminal.response.extra = [{ write_status: 'none' }]; }],
+  ['operation', v => { v.terminal.response.operation_id = null; }],
+  ['non-message', v => { v.terminal.response.type = 'other'; }],
+  ['inherited type', v => { const r = v.terminal.response; delete r.type; Object.setPrototypeOf(r, { type: 'message' }); }],
+  ['inherited operation', v => { Object.setPrototypeOf(v.terminal.response, { operation_id: 'private' }); }],
+  ['own proto key', v => { Object.defineProperty(v.terminal.response, '__proto__', { value: { write_status: 'none' }, enumerable: true }); }],
+  ['constructor key', v => { v.terminal.response.constructor = { write_status: 'none' }; }],
+]) test(`terminal no-write exception rejects ${name}`, () => {
+  const value = terminal(); value.terminal.response.write_status = 'none'; mutate(value);
+  assert.throws(() => projectTerminal(value, ID));
+});
+test('admission cannot adopt terminal no-write exception', () => {
+  const value = admission(); value.terminal = { response: { type: 'message', write_status: 'none' } };
+  assert.throws(() => projectAdmission(value, 202));
+});
+test('dotted property cannot impersonate the exact terminal response path', () => {
+  const value = terminal(); value['terminal.response'] = { type: 'message', write_status: 'none' };
+  assert.throws(() => projectTerminal(value, ID));
 });

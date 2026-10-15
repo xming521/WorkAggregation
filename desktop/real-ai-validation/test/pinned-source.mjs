@@ -9,6 +9,7 @@ import { PIN } from '../contract.mjs';
 
 const localRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const sourceFiles = new Set(['src/offerpilot/api.py',
+  'src/offerpilot/pilot_runtime/service.py', 'src/offerpilot/pilot_runtime/event_sink.py',
   'web/src/features/assistantSurface/assistantPresentation.ts']);
 
 import { assertDirectoryIdentity as assertSourceDirectoryIdentity } from '../../installed-ui/filesystem-safety.mjs';
@@ -24,7 +25,7 @@ export function readPinnedSource(relative, { env = process.env } = {}) {
   try {
     const root = fs.realpathSync.native(selected);
     // Do not inherit Git repository/config overrides or lazily fetch a missing
-    // object. Reading these two committed files never needs any network access.
+    // object. Reading these allowlisted committed files never needs network access.
     const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)));
     const git = args => execFileSync('git', ['--no-replace-objects', '-c', 'protocol.allow=never', '-C', root, ...args], {
       encoding: 'utf8', env: { ...gitEnv, GIT_NO_LAZY_FETCH: '1' },
