@@ -1,7 +1,11 @@
 name: Job mail assistant synthetic acceptance
 on:
   push:
-    branches: [feat/20261009-job-mail-assistant]
+    branches: [master, feat/20261009-job-mail-assistant]
+  pull_request:
+    branches: [master]
+  # Deliberately no paths filter: shared auth/schema/UI changes can affect mail,
+  # and a required PR check must not remain pending after a docs-only change.
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,6 +21,8 @@ jobs:
       PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fixed pre-mail commit is needed by the real upgrade regression.
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.8.22'
@@ -35,7 +41,7 @@ jobs:
       - name: Backend safety and existing domain regression
         run: |
           uv run pytest -q tests/test_job_mail*.py tests/test_application_events_repository.py tests/test_events_api.py tests/test_calendar_api.py tests/test_auth_api.py tests/test_event_lifecycle_v1.py
-          uv run ruff check src/offerpilot/job_mail src/offerpilot/api.py src/offerpilot/cli.py src/offerpilot/db.py tests/test_job_mail*.py tests/fixtures/job_mail_app.py tests/fixtures/job_mail_scheduler_app.py
+          uv run ruff check src/offerpilot/job_mail src/offerpilot/api.py src/offerpilot/cli.py src/offerpilot/db.py tests/test_job_mail*.py tests/fixtures/job_mail_app.py tests/fixtures/job_mail_scheduler_app.py tests/fixtures/job_mail_master_seed.py
           uv run mypy src/offerpilot/job_mail src/offerpilot/api.py src/offerpilot/cli.py src/offerpilot/db.py --follow-imports=silent
       - name: Frontend regression and production build
         run: |
