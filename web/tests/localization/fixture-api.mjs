@@ -8,9 +8,10 @@ export const sampleEvent = {id:201,application_id:101,event_type:'interview',sub
 export const sampleMail = {id:'mail-fixture-1',version:1,status:'pending',action:'create_event',reason:'',time_mode:'fixed_time',proposed_fields:{event_type:'interview',scheduled_at:'2026-10-22T10:00:00Z',duration_minutes:60,location:'Video call',notes:'',round:1,tags:[]},field_evidence:{},application_candidates:[{id:101,company_name:sampleApplication.company_name,position_name:sampleApplication.position_name}],target_event_id:null,evidence:{id:'evidence-fixture-1',subject:'Interview invitation',sender:'recruiter@example.invalid',received_at:'2026-10-15T07:00:00Z',snippet:'请在 2026-10-22 10:00 UTC 参加面试。',body_fingerprint:'synthetic',truncated:false,cleared_at:null},receipt:null};
 export const retainedUserBody='用户输入：请帮我准备面试。';
 export const retainedAiBody='AI 原文：我们可以先整理你的项目经历。';
-export function createFixtureApi({ retainedConversation = false } = {}) {
+export function createFixtureApi({ retainedConversation = false, configuredAi = false } = {}) {
   const requests=[]; const unexpected=[];
-  const settings={version:'localization-fixture',data_dir:'Synthetic browser fixture',chat_auto_approve_writes:false,active_provider_id:'',fallback_provider_ids:[],providers:[],base_url:'',model:'',has_api_key:false,runtime_mode:'local',auth_enabled:false,has_auth_token:false,log_level:'INFO'};
+  // Readiness boolean only; no credentials or provider endpoints exist in this fixture.
+  const settings={version:'localization-fixture',data_dir:'Synthetic browser fixture',chat_auto_approve_writes:false,active_provider_id:'',fallback_provider_ids:[],providers:[],base_url:'',model:'',has_api_key:configuredAi,runtime_mode:'local',auth_enabled:false,has_auth_token:false,log_level:'INFO'};
   const policies={revision:1,policies:Object.fromEntries(['confirmed_memory','confirmed_readiness','knowledge_context','older_conversation_summary'].map(k=>[k,{enabled:true,max_units:4,version:'v1'}]))};
   const mailStatus={capabilities:{real_connection:false,ai_recognition:false,synthetic_connection:true},connection:null,run:null,budget:{limit:100,used:0,remaining:100},execution_location:'Synthetic browser fixture',available_folders:['INBOX','Archive']};
   const capability={available:false,reason:'secure_store_unavailable',backend:null,local_only:true,credential_input_allowed:false,configured:false,deletion_pending:false};
