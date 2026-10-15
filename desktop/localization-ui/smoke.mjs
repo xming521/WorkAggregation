@@ -5,14 +5,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { loadOriginalEvidence } from './retry.mjs';
+import { preferenceObservation, assertDevToolsPreference, assertDevToolsProbe, probeDevToolsDisabled } from './security.mjs';
 import { PROFILE, DRAFT, MAIL, TEXT, samePath, buttonName, classifyRequest, safeRequest, ownedProcesses, earlyOwnedProcesses,
   validateSockets, sha256, treeDigest, assertNativeMenu } from './contract.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
+const retryOriginal = process.env.LOCALIZATION_RETRY_ORIGINAL === '1';
+const productRoot = path.resolve(process.env.LOCALIZATION_PRODUCT_SOURCE_DIR || root);
 const evidence = path.resolve(process.env.LOCALIZATION_EVIDENCE_DIR || path.join(here, 'evidence'));
 const report = {
-  status: 'running', scope: 'new-unsigned-NSIS-installed-localization-smoke', releaseReady: false,
+  status: 'running', scope: retryOriginal ? 'same-original-installer-localization-retry' : 'new-unsigned-NSIS-installed-localization-smoke', releaseReady: false,
   sourceSHA: process.env.LOCALIZATION_SOURCE_SHA || process.env.GITHUB_SHA,
   runURL: process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : null,
@@ -23,12 +27,13 @@ const report = {
     applicationMenu: 'read-only native Menu object; explicit production quit callback invoked through inspector',
     tray: 'transparent setContextMenu observation; production call, this and return preserved',
     nativeMenuPointerValidated: false, unsignedSmartScreenValidated: false, undebuggedLaunchValidated: false,
+    devTools: 'negative openDevTools event/state/contents probes on both installed windows; omitted getter accepted only for exact Electron 44.5.1 plus hash-verified packaged constructor policies',
     network: 'renderer requests abort on non-GET/HEAD or unexpected origin; process TCP snapshots at checkpoints',
     networkLimit: 'Renderer guard begins after Playwright attaches. OS snapshots are not continuous backend packet capture.',
   },
   exclusions: ['real mail', 'real models', 'credential setup', 'mail submission', 'business confirmation',
     'full release gate', 'language switch inside a modal that blocks Settings', 'unsent draft persistence across process exit'],
-  stages: [], launches: [], screenshots: [], blockedRequests: [], apiReads: 0, localReads: 0,
+  stages: [], launchAttempts: [], launches: [], screenshots: [], blockedRequests: [], apiReads: 0, localReads: 0,
   requiredStages: [
     'install-new-nsis', 'launch-1-installed-identity-security-and-locale',
     'launch-1-zh-CN-mail-preview-boundary', 'launch-1-settings-zh-CN-to-en-US',
@@ -45,6 +50,7 @@ let paths;
 let environment;
 let installedIdentity;
 let sourceIdentity;
+let originalEvidence;
 let _electron;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const exists = async filename => fs.access(filename).then(() => true, () => false);
@@ -60,6 +66,12 @@ async function checkpoint(name, details = {}) {
   report.stages.push({ name, status: 'passed', ...details });
   await saveReport();
   console.log(`Passed: ${name}`);
+}
+async function launchPhase(name, observations) {
+  stage = `launch-${active.number}-${name}`;
+  active.attempt.phase = name;
+  if (observations) active.attempt.observations.push({ phase: name, ...observations });
+  await saveReport();
 }
 async function until(test, timeout = 30000) {
   const end = Date.now() + timeout;
@@ -88,7 +100,7 @@ async function windows(mode, extra = {}) {
 }
 async function port() {
   const saved = JSON.parse(await fs.readFile(path.join(paths.userData, 'desktop-port.json'), 'utf8'));
-  assert.ok(Number.isInteger(saved.port) && saved.port > 0 && saved.port < 65536);
+  assert.ok(Number.isInteger(saved.port) && saved.port > 0 && saved.port < 65536, 'saved backend port must be a valid TCP port');
   return saved.port;
 }
 async function shot(page, label) {
@@ -101,12 +113,13 @@ async function verifyPayload() {
   const identity = {};
   for (const [key, relative] of [['exeSha256', 'OfferPilot Desktop.exe'], ['asarSha256', 'resources/app.asar'], ['backendExeSha256', 'resources/backend/offerpilot-backend.exe']]) {
     const hash = await sha256(path.join(paths.install, relative));
-    assert.equal(hash, await sha256(path.join(paths.build, relative)), 'installed file differs from the same-built unpacked payload');
+    const expected = originalEvidence ? originalEvidence.evidence['result.json'].installedIdentityBefore[key] : await sha256(path.join(paths.build, relative));
+    assert.equal(hash, expected, 'installed file differs from the original same-built payload identity');
     identity[key] = hash;
   }
   for (const name of ['web', 'backend']) {
     const installed = await treeDigest(path.join(paths.install, 'resources', name));
-    const built = await treeDigest(path.join(paths.build, 'resources', name));
+    const built = originalEvidence ? originalEvidence.evidence[`installed-${name}-sha256.json`] : await treeDigest(path.join(paths.build, 'resources', name));
     assert.deepEqual(installed, built, 'installed resources differ from the same-built payload');
     identity[`${name}Tree`] = { sha256: installed.sha256, files: installed.files.length };
     await fs.writeFile(path.join(evidence, `installed-${name}-sha256.json`), JSON.stringify(installed, null, 2) + '\n');
@@ -114,23 +127,31 @@ async function verifyPayload() {
   return identity;
 }
 async function verifySource() {
-  const tracked = (await command('git', ['-C', root, 'ls-files', '-z', '--', 'desktop/*.cjs', 'desktop/*.py', 'desktop/*.spec',
+  const tracked = (await command('git', ['-C', productRoot, 'ls-files', '-z', '--', 'desktop/*.cjs', 'desktop/*.py', 'desktop/*.spec',
     'desktop/package.json', 'desktop/package-lock.json', 'src/offerpilot', 'web/src', 'web/index.html', 'web/vite.config.ts',
     'web/package.json', 'web/package-lock.json', 'pyproject.toml', 'uv.lock'])).split('\0').filter(Boolean).sort();
-  assert.ok(tracked.length > 0);
-  const files = await Promise.all(tracked.map(async file => ({ file, sha256: await sha256(path.join(root, file)) })));
+  assert.ok(tracked.length > 0, 'product source manifest must not be empty');
+  const files = await Promise.all(tracked.map(async file => ({ file, sha256: await sha256(path.join(productRoot, file)) })));
   const desktopRequire = createRequire(path.join(root, 'desktop/package.json'));
   const { extractFile } = await import(pathToFileURL(desktopRequire.resolve('@electron/asar')).href);
-  const desktopPackage = JSON.parse(await fs.readFile(path.join(root, 'desktop/package.json'), 'utf8'));
+  const desktopPackage = JSON.parse(await fs.readFile(path.join(productRoot, 'desktop/package.json'), 'utf8'));
   const packedSources = desktopPackage.build.files.filter(name => name.endsWith('.cjs'));
-  assert.ok(packedSources.includes('main.cjs') && packedSources.includes('preload.cjs') && packedSources.includes('locale.cjs'));
+  assert.ok(['main.cjs', 'preload.cjs', 'locale.cjs', 'haru.cjs'].every(file => packedSources.includes(file)), 'ASAR source mapping must include main, preload, locale and Haru modules');
   for (const file of packedSources) {
     assert.deepEqual(extractFile(path.join(paths.install, 'resources/app.asar'), file),
-      await fs.readFile(path.join(root, 'desktop', file)), 'installed ASAR source must match this exact checkout');
+      await fs.readFile(path.join(productRoot, 'desktop', file)), 'installed ASAR source must match the immutable product checkout');
   }
-  assert.deepEqual(await treeDigest(path.join(paths.install, 'resources/web')), await treeDigest(path.join(root, 'web/dist')),
+  const identity = { sourceSHA: report.sourceSHA, files, packedSourcesVerified: packedSources };
+  if (originalEvidence) assert.deepEqual(identity, originalEvidence.evidence['source-sha256.json'], 'product checkout must match the original retained source manifest');
+  else assert.deepEqual(await treeDigest(path.join(paths.install, 'resources/web')), await treeDigest(path.join(productRoot, 'web/dist')),
     'installed frontend assets must match this checkout build');
-  return { sourceSHA: report.sourceSHA, files, packedSourcesVerified: packedSources };
+  report.devToolsConstructorPolicy = {
+    lockedElectron: desktopPackage.devDependencies.electron,
+    installedSourcesHashMatched: true,
+    ownerPackagedDisabled: /devTools:\s*!app\.isPackaged\b/.test(extractFile(path.join(paths.install, 'resources/app.asar'), 'main.cjs').toString('utf8')),
+    haruDisabled: /devTools:\s*false\b/.test(extractFile(path.join(paths.install, 'resources/app.asar'), 'haru.cjs').toString('utf8')),
+  };
+  return identity;
 }
 async function installRequestGuard(app) {
   await app.context().routeWebSocket('**/*', socket => {
@@ -155,21 +176,34 @@ async function installRequestGuard(app) {
   });
 }
 async function launch(number, locale) {
-  stage = `launch-${number}`;
+  stage = `launch-${number}-preflight`;
   assert.deepEqual((await windows('snapshot')).processes, [], 'old installed processes must exit before restart');
   const startedAt = Date.now();
+  const attempt = { number, phase: 'electron-start', observations: [] };
+  report.launchAttempts.push(attempt);
+  stage = `launch-${number}-electron-start`;
+  await saveReport();
   const app = await _electron.launch({ executablePath: paths.exe, cwd: paths.install, env: environment,
     chromiumSandbox: true, bypassCSP: false, timeout: 90000 });
-  active = { app, number, child: app.process(), startedAt };
+  active = { app, number, child: app.process(), startedAt, attempt };
+  // Guard installation must remain the first awaited action after attachment.
+  stage = `launch-${number}-request-guards`;
+  attempt.phase = 'request-guards';
   await installRequestGuard(app);
+  await launchPhase('main-identity');
   const identity = await app.evaluate(({ app }) => ({ pid: process.pid, exe: process.execPath, userData: app.getPath('userData'), packaged: app.isPackaged }));
-  assert.equal(identity.packaged, true);
-  assert.ok(samePath(identity.exe, paths.exe));
+  await launchPhase('main-identity', { packaged: identity.packaged === true,
+    installedExecutableMatches: samePath(identity.exe, paths.exe), realProfileMatches: samePath(identity.userData, paths.userData) });
+  assert.equal(identity.packaged, true, 'installed Electron must report app.isPackaged true');
+  assert.ok(samePath(identity.exe, paths.exe), 'inspector process executable must equal the installed executable');
   assert.ok(samePath(identity.userData, paths.userData), 'real APPDATA must be used; no redirected profile');
+  await launchPhase('owned-main-process');
   owned = ownedProcesses((await windows('snapshot')).processes, identity.pid, paths.exe, paths.backend);
+  await launchPhase('backend-port-file');
   await until(() => exists(path.join(paths.userData, 'desktop-port.json')), 90000);
   active.port = await port();
   active.origin = `http://127.0.0.1:${active.port}`;
+  await launchPhase('renderer-roles');
   await until(async () => {
     const pages = app.windows();
     assert.ok(pages.length <= 2, 'unexpected extra product window');
@@ -178,45 +212,71 @@ async function launch(number, locale) {
     for (const candidate of candidates) {
       if (!candidate.role) return false;
       const url = new URL(candidate.url);
-      assert.equal(url.origin, active.origin);
-      assert.equal(url.pathname, '/');
-      if (candidate.role === 'owner') { assert.equal(url.search, ''); active.page = candidate.page; }
-      else if (candidate.role === 'haru') { assert.equal(url.search, '?desktopSurface=haru'); active.haru = candidate.page; }
+      await launchPhase('renderer-roles', { role: ['owner', 'haru'].includes(candidate.role) ? candidate.role : 'unexpected',
+        originMatches: url.origin === active.origin, rootPath: url.pathname === '/',
+        queryRole: url.search === '' ? 'owner' : url.search === '?desktopSurface=haru' ? 'haru' : 'unexpected' });
+      assert.equal(url.origin, active.origin, 'renderer origin must equal the authenticated backend origin');
+      assert.equal(url.pathname, '/', 'renderer must load the packaged root document');
+      if (candidate.role === 'owner') { assert.equal(url.search, '', 'owner renderer must have no surface query'); active.page = candidate.page; }
+      else if (candidate.role === 'haru') { assert.equal(url.search, '?desktopSurface=haru', 'Haru renderer must have its exact bounded surface query'); active.haru = candidate.page; }
       else assert.fail('unrecognized preload role');
     }
-    assert.ok(active.page && active.haru && active.page !== active.haru);
+    assert.ok(active.page && active.haru && active.page !== active.haru, 'distinct owner and Haru renderers must both exist');
     return true;
   }, 90000);
   for (const page of [active.page, active.haru]) page.setDefaultTimeout(20000);
+  await launchPhase('initial-localized-landmarks');
   await active.page.getByRole('navigation', { name: TEXT[locale].navigation, exact: true }).waitFor();
   await active.haru.getByRole('main', { name: TEXT[locale].haru, exact: true }).waitFor();
+  await launchPhase('runtime-security-read');
   const security = await app.evaluate(({ app, BrowserWindow, session }) => {
     const windows = BrowserWindow.getAllWindows();
     const owner = windows.find(win => !new URL(win.webContents.getURL()).search);
     const haru = windows.find(win => new URL(win.webContents.getURL()).search === '?desktopSurface=haru');
     const details = windows.map(win => {
       const prefs = win.webContents.getLastWebPreferences();
-      return { nodeIntegration: prefs.nodeIntegration, contextIsolation: prefs.contextIsolation, sandbox: prefs.sandbox,
+      return { windowId: win.id, nodeIntegration: prefs.nodeIntegration, contextIsolation: prefs.contextIsolation, sandbox: prefs.sandbox,
         webSecurity: prefs.webSecurity, devTools: prefs.devTools, devToolsOpened: win.webContents.isDevToolsOpened() };
     });
-    return { details, packaged: app.isPackaged,
+    return { details, runtimeElectron: process.versions.electron, packaged: app.isPackaged,
       isolated: owner.webContents.session !== haru.webContents.session,
       ownerPartition: owner.webContents.session === session.fromPartition('persist:offerpilot-desktop'),
       haruPartition: haru.webContents.session === session.fromPartition('offerpilot-haru'),
       haruEphemeral: haru.webContents.session.getStoragePath() === null,
       unsafeSwitches: ['no-sandbox', 'disable-web-security', 'disable-site-isolation-trials', 'allow-running-insecure-content', 'ignore-certificate-errors'].filter(name => app.commandLine.hasSwitch(name)) };
   });
-  assert.deepEqual(security.details, Array.from({ length: 2 }, () => ({ nodeIntegration: false, contextIsolation: true,
-    sandbox: true, webSecurity: true, devTools: false, devToolsOpened: false })));
-  for (const name of ['packaged', 'isolated', 'ownerPartition', 'haruPartition', 'haruEphemeral']) assert.equal(security[name], true);
-  assert.deepEqual(security.unsafeSwitches, []);
+  const safeBoolean = value => typeof value === 'boolean' ? value : null;
+  await launchPhase('runtime-security-assertions', { security: {
+    details: security.details.map(({ windowId, devTools, ...detail }) => ({
+      ...Object.fromEntries(Object.entries(detail).map(([name, value]) => [name, safeBoolean(value)])),
+      devToolsPreference: preferenceObservation(devTools),
+    })),
+    runtimeElectronMatchesLocked: security.runtimeElectron === report.devToolsConstructorPolicy.lockedElectron,
+    ...Object.fromEntries(['packaged', 'isolated', 'ownerPartition', 'haruPartition', 'haruEphemeral'].map(name => [name, safeBoolean(security[name])])),
+    unsafeSwitches: security.unsafeSwitches,
+  } });
+  assert.deepEqual(security.details.map(({ windowId, devTools, ...detail }) => detail), Array.from({ length: 2 }, () => ({ nodeIntegration: false, contextIsolation: true,
+    sandbox: true, webSecurity: true, devToolsOpened: false })), 'both installed renderers must retain every exposed packaged security preference');
+  for (const name of ['packaged', 'isolated', 'ownerPartition', 'haruPartition', 'haruEphemeral']) assert.equal(security[name], true, `installed security invariant must remain true: ${name}`);
+  assert.deepEqual(security.unsafeSwitches, [], 'installed Electron must have no unsafe Chromium switches');
+  for (const detail of security.details) assertDevToolsPreference(detail.devTools, security.runtimeElectron, report.devToolsConstructorPolicy);
+  for (const [index, detail] of security.details.entries()) {
+    await launchPhase('devtools-blocked-open-probe', { productWindowIndex: index, devToolsPreference: preferenceObservation(detail.devTools) });
+    detail.devToolsProbe = await app.evaluate(probeDevToolsDisabled, detail.windowId);
+    await launchPhase('devtools-blocked-open-probe', { productWindowIndex: index, probe: detail.devToolsProbe });
+    assertDevToolsProbe(detail.devToolsProbe);
+  }
+  await launchPhase('owned-backend-and-sockets');
   const snapshot = await windows('snapshot');
+  await launchPhase('owned-backend-and-sockets', { processCount: snapshot.processes.length,
+    listenerCount: snapshot.listeners.length, observedOutboundTcpCount: snapshot.outbound.length });
   owned = ownedProcesses(snapshot.processes, identity.pid, paths.exe, paths.backend);
   assert.equal(owned.length, 2, 'actual installed backend must be a direct owned child');
   validateSockets(snapshot, owned[1].pid, active.port);
   active.info = { number, initialLocale: locale, mainPid: owned[0].pid, backendPid: owned[1].pid,
     port: active.port, realAppData: true, security, snapshotsWithoutOutboundTcp: 1 };
   report.launches.push(active.info);
+  await launchPhase('owner-haru-read-isolation');
   const ownerHealth = () => active.page.evaluate(async () => (await fetch('/api/health', { signal: AbortSignal.timeout(5000) })).status);
   assert.equal(await ownerHealth(), 200, 'trusted owner must reach the authenticated backend');
   const haruRead = await active.haru.evaluate(async () => {
@@ -224,8 +284,9 @@ async function launch(number, locale) {
     catch (error) { return { blocked: error.name === 'TypeError' }; }
   });
   assert.deepEqual(haruRead, { blocked: true }, 'Haru must remain unable to read the backend; a timeout or HTTP 401 is not equivalent');
-  assert.equal(await ownerHealth(), 200);
+  assert.equal(await ownerHealth(), 200, 'trusted backend must remain available after Haru read denial');
   active.info.haruApiReadIsolation = { ownerHealthBeforeAndAfter: 200, haruGetBlockedBeforeHttp: true, onlyReadRequests: true };
+  await launchPhase('observe-tray-and-expand-haru');
   await app.evaluate(({ Tray }) => {
     const original = Tray.prototype.setContextMenu;
     globalThis.__offerpilotLocalizationTrayLabels = null;
@@ -236,16 +297,19 @@ async function launch(number, locale) {
     };
   });
   await active.haru.getByRole('button', { name: TEXT[locale].expand, exact: true }).click();
+  await launchPhase('wait-unconfigured-owner-mirror');
   await until(() => active.haru.evaluate(async () => {
     const state = await window.offerpilotDesktop.getState();
     return state.connected && state.snapshot?.aiConfigured === false;
   }));
+  await launchPhase('real-haru-pin-controls');
   const pin = active.haru.getByRole('button', { name: TEXT[locale].pin, exact: true });
   const before = await pin.getAttribute('aria-pressed');
   await pin.click();
   await until(async () => await pin.getAttribute('aria-pressed') !== before);
   await pin.click();
   await until(async () => await pin.getAttribute('aria-pressed') === before);
+  await launchPhase('initial-locale-and-menus');
   await assertLocale(locale, `${number}-initial`);
   await checkpoint(`launch-${number}-installed-identity-security-and-locale`);
 }
@@ -394,11 +458,24 @@ await fs.mkdir(evidence, { recursive: true });
 try {
   assert.equal(process.platform, 'win32', 'installed acceptance requires actual Windows');
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'dedicated CI runner required; never use a user computer');
-  assert.ok(process.env.RUNNER_TEMP && process.env.APPDATA);
-  assert.match(report.sourceSHA || '', /^[0-9a-f]{40}$/);
-  const sourceSHA = await command('git', ['-C', root, 'rev-parse', 'HEAD']);
-  assert.equal(sourceSHA, report.sourceSHA, 'source SHA must equal the workflow checkout');
-  for (const key of ['LOCALIZATION_INSTALLER', 'LOCALIZATION_INSTALL_DIR', 'LOCALIZATION_BUILD_DIR']) assert.ok(process.env[key] && path.isAbsolute(process.env[key]), `${key} must be absolute`);
+  assert.ok(process.env.RUNNER_TEMP && process.env.APPDATA, 'Windows CI runtime paths are required');
+  assert.match(report.sourceSHA || '', /^[0-9a-f]{40}$/, 'full original product source SHA is required');
+  report.harnessSHA = await command('git', ['-C', root, 'rev-parse', 'HEAD']);
+  assert.equal(report.harnessSHA, process.env.GITHUB_SHA, 'harness checkout must equal this workflow revision');
+  if (retryOriginal) {
+    for (const key of ['LOCALIZATION_PRODUCT_SOURCE_DIR', 'LOCALIZATION_ORIGINAL_EVIDENCE_DIR']) assert.ok(process.env[key] && path.isAbsolute(process.env[key]), `${key} must be absolute`);
+    assert.notEqual(productRoot, root, 'same-installer retry keeps the original product checkout separate from its harness');
+    originalEvidence = await loadOriginalEvidence(process.env.LOCALIZATION_ORIGINAL_EVIDENCE_DIR);
+    assert.equal(report.sourceSHA, originalEvidence.provenance.sourceSHA, 'retry source must equal the pinned original build');
+    assert.equal(process.env.LOCALIZATION_BUILD_DIR, undefined, 'retry must use retained original manifests, not rebuilt payloads');
+    report.originalBuild = originalEvidence.provenance;
+    report.retryRebuildPerformed = false;
+    for (const file of ['web/package-lock.json', 'desktop/package-lock.json']) assert.equal(await sha256(path.join(root, file)),
+      await sha256(path.join(productRoot, file)), 'harness dependency lock must remain identical to the original product lock');
+  } else assert.equal(productRoot, root, 'ordinary new-build validation uses its own product checkout');
+  const sourceSHA = await command('git', ['-C', productRoot, 'rev-parse', 'HEAD']);
+  assert.equal(sourceSHA, report.sourceSHA, 'product source SHA must equal the immutable product checkout');
+  for (const key of ['LOCALIZATION_INSTALLER', 'LOCALIZATION_INSTALL_DIR', ...(retryOriginal ? [] : ['LOCALIZATION_BUILD_DIR'])]) assert.ok(process.env[key] && path.isAbsolute(process.env[key]), `${key} must be absolute`);
   paths = { installer: process.env.LOCALIZATION_INSTALLER, install: process.env.LOCALIZATION_INSTALL_DIR,
     build: process.env.LOCALIZATION_BUILD_DIR, userData: path.join(process.env.APPDATA, PROFILE) };
   const relativeInstall = path.relative(process.env.RUNNER_TEMP, paths.install);
@@ -412,6 +489,7 @@ try {
   // file exposes only default in current Playwright, not a named _electron.
   ({ _electron } = webRequire('playwright-core'));
   assert.equal(typeof _electron?.launch, 'function', 'locked frontend Playwright Electron support is required');
+  report.playwrightVersion = webRequire('playwright-core/package.json').version;
   environment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     /^(SystemRoot|WINDIR|SystemDrive|COMSPEC|PATH|PATHEXT|TEMP|TMP|APPDATA|LOCALAPPDATA|USERPROFILE|HOMEDRIVE|HOMEPATH|ProgramFiles|ProgramFiles\(x86\)|ProgramData|ALLUSERSPROFILE|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|OS|SESSIONNAME)$/i.test(key)));
   Object.assign(environment, { LITELLM_LOCAL_MODEL_COST_MAP: 'True', PYTHONUTF8: '1', PYTHONUNBUFFERED: '1',
@@ -419,16 +497,21 @@ try {
     LOCALIZATION_INSTALL_DIR: paths.install, LOCALIZATION_USER_DATA: paths.userData,
     LOCALIZATION_EXE: paths.exe, LOCALIZATION_BACKEND: paths.backend });
   report.installer = { filename: path.basename(paths.installer), sha256: await sha256(paths.installer) };
+  if (originalEvidence) {
+    assert.equal(report.installer.filename, originalEvidence.provenance.installer, 'retry must use the exact original installer filename');
+    assert.equal(report.installer.sha256, originalEvidence.provenance.installerSha256, 'retry must use the exact original installer bytes');
+  }
   report.installedExecutable = paths.exe;
   report.profilePolicy = 'real APPDATA/OfferPilot Desktop asserted absent; no profile deletion or user-data-dir override';
   await saveReport();
   stage = 'install-new-nsis';
-  assert.equal((await windows('install')).exitCode, 0);
+  assert.equal((await windows('install')).exitCode, 0, 'original NSIS must install successfully on the fresh runner');
   installedIdentity = await verifyPayload();
   report.installedIdentityBefore = installedIdentity;
   sourceIdentity = await verifySource();
   await fs.writeFile(path.join(evidence, 'source-sha256.json'), JSON.stringify(sourceIdentity, null, 2) + '\n');
-  await checkpoint(stage, { nsisActuallyInstalled: true, sameBuiltPayloadVerified: true });
+  await checkpoint(stage, { nsisActuallyInstalled: true, sameBuiltPayloadVerified: true,
+    payloadIdentitySource: retryOriginal ? 'pinned-original-build-evidence' : 'same-job-unpacked-build' });
 
   await launch(1, 'zh-CN');
   await settings('zh-CN');
@@ -471,8 +554,22 @@ try {
   report.failure = { stage, kind: error instanceof assert.AssertionError ? 'assertion-failed' : 'operation-failed' };
   if (error instanceof assert.AssertionError && !error.generatedMessage) report.failure.assertion = error.message.slice(0, 250);
   else if (/^[a-z][a-z-]{1,100}$/.test(error?.message || '')) report.failure.code = error.message;
+  if (['TimeoutError', 'TypeError', 'Error', 'AssertionError'].includes(error?.name)) report.failure.errorType = error.name;
   console.error(`Installed localization failed at: ${stage}`);
   process.exitCode = 1;
+  // Fresh product-only surfaces contain no credentials or user account data.
+  // Never capture a page that left the authenticated product origin.
+  if (active && report.blockedRequests.length === 0) {
+    for (const [role, page] of [['owner', active.page], ['haru', active.haru]]) {
+      if (!page) continue;
+      try {
+        const url = new URL(page.url());
+        if (url.origin === active.origin && url.pathname === '/' && url.search === (role === 'owner' ? '' : '?desktopSurface=haru')) {
+          await shot(page, `failure-${report.failure.stage}-${role}`);
+        }
+      } catch { report.failure.screenshotIncomplete = true; }
+    }
+  }
 } finally {
   if (active) {
     try { await quitNormally(); report.failureCleanup = 'explicit-menu-exit'; }

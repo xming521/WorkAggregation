@@ -1,0 +1,200 @@
+name: Same-package Windows localization retry
+
+# Harness-only retry of one exact retained installer. No product rebuild.
+on:
+  push:
+    branches: [feat/20261015-desktop-localization]
+    paths:
+      - 'desktop/localization-ui/**'
+      - '.github/workflows/desktop-localization-retry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# No concurrency cancellation. The original package/run remains unchanged.
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  PRODUCT_SHA: 05fcd54a3bc0f3ebd792083704c6a5a861099797
+  PRODUCT_TREE: 9b1511d567132d5fcf4c0ef69100390095cf41fe
+  ORIGINAL_RUN_ID: '38710428545'
+  INSTALLER_ARTIFACT_ID: '11961578103'
+  EVIDENCE_ARTIFACT_ID: '11961468467'
+  INSTALLER_ZIP_SHA256: c26146dd15807c18e973f4eef88c91d2d12f34526bc417602f0bf2453f2f5ced
+  EVIDENCE_ZIP_SHA256: 938b56ff547d9571e3dd692e9aef32db19d9ad67c005a5f789dc57c209ade3a4
+  INSTALLER_SHA256: 614acdc2e4eae82c97ca0c699038a83ef89db7d0a32f5f269e64d4619e20d520
+  INSTALLER_NAME: OfferPilot-Desktop-localization-05fcd54a3bc0-win-x64-setup.exe
+  LITELLM_LOCAL_MODEL_COST_MAP: 'True'
+  PYTHONUTF8: '1'
+  PYTHONUNBUFFERED: '1'
+  ONNXRUNTIME_NODE_INSTALL: skip
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  same-package-installed-ui:
+    name: Retained installer and separately versioned localization harness
+    if: ${{ github.repository == 'offercontext/offerPilot' && github.ref == 'refs/heads/feat/20261015-desktop-localization' }}
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout the retry harness revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record separate product and harness identities
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'desktop/localization-ui/evidence'
+          New-Item -ItemType Directory -Force $evidence | Out-Null
+          "LOCALIZATION_EVIDENCE_DIR=$evidence" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $inputs = Join-Path $env:RUNNER_TEMP "localization-retry-inputs-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $inputs) { throw 'Retry inputs must use a fresh directory' }
+          New-Item -ItemType Directory $inputs | Out-Null
+          "LOCALIZATION_RETRY_INPUTS=$inputs" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          @(
+            'SAME ORIGINAL UNSIGNED INSTALLER. HARNESS-ONLY RETRY. NOT RELEASE READY.',
+            "Product source: $env:PRODUCT_SHA; product tree: $env:PRODUCT_TREE",
+            "Original build run: $env:ORIGINAL_RUN_ID; installer artifact: $env:INSTALLER_ARTIFACT_ID; evidence artifact: $env:EVIDENCE_ARTIFACT_ID",
+            "Original installer SHA256: $env:INSTALLER_SHA256",
+            "Retry harness/workflow commit: $env:GITHUB_SHA",
+            "Retry run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID; attempt: $env:GITHUB_RUN_ATTEMPT",
+            'No product build, freeze, NSIS packaging, old installer PIN/helper, real AI, real mail, release or updater publication.',
+            'Original build evidence is reused only for that exact source/package. This run proves only its reported installed-UI stages.',
+            'Comprehensive installed UI, SmartScreen, undebugged launch and full release gate remain unaccepted.'
+          ) | Set-Content (Join-Path $evidence 'retry-scope.txt')
+      - name: Checkout immutable original product source separately
+        uses: actions/checkout@v4
+        with:
+          ref: 05fcd54a3bc0f3ebd792083704c6a5a861099797
+          path: .localization-product-source
+          persist-credentials: false
+      - name: Verify original source and unchanged dependency locks
+        run: |
+          $source = git -C .localization-product-source rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $source -ne $env:PRODUCT_SHA) { throw 'Wrong original product checkout' }
+          $tree = git -C .localization-product-source rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0 -or $tree -ne $env:PRODUCT_TREE) { throw 'Wrong original product tree' }
+          git -C .localization-product-source diff --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Original product checkout is modified' }
+          foreach ($file in @('web/package.json', 'web/package-lock.json', 'desktop/package.json', 'desktop/package-lock.json')) {
+            $current = (Get-FileHash -Algorithm SHA256 $file).Hash
+            $original = (Get-FileHash -Algorithm SHA256 (Join-Path .localization-product-source $file)).Hash
+            if ($current -ne $original) { throw "Retry dependency input differs from original: $file" }
+          }
+          "LOCALIZATION_PRODUCT_SOURCE_DIR=$((Resolve-Path .localization-product-source).Path)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            desktop/package-lock.json
+      - name: Install locked inspection helpers without lifecycle scripts or builds
+        run: |
+          npm.cmd ci --prefix web --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { throw 'Locked Playwright helper install failed' }
+          npm.cmd ci --prefix desktop --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { throw 'Locked ASAR inspection helper install failed' }
+          node --test desktop/localization-ui/test/*.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Retry harness contract regression failed' }
+      - name: Authenticate and verify exact original run and artifact archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $api = 'https://api.github.com/repos/offercontext/offerPilot'
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+          $run = Invoke-RestMethod -Uri "$api/actions/runs/$env:ORIGINAL_RUN_ID" -Headers $headers
+          if ($run.id -ne [long]$env:ORIGINAL_RUN_ID -or $run.head_sha -ne $env:PRODUCT_SHA -or $run.head_branch -ne 'feat/20261015-desktop-localization' -or $run.path -ne '.github/workflows/desktop-localization.yml' -or $run.status -ne 'completed' -or $run.conclusion -ne 'failure' -or $run.run_attempt -ne 1) {
+            throw 'Original build run provenance differs from the reviewed failed-UI run'
+          }
+          $jobs = Invoke-RestMethod -Uri "$api/actions/runs/$env:ORIGINAL_RUN_ID/attempts/1/jobs" -Headers $headers
+          $job = @($jobs.jobs | Where-Object { $_.id -eq 116340157284 })
+          if ($job.Count -ne 1) { throw 'Original build job is missing' }
+          foreach ($number in 1..16) {
+            $step = @($job[0].steps | Where-Object { $_.number -eq $number })
+            if ($step.Count -ne 1 -or $step[0].conclusion -ne 'success') { throw "Original prerequisite step $number did not pass" }
+          }
+          $originalUi = @($job[0].steps | Where-Object { $_.number -eq 17 })
+          if ($originalUi.Count -ne 1 -or $originalUi[0].conclusion -ne 'failure') { throw 'Unexpected original installed UI outcome' }
+          $archives = @(
+            @{ id = $env:INSTALLER_ARTIFACT_ID; name = "offerpilot-windows-localization-experimental-$env:PRODUCT_SHA-1"; sha = $env:INSTALLER_ZIP_SHA256; folder = 'installer' },
+            @{ id = $env:EVIDENCE_ARTIFACT_ID; name = "windows-localization-evidence-$env:PRODUCT_SHA-1"; sha = $env:EVIDENCE_ZIP_SHA256; folder = 'original-evidence' }
+          )
+          Add-Type -AssemblyName System.IO.Compression.ZipFile
+          $verified = @()
+          foreach ($item in $archives) {
+            $artifact = Invoke-RestMethod -Uri "$api/actions/artifacts/$($item.id)" -Headers $headers
+            if ($artifact.id -ne [long]$item.id -or $artifact.name -ne $item.name -or $artifact.expired -or $artifact.workflow_run.id -ne [long]$env:ORIGINAL_RUN_ID -or $artifact.workflow_run.head_sha -ne $env:PRODUCT_SHA -or $artifact.digest -ne "sha256:$($item.sha)") {
+              throw 'Original artifact metadata mismatch or expired artifact'
+            }
+            $zip = Join-Path $env:LOCALIZATION_RETRY_INPUTS "$($item.folder).zip"
+            curl.exe --fail --silent --show-error --location --max-time 300 --header "Authorization: Bearer $env:GH_TOKEN" --header 'Accept: application/vnd.github+json' --output $zip "$api/actions/artifacts/$($item.id)/zip"
+            if ($LASTEXITCODE -ne 0) { throw 'Original artifact download failed' }
+            $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+            if ($actualHash -ne $item.sha) { throw 'Original artifact ZIP SHA256 mismatch' }
+            $destination = Join-Path $env:LOCALIZATION_RETRY_INPUTS $item.folder
+            $rootPrefix = [IO.Path]::GetFullPath($destination) + [IO.Path]::DirectorySeparatorChar
+            $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+            try {
+              foreach ($entry in $archive.Entries) {
+                $target = [IO.Path]::GetFullPath((Join-Path $destination $entry.FullName))
+                if (-not $target.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe archive entry path' }
+              }
+            } finally { $archive.Dispose() }
+            Expand-Archive -LiteralPath $zip -DestinationPath $destination
+            $verified += @{ artifactId = $artifact.id; runId = $env:ORIGINAL_RUN_ID; sourceSha = $env:PRODUCT_SHA; name = $artifact.name; archiveSha256 = $actualHash }
+          }
+          $verified | ConvertTo-Json | Set-Content (Join-Path $env:LOCALIZATION_EVIDENCE_DIR 'original-artifacts.json')
+          $installer = Join-Path $env:LOCALIZATION_RETRY_INPUTS "installer/$env:INSTALLER_NAME"
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant() -ne $env:INSTALLER_SHA256) { throw 'Original installer SHA256 mismatch' }
+          $originalEvidence = Join-Path $env:LOCALIZATION_RETRY_INPUTS 'original-evidence'
+          foreach ($file in @('LOCALIZATION-VALIDATION-STATUS.json', 'installed-ui/result.json', 'installed-ui/source-sha256.json', 'installed-ui/installed-web-sha256.json', 'installed-ui/installed-backend-sha256.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $originalEvidence $file) -PathType Leaf)) { throw "Missing original evidence: $file" }
+          }
+          $status = Get-Content -Raw (Join-Path $originalEvidence 'LOCALIZATION-VALIDATION-STATUS.json') | ConvertFrom-Json
+          if ($status.sourceSha -ne $env:PRODUCT_SHA -or $status.installerSha256 -ne $env:INSTALLER_SHA256 -or $status.installer -ne $env:INSTALLER_NAME -or $status.buildAndPackagedSmoke -ne 'success' -or $status.installedUiOutcome -ne 'failure' -or $status.focusedInstalledUiAccepted -ne $false -or $status.releaseReady -ne $false) {
+            throw 'Original package acceptance manifest mismatch'
+          }
+          "LOCALIZATION_INSTALLER=$installer" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "LOCALIZATION_ORIGINAL_EVIDENCE_DIR=$(Join-Path $originalEvidence 'installed-ui')" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Required same-original-package installed UI retry
+        timeout-minutes: 15
+        env:
+          LOCALIZATION_RETRY_ORIGINAL: '1'
+          LOCALIZATION_SOURCE_SHA: 05fcd54a3bc0f3ebd792083704c6a5a861099797
+        run: |
+          $env:LOCALIZATION_INSTALL_DIR = Join-Path $env:RUNNER_TEMP "OfferPilot-localization-retry-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path Env:LOCALIZATION_BUILD_DIR) { throw 'Retry must not use a rebuilt payload directory' }
+          node desktop/localization-ui/smoke.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Original-package installed UI retry failed; retained package is not accepted' }
+      - name: Record retry outcome without changing original package acceptance
+        if: ${{ always() }}
+        env:
+          RETRY_RESULT: ${{ job.status }}
+        run: |
+          New-Item -ItemType Directory -Force desktop/localization-ui/evidence | Out-Null
+          @{
+            productSourceSha = $env:PRODUCT_SHA
+            originalRunId = $env:ORIGINAL_RUN_ID
+            originalInstallerArtifactId = $env:INSTALLER_ARTIFACT_ID
+            originalInstallerSha256 = $env:INSTALLER_SHA256
+            harnessSha = $env:GITHUB_SHA
+            retryRunId = $env:GITHUB_RUN_ID
+            resultBeforeEvidenceUpload = $env:RETRY_RESULT
+            releaseReady = $false
+          } | ConvertTo-Json | Set-Content desktop/localization-ui/evidence/retry-status.json
+          if (Test-Path desktop/localization-ui/evidence/retry-scope.txt) {
+            Get-Content desktop/localization-ui/evidence/retry-scope.txt | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+          "Retry result before evidence upload: $env:RETRY_RESULT" | Add-Content $env:GITHUB_STEP_SUMMARY
+      - name: Preserve same-package retry evidence including failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-localization-same-package-05fcd54a3bc0-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+          path: desktop/localization-ui/evidence/
