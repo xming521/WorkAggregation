@@ -61,9 +61,18 @@ test('returned failure cannot remain alive behind a referenced handle after prov
 });
 
 const runner = fs.readFileSync(new URL('../validation-runner.mjs', import.meta.url), 'utf8');
-const finalizer = runner.slice(runner.lastIndexOf('} finally {') + '} finally {'.length, runner.lastIndexOf('\n}\n\n}'));
+function extractFinalizer(source) {
+  const normalized = source.replace(/\r\n/g, '\n');
+  const marker = '} finally {';
+  const start = normalized.lastIndexOf(marker), end = normalized.lastIndexOf('\n}\n\n}');
+  assert.ok(start >= 0, 'runner finalizer start marker must exist');
+  assert.ok(end >= 0, 'runner finalizer end marker must exist');
+  assert.ok(end > start + marker.length, 'runner finalizer markers must be in forward order');
+  return normalized.slice(start + marker.length, end);
+}
+const finalizer = extractFinalizer(runner);
 async function runFinalizer({ cleanupError, evidenceError = false, closeRejects = false, launchPending = false,
-  hasApp = true, launcherStaysOpen = false, priorLauncherOpen = false } = {}) {
+  hasApp = true, launcherStaysOpen = false, priorLauncherOpen = false } = {}, body = finalizer) {
   const events = [], close = deferred();
   const resource = { launcherClosed: false, closeConfirmed: false,
     app: { close() { events.push('app-close-started'); return closeRejects ? Promise.reject(new Error('private close failure')) : close.promise; } } };
@@ -94,10 +103,30 @@ async function runFinalizer({ cleanupError, evidenceError = false, closeRejects 
     },
     console: { log() { events.push('final-summary'); } },
   });
-  const result = await vm.runInContext(`(async () => {${finalizer}})()`, context);
+  const result = await vm.runInContext(`(async () => {${body}})()`, context);
   close.resolve();
   return { result, events };
 }
+
+test('LF and CRLF runner sources compile and execute the same finalizer', async () => {
+  const lf = runner.replace(/\r\n/g, '\n'), crlf = lf.replace(/\n/g, '\r\n');
+  const bodies = [lf, crlf].map(extractFinalizer);
+  assert.equal(bodies[0], bodies[1]);
+  const results = [];
+  for (const body of bodies) {
+    assert.doesNotThrow(() => new vm.Script(`(async () => {${body}})()`));
+    results.push(JSON.parse(JSON.stringify(await runFinalizer({}, body))));
+  }
+  assert.deepEqual(results[0], results[1]);
+  assert.equal(results[1].result.cleanupPassed, true);
+  assert.equal(results[1].result.appResourcesReleased, true);
+});
+
+test('missing or reversed source markers fail before compiling a partial finalizer', () => {
+  assert.throws(() => extractFinalizer('\n}\n\n}'), /start marker must exist/);
+  assert.throws(() => extractFinalizer('} finally {'), /end marker must exist/);
+  assert.throws(() => extractFinalizer('\n}\n\n}\n} finally {'), /forward order/);
+});
 
 test('actual runner finalizer drains the retained close after verified OS cleanup', async () => {
   const { result, events } = await runFinalizer();
