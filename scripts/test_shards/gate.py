@@ -20,6 +20,11 @@ import sys
 # function-local state and no shared custom fixtures. All shards already import
 # the whole suite, so this exception adds no collection/catalog construction.
 NODE_SPLIT_FILES = frozenset({"tests/test_chat_api.py"})
+MANIFEST_VERSION = 4
+PARTITION_STRATEGY = "duration-lpt-v1"
+DURATION_HISTORY_PATH = Path(__file__).with_name("durations-v1.json")
+# SHA256 of the checked-in history with checkout CRLF normalized to LF.
+DURATION_HISTORY_SHA256 = "f1be4a8e1d53de9aab21b8a9a3fa23276f4326c56788a4350e23d772c1132cbe"
 
 
 def validate_split_fixture(item, name, definition, scope):
@@ -102,39 +107,85 @@ def identity():
     }
 
 
+def load_duration_history():
+    """Read a reviewed scheduling input, never prior pass/fail evidence."""
+    raw = DURATION_HISTORY_PATH.read_bytes().replace(b"\r\n", b"\n")
+    if hashlib.sha256(raw).hexdigest() != DURATION_HISTORY_SHA256:
+        raise ValueError("Frozen duration history digest mismatch")
+    history = json.loads(raw)
+    if (set(history) != {"version", "source", "unit", "fallback_ms", "duration_ms",
+                         "historical_skips"}
+            or type(history["version"]) is not int or history["version"] != 1
+            or history["unit"] != "ceil_total_phase_milliseconds"):
+        raise ValueError("Unsupported duration history")
+    costs, skipped = history["duration_ms"], history["historical_skips"]
+    if (not isinstance(costs, dict) or not costs or not isinstance(skipped, dict)
+            or any(not isinstance(node, str) or "::" not in node for node in costs | skipped)
+            or any(type(cost) is not int or cost < 1 for cost in costs.values())
+            or any(not isinstance(reason, str) or not reason for reason in skipped.values())
+            or set(costs) & set(skipped)
+            or type(history["fallback_ms"]) is not int
+            or history["fallback_ms"] != max(costs.values())
+            or digest(sorted(costs | skipped)) != history["source"]["nodes_sha256"]):
+        raise ValueError("Invalid duration history costs or coverage")
+    return history
+
+
+def partition_policy(history=None):
+    history = load_duration_history() if history is None else history
+    return {"strategy": PARTITION_STRATEGY, "history_version": history["version"],
+            "history_sha256": DURATION_HISTORY_SHA256, "fallback_ms": history["fallback_ms"],
+            "fallback_strategy": "file-passed-max-then-global-max-v1"}
+
+
+def estimated_costs(nodes, history):
+    """Scheduling estimates only; historical skips never count as passed bodies."""
+    by_file = {}
+    for node, cost in history["duration_ms"].items():
+        filename = node.split("::", 1)[0]
+        by_file[filename] = max(by_file.get(filename, 0), cost)
+    return {node: history["duration_ms"].get(
+        node, by_file.get(node.split("::", 1)[0], history["fallback_ms"])) for node in nodes}
+
+
 def partition(nodes, count):
+    return _partition(nodes, count, load_duration_history())
+
+
+def _partition(nodes, count, history):
     if not nodes or len(nodes) != len(set(nodes)):
         raise ValueError("Empty or duplicate full collection")
     if not 1 <= count <= len(nodes):
         raise ValueError("Shard count must be between one and the test count")
     # Preserve module fixture lifecycles except the explicitly reviewed file.
-    # Balance whole files first, then distribute the costly chat cases evenly.
-    # This is deterministic load spreading, not a measured speedup guarantee.
-    files = {}
-    split_nodes = []
+    # Missing/skipped nodes use the file's maximum complete passed history, or
+    # the global maximum for new/all-skipped files. These are not pass evidence.
+    units = {}
     for node in sorted(nodes):
-        if node.split("::", 1)[0] in NODE_SPLIT_FILES:
-            split_nodes.append(node)
-            continue
-        files.setdefault(node.split("::", 1)[0], []).append(node)
-    if count > len(files) + len(split_nodes):
+        filename = node.split("::", 1)[0]
+        unit = node if filename in NODE_SPLIT_FILES else filename
+        units.setdefault(unit, []).append(node)
+    if count > len(units):
         raise ValueError("Shard count exceeds test files; reduce count to preserve fixture scope")
+    estimates = estimated_costs(nodes, history)
+    costs = {unit: sum(estimates[node] for node in members) for unit, members in units.items()}
     shards = [[] for _ in range(count)]
-    for filename in sorted(files, key=lambda name: (-len(files[name]), name)):
-        index = min(range(count), key=lambda i: (len(shards[i]), i))
-        shards[index].extend(files[filename])
-    split_counts = [0] * count
-    for node in split_nodes:
-        index = min(range(count), key=lambda i: (split_counts[i], len(shards[i]), i))
-        shards[index].append(node)
-        split_counts[index] += 1
+    loads = [0] * count
+    # LPT and all ties are deterministic; input collection order is irrelevant.
+    for unit in sorted(units, key=lambda name: (-costs[name], name)):
+        index = min(range(count), key=lambda i: (loads[i], len(shards[i]), i))
+        shards[index].extend(units[unit])
+        loads[index] += costs[unit]
     return [sorted(shard) for shard in shards]
 
 
 def validate_manifest(manifest):
-    if manifest["version"] != 3:
+    if manifest["version"] != MANIFEST_VERSION:
         raise ValueError("Unsupported manifest")
-    if manifest["shards"] != partition(manifest["nodes"], len(manifest["shards"])):
+    history = load_duration_history()
+    if manifest.get("partition") != partition_policy(history):
+        raise ValueError("Manifest duration policy differs from the frozen input")
+    if manifest["shards"] != _partition(manifest["nodes"], len(manifest["shards"]), history):
         raise ValueError("Manifest partition is incomplete or not deterministic")
     if set(manifest["allowed_skips"] or {}) - set(manifest["nodes"]):
         raise ValueError("Skip policy contains unknown node IDs")
@@ -250,7 +301,8 @@ def worker(args):
         if code:
             return code
         policy = read(args.allowed_skips) if args.allowed_skips else None
-        manifest = {"version": 3, "identity": identity(), "nodes": sorted(nodes),
+        manifest = {"version": MANIFEST_VERSION, "partition": partition_policy(),
+                    "identity": identity(), "nodes": sorted(nodes),
                     "shards": partition(nodes, args.count), "allowed_skips": policy,
                     "collection_skips": collection_skips}
         validate_manifest(manifest)

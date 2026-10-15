@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -27,6 +28,18 @@ def test_deterministic_complete_balanced_partitions():
     assert max(map(len, shards)) - min(map(len, shards)) <= 23
 
 
+def test_measured_cost_balances_slow_files_instead_of_equal_node_counts(monkeypatch):
+    costs = {"tests/test_a.py::test_slow": 100_000, "tests/test_b.py::test_fast": 1_000,
+             "tests/test_c.py::test_slow": 90_000, "tests/test_d.py::test_fast": 1_000}
+    monkeypatch.setattr(gate, "load_duration_history", lambda: {
+        "duration_ms": costs, "fallback_ms": 100_000,
+    }, raising=False)
+    shards = gate.partition(list(costs), 2)
+    assert max(sum(costs[node] for node in shard) for shard in shards) == 100_000
+    assert shards == gate.partition(list(reversed(costs)), 2)
+    assert sorted(sum(shards, [])) == sorted(costs)
+
+
 @pytest.mark.parametrize("nodes,count", [([], 1), (["a", "a"], 1), (["a"], 2), (["a"], 0)])
 def test_invalid_partition_rejected(nodes, count):
     with pytest.raises(ValueError):
@@ -35,7 +48,8 @@ def test_invalid_partition_rejected(nodes, count):
 
 def evidence(tmp_path):
     nodes = ["tests/test_a.py::test_a", "tests/test_b.py::test_b"]
-    manifest = {"version": 3, "identity": {"commit": "abc"}, "nodes": nodes,
+    manifest = {"version": 4, "partition": gate.partition_policy(),
+                "identity": {"commit": "abc"}, "nodes": nodes,
                 "shards": gate.partition(nodes, 2), "allowed_skips": None}
     results = []
     for index, shard in enumerate(manifest["shards"]):
@@ -110,7 +124,11 @@ def test_skips_disclosed_without_counting_as_passed(tmp_path):
 @pytest.fixture
 def tiny_repo(tmp_path):
     (tmp_path / "uv.lock").write_text("test lock")
-    (tmp_path / "pytest.ini").write_text("[pytest]\ntestpaths = tests\n")
+    # Every synthetic child pytest also starts offline, without process-global
+    # PYTEST_ADDOPTS/PYTEST_PLUGINS that would alter nested selection semantics.
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\ntestpaths = tests\npythonpath = .\naddopts = -p offline_guard\n")
+    shutil.copyfile(ROOT / "tests/_offline_network_guard.py", tmp_path / "offline_guard.py")
     (tmp_path / "tests").mkdir()
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
@@ -139,7 +157,7 @@ def test_ok(value):
 
 def test_nested(tmp_path):
     (tmp_path / "test_inner.py").write_text("def test_inner(): pass")
-    result = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", str(tmp_path)], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-m", "pytest", "-p", "offline_guard", "--collect-only", "-q", str(tmp_path)], capture_output=True, text=True)
     assert result.returncode == 0
     assert "test_inner.py::test_inner" in result.stdout
     assert "PYTEST_ADDOPTS" not in os.environ
@@ -255,7 +273,10 @@ def test_reviewed_chat_module_spreads_without_splitting_other_modules():
     assert sorted(sum(shards, [])) == sorted(nodes)
     assert len(set(sum(shards, []))) == len(nodes)
     chat_counts = [sum(node in set(chat) for node in shard) for shard in shards]
-    assert sorted(chat_counts) == [32] * 6 + [33] * 6
+    assert min(chat_counts) > 0
+    costs = gate.estimated_costs(nodes, gate.load_duration_history())
+    loads = [sum(costs[node] for node in shard) for shard in shards]
+    assert max(loads) - min(loads) <= max(costs[node] for node in chat)
     for filename in {node.split("::")[0] for node in other}:
         assert sum(any(node.split("::")[0] == filename for node in shard)
                    for shard in shards) == 1
@@ -310,7 +331,8 @@ def test_isolated(tmp_path, value):
 ''')
     assert invoke(tiny_repo, "collect", "--count", "2").returncode == 0
     manifest = json.loads((tiny_repo / "manifest.json").read_text())
-    assert manifest["version"] == 3
+    assert manifest["version"] == 4
+    assert manifest["partition"] == gate.partition_policy()
     assert list(map(len, manifest["shards"])) == [2, 2]
     for index in range(2):
         ran = invoke(tiny_repo, "run", "--index", str(index))
@@ -383,3 +405,140 @@ def test_previous_whole_file_manifest_cannot_use_new_partition_rule(tmp_path):
     manifest["version"] = 2
     with pytest.raises(ValueError, match="Unsupported manifest"):
         gate.validate_manifest(manifest)
+
+
+def test_previous_count_balanced_manifest_cannot_use_duration_policy(tmp_path):
+    manifest, _ = evidence(tmp_path)
+    manifest["version"] = 3
+    with pytest.raises(ValueError, match="Unsupported manifest"):
+        gate.validate_manifest(manifest)
+
+
+def test_frozen_history_provenance_and_all_6773_nodes_keep_exact_coverage():
+    history = gate.load_duration_history()
+    assert history["source"] == {
+        "run_id": 38500952016, "artifact_id": 11881026619,
+        "artifact_sha256": "7c84e85cf0b7106a5d0a452ea50ca79a49295bb6a2cb601f68d80d1627222826",
+        "commit": "9c245314e570f1d6de034e4d52deb46979874416",
+        "manifest_sha256": "4718beecb6018522d28719526e61778a1f2a1aa68326c4880f3aca0e89f8349d",
+        "nodes_sha256": "8fec4f9f84fdaa5ec102cdab343b8efd97ab3fcff58409e03fb6fd8f6aadc01d",
+        "lock_sha256": "456ac277ffbb355ca96fc68b54d05b104f42fd96b5a0b258decab35ff30456f8",
+        "platform": "Windows", "python": "3.12.10",
+    }
+    assert len(history["duration_ms"]) == 6760
+    assert len(history["historical_skips"]) == 13
+    assert history["fallback_ms"] == 257834 == max(history["duration_ms"].values())
+    nodes = sorted(history["duration_ms"] | history["historical_skips"])
+    assert len(nodes) == 6773
+    shards = gate.partition(nodes, 12)
+    assert shards == gate.partition(nodes[::-1], 12)
+    assert sorted(sum(shards, [])) == nodes
+    assert len(set(sum(shards, []))) == 6773
+    for filename in {node.split("::", 1)[0] for node in nodes} - gate.NODE_SPLIT_FILES:
+        assert sum(any(node.split("::", 1)[0] == filename for node in shard)
+                   for shard in shards) == 1
+    manifest = {"version": 4, "partition": gate.partition_policy(), "nodes": nodes,
+                "shards": shards, "allowed_skips": None}
+    gate.validate_manifest(manifest)
+    repeated = {**manifest, "shards": gate.partition(nodes[::-1], 12)}
+    assert gate.digest(manifest) == gate.digest(repeated)
+
+
+def test_unknown_and_historically_skipped_nodes_use_conservative_frozen_cost(monkeypatch):
+    costs = {"tests/test_a.py::test_known": 1, "tests/test_b.py::test_known": 1000}
+    unknown = "tests/test_a.py::test_new"
+    skipped = "tests/test_skipped.py::test_platform"
+    history = {"duration_ms": costs, "historical_skips": {skipped: "Other platform"},
+               "fallback_ms": 1000}
+    monkeypatch.setattr(gate, "load_duration_history", lambda: history)
+    shards = gate.partition([*costs, unknown, skipped], 2)
+    assert shards[0] == sorted([*costs, unknown])
+    assert shards[1] == [skipped]
+    assert history["duration_ms"] == costs  # No learned state or runtime timing feedback.
+
+
+@pytest.mark.parametrize("filename,skipped,expected", [
+    ("tests/test_known.py", False, 20),  # New node in a measured file.
+    ("tests/test_known.py", True, 20),  # Previously skipped body was never measured.
+    ("tests/test_new.py", False, 1000),  # Entirely new file.
+    ("tests/test_all_skipped.py", True, 1000),  # No complete passed body in this file.
+])
+def test_missing_cost_uses_file_passed_max_then_global_max(filename, skipped, expected):
+    node = f"{filename}::test_missing"
+    history = {
+        "duration_ms": {"tests/test_known.py::test_fast": 1,
+                        "tests/test_known.py::test_slow": 20,
+                        "tests/test_other.py::test_slow": 1000},
+        "historical_skips": {node: "Other platform"} if skipped else {},
+        "fallback_ms": 1000,
+    }
+    before = copy.deepcopy(history)
+    # Historical siblings need not be selected to supply the conservative max.
+    assert gate.estimated_costs([node], history) == {node: expected}
+    assert history == before
+
+
+def test_equal_cost_file_and_shard_ties_are_stable(monkeypatch):
+    nodes = [f"tests/test_{name}.py::test_one" for name in "dcba"]
+    history = {"duration_ms": dict.fromkeys(nodes, 10), "fallback_ms": 10}
+    monkeypatch.setattr(gate, "load_duration_history", lambda: history)
+    expected = [[nodes[3], nodes[1]], [nodes[2], nodes[0]]]
+    assert gate.partition(nodes, 2) == expected
+    assert gate.partition(nodes[::-1], 2) == expected
+
+
+@pytest.mark.parametrize("field,value", [
+    ("strategy", "count-v3"), ("history_version", 2), ("history_sha256", "0" * 64),
+    ("fallback_ms", 0), ("fallback_strategy", "global-max-only"),
+])
+def test_manifest_duration_policy_is_bound_and_cannot_be_overridden(tmp_path, field, value):
+    manifest, _ = evidence(tmp_path)
+    manifest["partition"][field] = value
+    with pytest.raises(ValueError, match="duration policy"):
+        gate.validate_manifest(manifest)
+
+
+def test_manifest_without_policy_or_with_a_different_assignment_fails_closed(tmp_path):
+    manifest, _ = evidence(tmp_path)
+    policy = manifest.pop("partition")
+    with pytest.raises(ValueError, match="duration policy"):
+        gate.validate_manifest(manifest)
+    manifest["partition"] = policy
+    manifest["shards"].reverse()
+    with pytest.raises(ValueError, match="partition"):
+        gate.validate_manifest(manifest)
+
+
+def test_frozen_history_digest_rejects_edits_but_allows_checkout_crlf(tmp_path, monkeypatch):
+    original = gate.DURATION_HISTORY_PATH.read_bytes().replace(b"\r\n", b"\n")
+    path = tmp_path / "history.json"
+    monkeypatch.setattr(gate, "DURATION_HISTORY_PATH", path)
+    path.write_bytes(original.replace(b"\n", b"\r\n"))
+    assert gate.load_duration_history()["fallback_ms"] == 257834
+    path.write_bytes(original + b" ")
+    with pytest.raises(ValueError, match="digest mismatch"):
+        gate.load_duration_history()
+    path.unlink()
+    with pytest.raises(FileNotFoundError):
+        gate.load_duration_history()
+
+
+@pytest.mark.parametrize("bad_cost", [0, -1, True, 1.5, float("nan"), "10"])
+def test_invalid_frozen_duration_cost_cannot_silently_fall_back(tmp_path, monkeypatch, bad_cost):
+    history = gate.load_duration_history()
+    history["duration_ms"][next(iter(history["duration_ms"]))] = bad_cost
+    raw = json.dumps(history).encode()
+    path = tmp_path / "history.json"
+    path.write_bytes(raw)
+    monkeypatch.setattr(gate, "DURATION_HISTORY_PATH", path)
+    monkeypatch.setattr(gate, "DURATION_HISTORY_SHA256", hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match="Invalid duration history"):
+        gate.load_duration_history()
+
+
+def test_workflow_preserves_120_minute_shard_budget():
+    workflow = (ROOT / ".github/workflows/desktop-windows.yml").read_text()
+    shard_job = workflow.split("  pytest-shards:\n", 1)[1].split("  full-regression:\n", 1)[0]
+    assert "timeout-minutes: 120" in shard_job
+    assert "max-parallel: 2" in shard_job
+    assert "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]" in shard_job
