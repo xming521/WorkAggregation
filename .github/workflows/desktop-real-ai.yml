@@ -66,7 +66,7 @@ jobs:
           "AI_ARTIFACT_DIR=$(Join-Path $env:RUNNER_TEMP 'offerpilot-fixed-ai-mock-artifact')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 9c245314e570f1d6de034e4d52deb46979874416
+          ref: b0f36f83c42e1952e21e350beff7bba9ee779546
           path: .ai-product-source
           persist-credentials: false
       - name: Install locked test helpers and run offline safety tests
@@ -80,8 +80,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
           repository: offercontext/offerPilot
-          run-id: 38500952016
-          name: offerpilot-windows-experimental-validation-9c245314e570f1d6de034e4d52deb46979874416
+          run-id: 38715680486
+          name: offerpilot-windows-experimental-validation-b0f36f83c42e1952e21e350beff7bba9ee779546
           path: ${{ env.AI_ARTIFACT_DIR }}
       - name: Verify and install exact EXE without any provider credential
         env:
@@ -197,7 +197,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Manual approval or session history is unverified' }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 9c245314e570f1d6de034e4d52deb46979874416
+          ref: b0f36f83c42e1952e21e350beff7bba9ee779546
           path: .ai-product-source
           persist-credentials: false
       - name: Install only pinned helpers; no install scripts or caches
@@ -211,8 +211,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
           repository: offercontext/offerPilot
-          run-id: 38500952016
-          name: offerpilot-windows-experimental-validation-9c245314e570f1d6de034e4d52deb46979874416
+          run-id: 38715680486
+          name: offerpilot-windows-experimental-validation-b0f36f83c42e1952e21e350beff7bba9ee779546
           path: ${{ env.AI_ARTIFACT_DIR }}
       - name: Verify metadata, SHA, installed payload and fresh profile before key injection
         env:

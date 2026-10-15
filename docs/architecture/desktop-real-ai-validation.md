@@ -2,14 +2,16 @@
 
 ## 状态与边界
 
-本轮固定产品提交 `9c245314e570f1d6de034e4d52deb46979874416`、完整门禁与打包 run `38500952016`。完整门禁已通过（6760 passed、13 允许的 skipped，前端 2657 passed）；同包非 AI run `38503131958` 为 183 PASS、7 BLOCKED、1 NOT RUN、4 N/A，免费 MOCK run `38503131977` 七场景通过且未调用真实 provider。同包非 AI 与 MOCK 结果属于原 helper `f3122f4`，本次严格观察诊断变更后的 helper 仍须独立审查及同 SHA 的免费 MOCK；既往 paid job 已执行，本轮历史闩锁已关闭，免费通过不授权重跑 live。
+本轮固定产品提交 `b0f36f83c42e1952e21e350beff7bba9ee779546` 修复已完成 run boundary 的投影契约。新打包 run `38715680486` 已成功，完整门禁仍在运行；新包非 AI 和免费 MOCK 尚待本 helper 验证。新源码、安装包及结果不可由旧 9c 证据替代。
+
+旧基线记录：产品 `9c245314e570f1d6de034e4d52deb46979874416`、installer `96c7517bc2a7674d897f324971edb2cbb56a9a9b23846c65af65293eb25c58e6`、run `38500952016` 完整门禁通过（6760 passed、13 允许的 skipped，前端 2657 passed）；旧同包非 AI run `38503131958` 为 183 PASS、7 BLOCKED、1 NOT RUN、4 N/A，旧 helper `f3122f4` 的免费 MOCK run `38503131977` 七场景通过。后续更严格的真实异步终态观察暴露 completed boundary 多余气泡，不能以旧 MOCK 覆盖新契约。旧 paid run `38694575612` 已结算 188 微元（CNY 0.000188），历史账本和 SESSION_ALREADY_CONSUMED 闩锁保留；免费通过不授权重跑 live。
 
 固定对象见 `desktop/real-ai-validation/product.json`：
 
-- 产品/构建提交：`9c245314e570f1d6de034e4d52deb46979874416`
-- 构建与完整门禁 run：`38500952016`；artifact：`11865823397`
-- artifact digest：`sha256:221d068dfd33057f26bdf9178aad3733f8d1f67ccfebf3eff406c6e2be6b8485`
-- installer SHA-256：`96c7517bc2a7674d897f324971edb2cbb56a9a9b23846c65af65293eb25c58e6`
+- 产品/构建提交：`b0f36f83c42e1952e21e350beff7bba9ee779546`
+- 构建与完整门禁 run：`38715680486`；artifact：`11963710908`
+- artifact digest：`sha256:f9e08cb6a3f06ac4dd9b89716effb981d5a75fdd2c2ee3db8587c824ed4ce418`
+- installer SHA-256：`0b58ef59afe02f29437d79cf4bc5c703c97d8fcd3a7babce4aa8e58f329a22e6`
 
 最后一项是安装器哈希，不是安装后的主程序哈希。安装后逐文件比对固定安装器内 payload，另记录主程序哈希供启动前复查。来源比较统一使用共享 manifest 的原 6 个桌面模块和新增 6 个 updater 模块；broker snapshot 的产品提交、build run、artifact 与安装器哈希必须全部与 PIN 一致，任何旧/新混配拒绝写成有效证据。完整回归是独立门禁；PIN 仅绑定完整回归来源，本 helper 不认证、不重跑、不取消任何既有完整门禁。Playwright 使用现有 inspect fuse 和临时 loopback CDP；不修改 fuse。GitHub hosted Windows 是管理员/UAC受平台管理环境，不证明普通用户 UAC/SmartScreen、无开发工具的正常启动体验。
 
@@ -112,7 +114,7 @@ npm test --prefix desktop/real-ai-validation
 
 原 `desktop-windows.yml` 现仅为本工具新增三个精确 `paths-ignore`：`desktop/real-ai-validation/**`、`.github/workflows/desktop-real-ai.yml`、本文。产品、锁文件、原 workflow 自身和 release gate 路径仍触发默认完整门禁，dispatch 与原有 package-only 判定不变。
 
-首次修改原 workflow 的迁移提交本身仍触发旧流程。早期迁移候选曾显式使用已存在的 `build: AI [windows-package-only] ` 前缀（末尾空格属于契约），允许额外 focused/build/packaging 和独立 Windows MOCK；不使用全 CI 跳过标记。该前缀不触发本工具 paid 入口：没有精确 R/H 和人工环境批准仍然跳过真实 AI。原 `validation-status` 仍按设计拒绝把 skipped full-regression 当成功，故 package-only run 不应被承诺整体绿色或发布就绪。当前 9c245314 已使用无此前缀的普通完整门禁且通过；本次仅验证 helper 的安全诊断和离线观察路径更新，不重复产品完整门禁或打包。
+首次修改原 workflow 的迁移提交本身仍触发旧流程。早期迁移候选曾显式使用已存在的 `build: AI [windows-package-only] ` 前缀（末尾空格属于契约），允许额外 focused/build/packaging 和独立 Windows MOCK；不使用全 CI 跳过标记。该前缀不触发本工具 paid 入口：没有精确 R/H 和人工环境批准仍然跳过真实 AI。原 `validation-status` 仍按设计拒绝把 skipped full-regression 当成功，故 package-only run 不应被承诺整体绿色或发布就绪。旧 9c245314 已使用无此前缀的普通完整门禁且通过。本次产品修复 b0f36f83 同样使用普通完整门禁与新打包 run 38715680486；打包已通过，完整门禁仍待终态，不能复用旧包验收或称发布就绪。
 
 空激活提交是否被其他 path-filtered workflow 忽略按真实 GitHub run 验证，不预先声称不会触发。
 
