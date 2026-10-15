@@ -100,8 +100,8 @@ export async function readLivePilotJson({ origin, requestId, deadline, diagnosti
   try {
     const response = await fetch(route, { method: 'GET', credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: controller.signal });
     httpStatus = response.status;
-    if (response.status !== 200) return result(null, 'HTTP_STATUS');
     if (response.redirected || response.url !== `${origin}${route}`) return result(null, 'ROUTE_MISMATCH');
+    if (response.status !== 200) return result(null, 'HTTP_STATUS');
     if (!response.body) return result(null, 'BODY_MISSING');
     reader = response.body.getReader(); let size = 0, text = '';
     const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -118,56 +118,51 @@ export async function readLivePilotJson({ origin, requestId, deadline, diagnosti
   finally { clearTimeout(timer); controller.abort(); try { await reader?.cancel(); } catch { /* No raw errors. */ } }
 }
 
+export function projectUiRequest(body) {
+  requireProof(typeof body === 'string' && body.length <= 65536 && Buffer.byteLength(body, 'utf8') <= 65536, 'ADMISSION_INVALID');
+  let value; try { value = JSON.parse(body); } catch { fail('ADMISSION_INVALID'); }
+  requireProof(object(value) && JSON.stringify(value) === body && Object.hasOwn(value, 'request_id')
+    && Object.hasOwn(value, 'conversation_id') && typeof value.request_id === 'string' && UUID.test(value.request_id) && value.conversation_id === 0, 'ADMISSION_INVALID');
+  return Object.freeze({ request_id: value.request_id });
+}
+
+// GET-by-request is PIN's admission recovery authority. The POST may be
+// intentionally aborted; its response body is not a completion prerequisite.
+export function projectRequestExecution(value, submitted) {
+  requireProof(object(value) && value.request_id === submitted.request_id && !unsafe(value, true), 'STATUS_IDENTITY_INVALID');
+  const target = identity(value);
+  requireProof(target.execution_generation === 1 && matches(value.execution, target), 'STATUS_IDENTITY_INVALID');
+  requireProof(value.protocol_version === 'pilot-runtime-v1' && value.execution.protocol_version === 'pilot-runtime-v1', 'STATUS_PROTOCOL_INVALID');
+  requireProof(value.recovery?.requires_resync === false && value.recovery?.auto_resume === false, 'STATUS_RECOVERY_INVALID');
+  return Object.freeze(target);
+}
+
 export function observeLiveAdmission(page, origin, within, observe = () => {}, capture = null) {
-  let closed = false, count = 0, admitted = null, firstFault = null;
-  const note = value => { try { observe(value); } catch { /* Diagnostics cannot alter the proof. */ } };
-  const invalidate = (error = proofError('ADMISSION_READ_FAILED')) => {
-    firstFault ??= error; closed = true; admitted = null;
+  let closed = false, count = 0, submitted = null, firstFault = null;
+  const note = value => { try { observe(value); } catch { /* Diagnostics cannot alter proof. */ } };
+  const invalidate = error => {
+    firstFault ??= error; closed = true; submitted = null;
     note({ fault: firstFault, admissionValid: false });
-    try { page.off('response', listener); } catch { /* dispose still retries. */ }
+    try { page.off('request', listener); } catch { /* dispose retries. */ }
   };
-  const listener = response => {
+  const listener = request => {
     if (closed) return;
-    let request;
+    let projected;
     try {
-      request = response.request();
-      if (response.url() !== `${origin}/api/pilot/runtime/v1/turns` || request.method() !== 'POST'
+      if (request.url() !== `${origin}/api/pilot/runtime/v1/turns` || request.method() !== 'POST'
         || request.frame() !== page.mainFrame()) return;
       note({ admissionObserved: true });
       if (++count !== 1) { invalidate(proofError('ADMISSION_DUPLICATE')); return; }
       if (request.redirectedFrom() !== null) { invalidate(proofError('ADMISSION_REDIRECTED')); return; }
-    } catch { invalidate(proofError('ADMISSION_METADATA_FAILED')); return; }
-    void within(async () => {
-      let bytes;
-      note({ admissionHttpStatus: response.status() });
-      try { bytes = await capture.body(response); note({ admissionBodyOutcome: 'OK' }); }
-      catch (error) {
-        // The raw Playwright/CDP error can contain URLs. Keep only a fixed
-        // category and never refetch/replay this state-changing admission.
-        let outcome = 'OTHER';
-        try {
-          const message = typeof error?.message === 'string' ? error.message : '';
-          if (message === 'ADMISSION_CAPTURE_INVALID') outcome = 'CAPTURE_INVALID';
-          else if (/No resource with given identifier found|No data found for resource with given identifier/.test(message)) outcome = 'CDP_RESOURCE_UNAVAILABLE';
-          else if (/Response body is unavailable|Response body is not available/.test(message)) outcome = 'BODY_UNAVAILABLE';
-          else if (/Target page, context or browser has been closed|Target closed|Session closed/.test(message)) outcome = 'TARGET_CLOSED';
-          else if (/net::ERR_ABORTED/.test(message)) outcome = 'REQUEST_ABORTED';
-        } catch { /* Unknown errors stay OTHER. */ }
-        note({ admissionBodyOutcome: outcome });
-        throw proofError('ADMISSION_READ_FAILED');
-      }
-      requireProof(bytes.byteLength <= 65536, 'ADMISSION_INVALID');
-      let value;
-      try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
-      catch { throw proofError('ADMISSION_INVALID'); }
-      return projectAdmission(value, response.status());
-    }, 'ADMISSION_READ').then(value => {
-      if (!closed && !firstFault && count === 1) { admitted = value; note({ admissionValid: true }); }
+      projected = projectUiRequest(request.postData());
+    } catch (error) { invalidate(error?.proofFault ? error : proofError('ADMISSION_METADATA_FAILED')); return; }
+    void within(() => capture.request(projected.request_id), 'ADMISSION_READ').then(() => {
+      if (!closed && !firstFault && count === 1) submitted = projected;
     }, error => { if (!closed) invalidate(error); });
   };
-  page.on('response', listener);
-  return { read() { if (firstFault) throw firstFault; requireProof(!closed && count <= 1, 'ADMISSION_INVALID'); return admitted; },
-    dispose() { closed = true; admitted = null; page.off('response', listener); } };
+  page.on('request', listener);
+  return { read() { if (firstFault) throw firstFault; requireProof(!closed && count <= 1, 'ADMISSION_INVALID'); return submitted; },
+    dispose() { closed = true; submitted = null; page.off('request', listener); } };
 }
 
 function healthyMirror(pair) {
@@ -277,7 +272,7 @@ export async function proveLivePilotCompletion(args) {
 export async function observePilotCompletion({ mode, page, haru, broker, requestCountBefore, send, deadlineMs, ctx }) {
   requireProof(['live', 'mock'].includes(mode) && (mode === 'live' ? broker?.mode !== 'MOCK' : broker?.mode === 'MOCK')
     && page !== haru && typeof send === 'function' && Number.isFinite(deadlineMs), 'HARNESS_INVALID');
-  let alive = true, admission, capture, primaryFailure;
+  let alive = true, admission, capture, primaryFailure, admitted = null;
   const started = performance.now();
   const diagnostic = { pollCount: 0 };
   const remember = (error, stage = diagnostic.lastReadStage) => {
@@ -345,16 +340,26 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     ctx.mark(mode === 'live' ? 'LIVE_TERMINAL_OBSERVE' : 'MOCK_PILOT_PROOF_OBSERVE');
     while (Date.now() < deadlineMs) {
       diagnostic.pollCount = Math.min(65535, diagnostic.pollCount + 1);
-      const admitted = admission.read();
+      const submitted = admission.read();
       const [pair, stream, response] = await within(() => Promise.all([
         readMirrorObservation(page, haru),
         page.evaluate(() => window.__offerpilotBoundedUiObserver?.summary?.() ?? null),
-        admitted ? page.evaluate(readLivePilotJson, { origin, requestId: admitted.request_id, deadline: deadlineMs, diagnostics: true }) : null,
+        submitted ? page.evaluate(readLivePilotJson, { origin, requestId: submitted.request_id, deadline: deadlineMs, diagnostics: true }) : null,
         capture.assertValid(),
       ]), 'STATUS_AND_MIRROR_READ');
       requireProof(healthyMirror(pair), 'MIRROR_INVALID');
       admission.read();
       const message = response === null ? null : readback(response);
+      // PIN permits 404 only while the original request is being admitted.
+      // Once bound, losing that exact execution is never a pending result.
+      if (response !== null && message === null) requireProof(!admitted
+        && response.readOutcome === 'HTTP_STATUS' && response.httpStatus === 404, 'READ_FAILED');
+      if (message !== null) {
+        const recovered = projectRequestExecution(message, submitted);
+        if (admitted) requireProof(matches(recovered, admitted), 'STATUS_IDENTITY_INVALID');
+        else admitted = recovered;
+        diagnostic.admissionValid = true;
+      }
       const content = message === null ? null : projectTerminal(message, admitted);
       if (message !== null) {
         diagnostic.lastValidState = message.state;

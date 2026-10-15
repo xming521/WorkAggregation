@@ -9,7 +9,7 @@ import { Ledger } from '../broker-core.cjs';
 import { PIN, CASES } from '../contract.mjs';
 import { safeResults, saveEvidence } from '../safe-evidence.mjs';
 import { installMirrorObservation, removeMirrorObservation } from '../mirror-observer.mjs';
-import { compactPlainMessage, normalizePlainText, projectAdmission, projectTerminal, readLivePilotJson,
+import { compactPlainMessage, normalizePlainText, projectAdmission, projectUiRequest, projectRequestExecution, projectTerminal, readLivePilotJson,
   observeLiveAdmission, isLiveLedgerProven, proveLivePilotCompletion } from '../live-pilot-completion.mjs';
 // Offline synthetic mechanism tests. No EXE, real provider or release claim.
 const SECRET = 'PRIVATE_SYNTHETIC_TERMINAL_CONTENT';
@@ -34,7 +34,7 @@ function renderer(role) {
   };
   const schedule = () => { const id = ++nextTimer; timers.add(id); return id; };
   class RendererDate extends Date { static now() { return Date.now(); } }
-  const context = vm.createContext({ Date: RendererDate, TextDecoder, AbortController, URL, location: { origin: 'http://127.0.0.1:41000', href: 'http://127.0.0.1:41000/' },
+  const context = vm.createContext({ Date: RendererDate, TextEncoder, TextDecoder, AbortController, URL, location: { origin: 'http://127.0.0.1:41000', href: 'http://127.0.0.1:41000/' },
     setTimeout: schedule, clearTimeout: id => timers.delete(id), setInterval: schedule, clearInterval: id => timers.delete(id),
     getComputedStyle: node => node.style,
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { mutations.add(this.fn); } disconnect() { mutations.delete(this.fn); } },
@@ -105,12 +105,9 @@ async function harness(t, { running = 'none', growth = 0, content = SECRET, dead
   let currentAdmissionResponse;
   owner.context.fetch = async (route, options) => {
     if (options.method === 'POST') {
-      const response = currentAdmissionResponse;
-      return { status: response.status(), url: response.url(), redirected: false,
-        clone: () => ({ body: { getReader() { let read = false; return {
-          async read() { if (read) return { done: true }; read = true; return { done: false, value: await response.body() }; },
-          async cancel() {}, releaseLock() {},
-        }; } } }) };
+      if (transport.admissionOptions.abort) return Promise.reject(new Error('synthetic-abort'));
+      if (transport.admissionOptions.hanging) return new Promise(() => {});
+      return { body: () => assert.fail('POST body must never be read') };
     }
     assert.equal(options.method, 'GET'); assert.equal(options.credentials, 'same-origin'); assert.equal(options.redirect, 'error');
     assert.ok(route === '/api/chat/conversations?include_archived=true' || route === `/api/pilot/runtime/v1/requests/${ID.request_id}`);
@@ -125,14 +122,13 @@ async function harness(t, { running = 'none', growth = 0, content = SECRET, dead
   if (initial) await Promise.all([owner.publish(initial), haru.publish(initial)]);
   await installMirrorObservation(owner.page, haru.page, 'pilot-stream');
   const emit = (value = admission(), options = {}) => {
-    const response = { request: () => ({ method: () => options.method ?? 'POST', frame: () => options.frame ?? owner.frame,
+    const body = options.requestBody ?? JSON.stringify({ message: 'synthetic', request_id: value.request_id, conversation_id: 0 });
+    const request = { method: () => options.method ?? 'POST', frame: () => options.frame ?? owner.frame,
       redirectedFrom: () => options.redirectedFrom ?? null,
-      headers: () => assert.fail('headers forbidden'), postData: () => assert.fail('postData forbidden') }),
-      url: () => options.url ?? 'http://127.0.0.1:41000/api/pilot/runtime/v1/turns', status: () => options.status ?? 202,
-      body: async () => options.body ?? Buffer.from(JSON.stringify(value)) };
-    currentAdmissionResponse = response;
-    for (const listener of [...owner.responses]) listener(response);
-    if ((options.method ?? 'POST') === 'POST') void owner.context.window.fetch(response.url(), { method: 'POST' });
+      headers: () => assert.fail('headers forbidden'), postData: () => body,
+      url: () => options.url ?? 'http://127.0.0.1:41000/api/pilot/runtime/v1/turns' };
+    if ((options.method ?? 'POST') === 'POST') void owner.context.window.fetch(request.url(), { method: 'POST', body }).catch(() => {});
+    for (const listener of [...owner.responses]) listener(request);
   };
   const broker = { snapshot: () => structuredClone(snapshot), cancelCase: () => assert.fail('proof cannot cancel'),
     armCase: () => assert.fail('proof cannot arm'), prepareCase: () => assert.fail('proof cannot prepare') };
@@ -212,7 +208,7 @@ for (const [name, mutate] of [
 });
 test('admission non-202 or oversize fails', async t => {
   assert.throws(() => projectAdmission(admission(), 200));
-  const fake = await harness(t); fake.transport.admissionOptions = { body: Buffer.alloc(65537, 32) }; await blocked(fake);
+  const fake = await harness(t); fake.transport.admissionOptions = { requestBody: 'x'.repeat(65537) }; await blocked(fake);
 });
 test('exactly one admission, even duplicate identical identity, is required', async t => {
   const fake = await harness(t); fake.transport.afterSend = () => fake.emit(); await blocked(fake);
@@ -291,11 +287,9 @@ test('listener disposal failure revokes a would-be pass', async t => {
   const fake = await harness(t), off = fake.owner.page.off;
   fake.owner.page.off = (...args) => { off(...args); throw new Error(SECRET); }; await blocked(fake);
 });
-test('timeout cannot be revived by late admission body', async t => {
-  const fake = await harness(t, { deadline: 80 }); let release;
-  fake.transport.admissionOptions.body = new Promise(resolve => { release = resolve; });
-  await blocked(fake); release(Buffer.from(JSON.stringify(admission()))); await flush();
-  assert.equal(fake.owner.responses.size, 0); assert.equal(fake.sends(), 1);
+for (const mode of ['hanging', 'abort']) test(`original POST ${mode} still proves exact natural GET completion without a second send`, async t => {
+  const fake = await harness(t); fake.transport.admissionOptions[mode] = true;
+  assert.equal((await fake.prove()).code, 'LIVE_COMPLETION_ONLY'); assert.equal(fake.sends(), 1);
 });
 test('late terminal readback after timeout cannot return success', async t => {
   const fake = await harness(t, { deadline: 100 }); let release;
@@ -342,7 +336,7 @@ test('PIN locks complete unpaginated history, terminal identity envelope and com
   const exactBranch = "  const text = turn.content.trim();\n  const characters = Array.from(text);\n  return characters.length > HARU_TEXT_LIMIT\n    ? `${characters.slice(0, HARU_TEXT_LIMIT).join('')}…`\n    : text;";
   assert.ok(presentation.includes(exactBranch));
   const helper = await fs.readFile(new URL('../live-pilot-completion.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(helper, /\.postData\(|\.headers\(|request_id\s*:/);
+  assert.doesNotMatch(helper, /\.headers\(|response\.body\(/);
 });
 for (const [name, mutate] of [
   ['old messages', s => { s.snapshot.messages = [{ role: 'assistant', content: SECRET }]; }],
@@ -359,7 +353,7 @@ test('second identical admission detaches immediately, even while first body rem
   const listeners = new Set(), frame = {}, origin = 'http://127.0.0.1:41000';
   const page = { mainFrame: () => frame, on: (_, fn) => listeners.add(fn), off: (_, fn) => listeners.delete(fn) };
   const gate = observeLiveAdmission(page, origin, () => new Promise(() => {}));
-  const response = { url: () => `${origin}/api/pilot/runtime/v1/turns`, request: () => ({ method: () => 'POST', frame: () => frame, redirectedFrom: () => null }) };
+  const response = { url: () => `${origin}/api/pilot/runtime/v1/turns`, method: () => 'POST', frame: () => frame, redirectedFrom: () => null, postData: () => JSON.stringify({request_id: ID.request_id, conversation_id: 0}) };
   const listener = [...listeners][0]; listener(response); listener(response);
   assert.equal(listeners.size, 0); assert.throws(() => gate.read()); gate.dispose();
 });
@@ -447,7 +441,7 @@ test('LIVE diagnostic distinguishes immediate status identity rejection from obs
   assert.equal(failure?.code, 'LIVE_COMPLETION_UNPROVEN');
   assert.equal(failure.pilotProofDiagnostic.fault, 'STATUS_IDENTITY_INVALID');
   assert.equal(failure.pilotProofDiagnostic.admissionObserved, true);
-  assert.equal(failure.pilotProofDiagnostic.admissionValid, true);
+  assert.equal(failure.pilotProofDiagnostic.admissionValid, null);
   assert.equal(failure.pilotProofDiagnostic.lastValidState, null);
   assert.ok(failure.pilotProofDiagnostic.elapsedMs < 5000);
   assert.equal(fake.sends(), 1); assert.equal(fake.owner.responses.size, 0);
@@ -469,12 +463,12 @@ test('LIVE diagnostic retains valid pending state and distinguishes deadline wit
   assert.ok(failure.pilotProofDiagnostic.pollCount > 0);
   assert.equal(fake.sends(), 1); assert.equal(fake.owner.responses.size, 0);
 });
-test('LIVE diagnostic records fixed status read failure without leaking body or changing pending semantics', async t => {
+test('LIVE diagnostic rejects non-404 status failure immediately without leaking body', async t => {
   const fake = await harness(t, { deadline: 120 });
   fake.transport.statusOptions = { status: 503 };
   let failure;
   try { await fake.prove(); } catch (error) { failure = error; }
-  assert.equal(failure?.pilotProofDiagnostic.fault, 'OBSERVE_DEADLINE');
+  assert.equal(failure?.pilotProofDiagnostic.fault, 'READ_FAILED');
   assert.equal(failure.pilotProofDiagnostic.lastReadOutcome, 'HTTP_STATUS');
   assert.equal(failure.pilotProofDiagnostic.lastHttpStatus, 503);
   assert.equal(failure.pilotProofDiagnostic.lastValidState, null);
@@ -546,12 +540,12 @@ test('fixed five-second read bound fails before the independent 75-second observ
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const result = fake.prove().then(() => assert.fail('stalled read cannot pass'), error => error);
   for (let n = 0; n < 50 && !didEnter; n += 1) { await flush(); t.mock.timers.tick(20); }
-  assert.equal(didEnter, true, 'clone admission must complete before timing the stalled status read');
+  assert.equal(didEnter, true, 'exact submitted request must bind before timing the stalled status read');
   await reading; t.mock.timers.tick(5000);
   const error = await result;
   assert.equal(error.pilotProofDiagnostic.fault, 'OPERATION_TIMEOUT');
   assert.equal(error.pilotProofDiagnostic.faultStage, 'STATUS_AND_MIRROR_READ');
-  assert.equal(error.pilotProofDiagnostic.admissionValid, true);
+  assert.equal(error.pilotProofDiagnostic.admissionValid, null);
   assert.equal(error.pilotProofDiagnostic.lastValidState, null);
   assert.equal(fake.owner.responses.size, 0); assert.equal(fake.sends(), 1);
 });
@@ -644,55 +638,23 @@ for (const sustained of [false, true]) test(`actual branded offline proof ${sust
   }
 });
 
-for (const [name, body, fault] of [
-  ['invalid JSON', Buffer.from(SECRET), 'ADMISSION_INVALID'],
-  ['invalid UTF-8', Buffer.from([0xff]), 'ADMISSION_READ_FAILED'],
-]) test(`admission ${name} has a fixed safe failure reason`, async t => {
-  const fake = await harness(t); fake.transport.admissionOptions.body = body;
-  await assert.rejects(fake.prove(), error => {
-    assert.equal(error.pilotProofDiagnostic.fault, fault);
-    assert.equal(error.pilotProofDiagnostic.admissionObserved, true);
-    assert.equal(error.pilotProofDiagnostic.admissionValid, false);
-    assert.doesNotMatch(JSON.stringify(error.pilotProofDiagnostic), /PRIVATE_/); return true;
+for (const body of ['invalid', '{"request_id":"x","conversation_id":0}',
+  JSON.stringify({ request_id: ID.request_id, conversation_id: 73 }),
+  '{"request_id":"' + ID.request_id + '","request_id":"' + ID.request_id + '","conversation_id":0}',
+  JSON.stringify({ request_id: ID.request_id, conversation_id: 0, message: '界'.repeat(23000) })]) {
+  test('noncanonical, wrong or oversized synthetic request identity fails closed', async t => {
+    assert.throws(() => projectUiRequest(body));
+    const fake = await harness(t); fake.transport.admissionOptions.requestBody = body; await blocked(fake);
   });
-  assert.equal(fake.owner.responses.size, 0);
-});
-
-for (const [message, category] of [
-  ['Protocol error (Network.getResponseBody): No resource with given identifier found https://private.invalid/key', 'CDP_RESOURCE_UNAVAILABLE'],
-  ['No data found for resource with given identifier PRIVATE', 'CDP_RESOURCE_UNAVAILABLE'],
-  ['Response body is unavailable PRIVATE', 'BODY_UNAVAILABLE'],
-  ['Target page, context or browser has been closed PRIVATE', 'TARGET_CLOSED'],
-  ['net::ERR_ABORTED https://private.invalid', 'REQUEST_ABORTED'],
-  ['PRIVATE unknown error', 'OTHER'],
-]) test(`admission body failure ${category} is bounded evidence and still fails closed`, async () => {
-  const listeners = new Set(), frame = {}, origin = 'http://127.0.0.1:41000';
-  const page = { mainFrame: () => frame, on: (_, fn) => listeners.add(fn), off: (_, fn) => listeners.delete(fn) };
-  let observed = {}, bodyReads = 0;
-  const gate = observeLiveAdmission(page, origin, action => action(), value => {
-    observed = { ...observed, ...value, ...(value.fault ? { fault: value.fault.proofFault } : {}) };
-  }, { body: response => response.body() });
-  [...listeners][0]({ url: () => `${origin}/api/pilot/runtime/v1/turns`, status: () => 202,
-    request: () => ({ method: () => 'POST', frame: () => frame, redirectedFrom: () => null }),
-    body: async () => { bodyReads += 1; throw new Error(message); } });
-  await flush();
-  assert.equal(observed.admissionHttpStatus, 202);
-  assert.equal(observed.admissionBodyOutcome, category);
-  assert.equal(observed.fault, 'ADMISSION_READ_FAILED');
-  assert.equal(observed.admissionValid, false);
-  assert.equal(bodyReads, 1); assert.equal(listeners.size, 0);
-  assert.doesNotMatch(JSON.stringify(observed), /PRIVATE|private\.invalid|key|Network/);
-  assert.throws(() => gate.read(), { code: 'LIVE_COMPLETION_UNPROVEN' }); gate.dispose();
-});
-
-test('admission metadata failure is distinct from a response-body failure', async () => {
-  const listeners = new Set(), frame = {}, origin = 'http://127.0.0.1:41000'; let fault;
-  const page = { mainFrame: () => frame, on: (_, fn) => listeners.add(fn), off: (_, fn) => listeners.delete(fn) };
-  const gate = observeLiveAdmission(page, origin, action => action(), value => { if (value.fault) fault = value.fault.proofFault; });
-  [...listeners][0]({ url: () => `${origin}/api/pilot/runtime/v1/turns`,
-    request: () => ({ method: () => 'POST', frame: () => frame, redirectedFrom() { throw new Error('PRIVATE'); } }),
-    body: () => assert.fail('must not read body after metadata failure') });
-  assert.equal(fault, 'ADMISSION_METADATA_FAILED'); assert.throws(() => gate.read()); gate.dispose();
+}
+for (const [name, change] of [
+  ['different original request', v => { v.request_id = '86e756a3-f74c-4e63-8ae0-3d42ff3976f9'; }],
+  ['different nested request', v => { v.execution.request_id = '86e756a3-f74c-4e63-8ae0-3d42ff3976f9'; }],
+  ['old generation', v => { v.execution_generation = v.execution.execution_generation = 2; }],
+  ['replayed', v => { v.replayed = true; }], ['manager recovery', v => { v.recovery.requires_resync = true; }],
+  ['recovered terminal', v => { v.terminal.response.type = 'turn_recovered'; }],
+]) test(`request recovery rejects ${name}`, async t => {
+  const fake = await harness(t); change(fake.status); await blocked(fake);
 });
 
 test('PIN ordinary message reports write_status none and is a no-write terminal', async () => {
@@ -734,3 +696,80 @@ test('dotted property cannot impersonate the exact terminal response path', () =
   const value = terminal(); value['terminal.response'] = { type: 'message', write_status: 'none' };
   assert.throws(() => projectTerminal(value, ID));
 });
+
+test('PIN intentionally aborts hanging POST only after exact request GET recovery', () => {
+  const controller = readPinnedSource('web/src/features/assistantSurface/usePilotConversationController.ts');
+  const start = controller.indexOf('const target = await getRuntimeRequestExecution(request.requestId, lookup.signal);');
+  const recovery = controller.slice(start, controller.indexOf('}, [observationEnabled, requestLoading', start));
+  assert.ok(start > 0); assert.match(recovery, /request.execution = target;[\s\S]*request.controller.abort\(\);/);
+  assert.match(recovery, /setTimeout\(\(\) => void read\(\), 2000\)/);
+  const runtime = readPinnedSource('web/src/services/pilotRuntime.ts');
+  assert.match(runtime, /requests\/\$\{encodeURIComponent\(requestId\)\}/);
+  assert.match(runtime, /value.request_id !== requestId/);
+  const chat = readPinnedSource('web/src/services/chat.ts');
+  assert.match(chat, /submitRuntimeTurn\(\{\s+message, request_id: requestId, conversation_id: conversationId \?\? 0/);
+  const api = readPinnedSource('src/offerpilot/api.py');
+  assert.match(api, /get_runtime_execution_by_request\(checked\)/);
+  assert.match(api, /row.get\("submission_request_id"\) != checked/);
+  assert.match(api, /"requires_resync": manager_status is None/);
+  const control = readPinnedSource('src/offerpilot/pilot_control.py');
+  assert.match(control, /PilotExecution.submission_request_id == request_id/);
+  const existing = readPinnedSource('web/src/features/assistantSurface/AssistantSurfaceProvider.test.tsx');
+  assert.match(existing, /releases a hanging POST only with exact admission proof/);
+  assert.match(existing, /request.controller.signal.aborted\).toBe\(proof\)/);
+});
+
+test('request GET must keep all four IDs stable until final observation', async t => {
+  const fake = await harness(t); let reads = 0;
+  const evaluate = fake.owner.page.evaluate;
+  fake.owner.page.evaluate = async (fn, arg) => {
+    if (fn === readLivePilotJson && arg.requestId && ++reads === 1) {
+      const running = terminal(); running.state = running.execution.state = 'running'; running.terminal = {};
+      return { value: running, readOutcome: 'OK', httpStatus: 200 };
+    }
+    if (fn === readLivePilotJson && arg.requestId) fake.status.turn_id = fake.status.execution.turn_id = 'different-turn';
+    return evaluate(fn, arg);
+  };
+  await blocked(fake); assert.equal(fake.sends(), 1);
+});
+
+for (const mode of ['initial-404', 'continuous-404', 'bound-404', '401', '503', 'wrong-id', 'malformed']) {
+  test(`exact request lookup handles ${mode} without POST retry`, async t => {
+    const fake = await harness(t, { deadline: 180 }); let reads = 0;
+    const evaluate = fake.owner.page.evaluate;
+    fake.owner.page.evaluate = async (fn, arg) => {
+      if (fn === readLivePilotJson && arg.requestId) {
+        reads++;
+        if ((mode === 'initial-404' && reads === 1) || mode === 'continuous-404' || (mode === 'bound-404' && reads === 2)) {
+          return { value: null, readOutcome: 'HTTP_STATUS', httpStatus: 404 };
+        }
+        if (mode === 'bound-404' && reads === 1) {
+          const value = terminal(); value.state = value.execution.state = 'running'; value.terminal = {};
+          return { value, readOutcome: 'OK', httpStatus: 200 };
+        }
+        if (['401', '503'].includes(mode)) return { value: null, readOutcome: 'HTTP_STATUS', httpStatus: Number(mode) };
+        if (mode === 'malformed') return { value: null, readOutcome: 'DECODE_OR_JSON', httpStatus: 200 };
+        if (mode === 'wrong-id') fake.status.request_id = '76e756a3-f74c-4e63-8ae0-3d42ff3976f9';
+      }
+      return evaluate(fn, arg);
+    };
+    if (mode === 'initial-404') { assert.equal((await fake.prove()).code, 'LIVE_COMPLETION_ONLY'); assert.equal(reads, 2); }
+    else {
+      const expected = mode === 'continuous-404' ? 'OBSERVE_DEADLINE' : mode === 'wrong-id' ? 'STATUS_IDENTITY_INVALID' : 'READ_FAILED';
+      await assert.rejects(fake.prove(), error => { assert.equal(error.pilotProofDiagnostic.fault, expected); return true; });
+      if (['401', '503', 'malformed'].includes(mode)) assert.equal(reads, 1);
+      if (mode === 'bound-404') assert.equal(reads, 2);
+    }
+    assert.equal(fake.sends(), 1); assert.equal(fake.owner.responses.size, 0);
+  });
+}
+
+for (const config of [{ status: 404, redirected: true }, { status: 404, url: 'http://127.0.0.1:41000/other' }]) {
+  test('404 from a redirected or wrong route is not an admissible pending lookup', async t => {
+    const fake = await harness(t); fake.transport.statusOptions = config;
+    await assert.rejects(fake.prove(), error => {
+      assert.equal(error.pilotProofDiagnostic.fault, 'READ_FAILED');
+      assert.equal(error.pilotProofDiagnostic.lastReadOutcome, 'ROUTE_MISMATCH'); return true;
+    }); assert.equal(fake.sends(), 1);
+  });
+}

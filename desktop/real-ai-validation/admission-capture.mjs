@@ -1,5 +1,5 @@
-// One exact UI-owned POST response clone. No extra request, request-body/header
-// inspection, or CDP-body fallback. Captured JSON remains ephemeral.
+// Observe the one synthetic UI-owned POST identity, without changing its fetch.
+// No response-body dependency, extra request, header access, or retained input.
 import { randomUUID } from 'node:crypto';
 const invalidCapture = () => Object.assign(new Error('ADMISSION_CAPTURE_INVALID'), { proofFault: 'ADMISSION_READ_FAILED', captureInvalid: true });
 
@@ -12,36 +12,8 @@ export function rendererAdmissionCapture(args) {
     if (Object.hasOwn(window, key) || typeof window.fetch !== 'function') return fail();
     const original = window.fetch;
     const state = { nonce: args.nonce, original, wrapper: null, phase: 'PENDING', fault: null,
-      count: 0, status: null, body: null, reader: null, closed: false, timer: null };
-    const reject = fault => {
-      if (state.closed || state.phase === 'FAILED') return;
-      state.phase = 'FAILED'; state.fault = fault; state.body = null;
-      try { void state.reader?.cancel().catch(() => {}); } catch { /* Original response is untouched. */ }
-    };
-    const capture = async response => {
-      if (state.closed || state.phase === 'FAILED') return;
-      if (response.redirected || response.url !== `${args.origin}/api/pilot/runtime/v1/turns`) { reject('REDIRECT'); return; }
-      state.status = response.status;
-      state.timer = setTimeout(() => reject('TIMEOUT'), 5000);
-      let text = '', bytes = 0;
-      try {
-        const clone = response.clone();
-        if (!clone.body) { reject('BODY_MISSING'); return; }
-        state.reader = clone.body.getReader();
-        const decoder = new TextDecoder('utf-8', { fatal: true });
-        while (!state.closed && state.phase !== 'FAILED') {
-          const part = await state.reader.read();
-          if (state.closed || state.phase === 'FAILED') return;
-          if (part.done) {
-            text += decoder.decode(); state.body = text; state.phase = 'READY'; clearTimeout(state.timer); return;
-          }
-          bytes += part.value.byteLength;
-          if (bytes > 65536) { reject('BODY_TOO_LARGE'); return; }
-          text += decoder.decode(part.value, { stream: true });
-        }
-      } catch { reject('BODY_READ_FAILED'); }
-      finally { try { state.reader?.releaseLock(); } catch { /* A timed-out read may still be pending. */ } }
-    };
+      count: 0, requestId: null, closed: false };
+    const reject = fault => { state.phase = 'FAILED'; state.fault = fault; state.requestId = null; };
     state.wrapper = function (...parameters) {
       let selected = false;
       try {
@@ -57,12 +29,25 @@ export function rendererAdmissionCapture(args) {
       if (selected && !state.closed) {
         state.count += 1;
         if (state.count !== 1) reject('DUPLICATE');
+        else {
+          try {
+            // Only this synthetic UI submission, never headers or credentials.
+            // Canonical JSON rejects duplicate/escaped keys and ambiguous IDs.
+            const body = parameters[1]?.body;
+            if (typeof body !== 'string' || body.length > 65536
+              || new TextEncoder().encode(body).byteLength > 65536) throw new Error();
+            const value = JSON.parse(body);
+            if (!value || Array.isArray(value) || JSON.stringify(value) !== body
+              || !Object.hasOwn(value, 'request_id') || !Object.hasOwn(value, 'conversation_id')
+              || typeof value.request_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.request_id)
+              || value.conversation_id !== 0) throw new Error();
+            state.requestId = value.request_id; state.phase = 'READY';
+          } catch { reject('REQUEST_INVALID'); }
+        }
       }
-      // Preserve the actual Promise and Response returned to application code.
+      // No response subscription: PIN intentionally aborts a hanging POST
+      // after exact GET-by-request recovery. Return its original Promise.
       const pending = Reflect.apply(original, this, parameters);
-      if (selected && state.count === 1 && !state.closed) {
-        void Promise.resolve(pending).then(capture, () => reject('FETCH_FAILED')).catch(() => reject('BODY_READ_FAILED'));
-      }
       return pending;
     };
     Object.defineProperty(window, key, { value: state, configurable: true });
@@ -73,17 +58,14 @@ export function rendererAdmissionCapture(args) {
   const state = window[key];
   if (!state || state.nonce !== args.nonce) return fail();
   if (args.operation === 'dispose') {
-    state.closed = true; clearTimeout(state.timer);
-    try { void state.reader?.cancel().catch(() => {}); } catch { /* Do not cancel the original response. */ }
-    state.body = null;
+    state.closed = true; state.requestId = null;
     const owned = window.fetch === state.wrapper;
     if (owned) window.fetch = state.original;
     delete window[key];
     return { phase: owned && window.fetch === state.original && state.phase !== 'FAILED' ? 'DISPOSED' : 'FAILED' };
   }
   if (!['read', 'check'].includes(args.operation) || state.closed || window.fetch !== state.wrapper) return fail();
-  return { phase: state.phase, fault: state.fault, count: state.count, status: state.status,
-    ...(args.operation === 'read' && state.phase === 'READY' ? { body: state.body } : {}) };
+  return { phase: state.phase, fault: state.fault, count: state.count, requestId: state.requestId };
 }
 
 export async function installAdmissionCapture(page, origin, within) {
@@ -95,20 +77,10 @@ export async function installAdmissionCapture(page, origin, within) {
       if (disposed || !['PENDING', 'READY'].includes(value?.phase) || ![0, 1].includes(value.count)
         || (complete && (value.phase !== 'READY' || value.count !== 1))) throw invalidCapture();
     },
-    async body(response) {
-      const deadline = Date.now() + 5000;
-      while (!disposed && Date.now() < deadline) {
-        const value = await call('read');
-        if (value?.phase === 'READY' && value.count === 1 && value.status === response.status()
-          && response.url() === `${origin}/api/pilot/runtime/v1/turns` && typeof value.body === 'string') {
-          const bytes = Buffer.from(value.body, 'utf8');
-          if (bytes.byteLength > 65536) throw invalidCapture();
-          return bytes;
-        }
-        if (value?.phase !== 'PENDING' || ![0, 1].includes(value.count)) throw invalidCapture();
-        await new Promise(resolve => setTimeout(resolve, 20));
-      }
-      throw invalidCapture();
+    async request(requestId) {
+      const value = await call('read');
+      if (disposed || value?.phase !== 'READY' || value.count !== 1 || value.requestId !== requestId) throw invalidCapture();
+      return requestId;
     },
     async dispose() {
       disposed = true; let timer;
