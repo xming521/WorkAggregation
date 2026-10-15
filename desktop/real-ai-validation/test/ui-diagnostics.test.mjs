@@ -76,3 +76,15 @@ test('LIVE evidence allowlist preserves null observations and drops arbitrary so
   assert.equal(unknown.admissionObserved, null); assert.equal(unknown.workerDone, null);
   assert.doesNotMatch(JSON.stringify(unknown), /private/);
 });
+
+test('admission diagnostics distinguish their HTTP status from baseline and discard raw errors', () => {
+  const proof = sanitizeUiDiagnostic({ pilotProof: { admissionHttpStatus: 202,
+    admissionBodyOutcome: 'CDP_RESOURCE_UNAVAILABLE', lastHttpStatus: 200, rawError: 'PRIVATE' } }).pilotProof;
+  assert.equal(proof.admissionHttpStatus, 202); assert.equal(proof.lastHttpStatus, 200);
+  assert.equal(proof.admissionBodyOutcome, 'CDP_RESOURCE_UNAVAILABLE');
+  assert.doesNotMatch(JSON.stringify(proof), /PRIVATE|rawError/);
+  for (const admissionHttpStatus of [null, -1, 600, 202.5, '202', Infinity]) {
+    const invalid = sanitizeUiDiagnostic({ pilotProof: { admissionHttpStatus, admissionBodyOutcome: 'PRIVATE' } }).pilotProof;
+    assert.equal(invalid.admissionHttpStatus, null); assert.equal(invalid.admissionBodyOutcome, null);
+  }
+});

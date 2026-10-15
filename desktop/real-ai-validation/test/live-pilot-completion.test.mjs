@@ -643,3 +643,40 @@ for (const [name, body, fault] of [
   });
   assert.equal(fake.owner.responses.size, 0);
 });
+
+for (const [message, category] of [
+  ['Protocol error (Network.getResponseBody): No resource with given identifier found https://private.invalid/key', 'CDP_RESOURCE_UNAVAILABLE'],
+  ['No data found for resource with given identifier PRIVATE', 'CDP_RESOURCE_UNAVAILABLE'],
+  ['Response body is unavailable PRIVATE', 'BODY_UNAVAILABLE'],
+  ['Target page, context or browser has been closed PRIVATE', 'TARGET_CLOSED'],
+  ['net::ERR_ABORTED https://private.invalid', 'REQUEST_ABORTED'],
+  ['PRIVATE unknown error', 'OTHER'],
+]) test(`admission body failure ${category} is bounded evidence and still fails closed`, async () => {
+  const listeners = new Set(), frame = {}, origin = 'http://127.0.0.1:41000';
+  const page = { mainFrame: () => frame, on: (_, fn) => listeners.add(fn), off: (_, fn) => listeners.delete(fn) };
+  let observed = {}, bodyReads = 0;
+  const gate = observeLiveAdmission(page, origin, action => action(), value => {
+    observed = { ...observed, ...value, ...(value.fault ? { fault: value.fault.proofFault } : {}) };
+  });
+  [...listeners][0]({ url: () => `${origin}/api/pilot/runtime/v1/turns`, status: () => 202,
+    request: () => ({ method: () => 'POST', frame: () => frame, redirectedFrom: () => null }),
+    body: async () => { bodyReads += 1; throw new Error(message); } });
+  await flush();
+  assert.equal(observed.admissionHttpStatus, 202);
+  assert.equal(observed.admissionBodyOutcome, category);
+  assert.equal(observed.fault, 'ADMISSION_READ_FAILED');
+  assert.equal(observed.admissionValid, false);
+  assert.equal(bodyReads, 1); assert.equal(listeners.size, 0);
+  assert.doesNotMatch(JSON.stringify(observed), /PRIVATE|private\.invalid|key|Network/);
+  assert.throws(() => gate.read(), { code: 'LIVE_COMPLETION_UNPROVEN' }); gate.dispose();
+});
+
+test('admission metadata failure is distinct from a response-body failure', async () => {
+  const listeners = new Set(), frame = {}, origin = 'http://127.0.0.1:41000'; let fault;
+  const page = { mainFrame: () => frame, on: (_, fn) => listeners.add(fn), off: (_, fn) => listeners.delete(fn) };
+  const gate = observeLiveAdmission(page, origin, action => action(), value => { if (value.fault) fault = value.fault.proofFault; });
+  [...listeners][0]({ url: () => `${origin}/api/pilot/runtime/v1/turns`,
+    request: () => ({ method: () => 'POST', frame: () => frame, redirectedFrom() { throw new Error('PRIVATE'); } }),
+    body: () => assert.fail('must not read body after metadata failure') });
+  assert.equal(fault, 'ADMISSION_METADATA_FAILED'); assert.throws(() => gate.read()); gate.dispose();
+});

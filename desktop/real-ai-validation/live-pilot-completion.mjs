@@ -123,10 +123,25 @@ export function observeLiveAdmission(page, origin, within, observe = () => {}) {
       note({ admissionObserved: true });
       if (++count !== 1) { invalidate(proofError('ADMISSION_DUPLICATE')); return; }
       if (request.redirectedFrom() !== null) { invalidate(proofError('ADMISSION_REDIRECTED')); return; }
-    } catch { invalidate(); return; }
+    } catch { invalidate(proofError('ADMISSION_METADATA_FAILED')); return; }
     void within(async () => {
       let bytes;
-      try { bytes = await response.body(); } catch { throw proofError('ADMISSION_READ_FAILED'); }
+      note({ admissionHttpStatus: response.status() });
+      try { bytes = await response.body(); note({ admissionBodyOutcome: 'OK' }); }
+      catch (error) {
+        // The raw Playwright/CDP error can contain URLs. Keep only a fixed
+        // category and never refetch/replay this state-changing admission.
+        let outcome = 'OTHER';
+        try {
+          const message = typeof error?.message === 'string' ? error.message : '';
+          if (/No resource with given identifier found|No data found for resource with given identifier/.test(message)) outcome = 'CDP_RESOURCE_UNAVAILABLE';
+          else if (/Response body is unavailable|Response body is not available/.test(message)) outcome = 'BODY_UNAVAILABLE';
+          else if (/Target page, context or browser has been closed|Target closed|Session closed/.test(message)) outcome = 'TARGET_CLOSED';
+          else if (/net::ERR_ABORTED/.test(message)) outcome = 'REQUEST_ABORTED';
+        } catch { /* Unknown errors stay OTHER. */ }
+        note({ admissionBodyOutcome: outcome });
+        throw proofError('ADMISSION_READ_FAILED');
+      }
       requireProof(bytes.byteLength <= 65536, 'ADMISSION_INVALID');
       let value;
       try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
@@ -303,6 +318,8 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
     admission = observeLiveAdmission(page, origin, within, value => {
       if (value.admissionObserved === true) diagnostic.admissionObserved = true;
       if (typeof value.admissionValid === 'boolean') diagnostic.admissionValid = value.admissionValid;
+      if (value.admissionHttpStatus !== undefined) diagnostic.admissionHttpStatus = value.admissionHttpStatus;
+      if (value.admissionBodyOutcome !== undefined) diagnostic.admissionBodyOutcome = value.admissionBodyOutcome;
       if (value.fault) remember(value.fault, 'ADMISSION_READ');
     });
     ctx.mark(mode === 'live' ? 'LIVE_SEND_OBSERVE' : 'MOCK_PILOT_PROOF_SEND');
