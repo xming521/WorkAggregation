@@ -28,17 +28,17 @@ function renderer(role) {
     getClientRects: () => [{ width: 100, height: 40 }], getAttribute: () => null, disabled: false });
   const root = makeNode(''), body = makeNode(SECRET), running = makeNode('正在处理');
   body.parentElement = root;
-  const proseText = { nodeType: 3, get textContent() { return body.textContent; } };
+  const proseText = { nodeType: 3, childNodes: [], get textContent() { return body.textContent; } };
   const paragraph = makeNode(''); paragraph.tagName = 'P'; paragraph.childNodes = [proseText];
   const markdown = makeNode(''); markdown.className = '_markdown_pinned'; markdown.childNodes = [paragraph];
   paragraph.parentElement = markdown; markdown.parentElement = body;
   body.childNodes = role === 'owner' ? [markdown] : [proseText];
   if (role === 'haru') body.tagName = 'P';
-  let structured = false, secondBody, duplicateRoot = false;
+  let structured = false, secondBody, duplicateRoot = false, currentBody = body;
   root.querySelectorAll = selector => {
     if (selector.startsWith('article[aria-label^="本轮任务："]')) return structured ? [makeNode('')] : [];
     const expected = role === 'owner' ? '[class*="bubbleAssistant"]' : '.desktop-haru-messages article[data-role="assistant"] p';
-    return selector === expected ? [body, ...(secondBody ? [secondBody] : [])] : [];
+    return selector === expected ? [currentBody, ...(secondBody ? [secondBody] : [])] : [];
   };
   const schedule = () => { const id = ++nextTimer; timers.add(id); return id; };
   class RendererDate extends Date { static now() { return Date.now(); } }
@@ -67,6 +67,8 @@ function renderer(role) {
     return vm.runInContext(`(${fn.toString()})(__argument)`, context);
   } };
   return { page, context, root, body, paragraph, markdown, calls, responses, frame,
+    replaceBody() { currentBody = { ...body }; body.isConnected = false; },
+    notifyMutation(records) { for (const callback of mutations) callback(records); },
     duplicateRoot() { duplicateRoot = true; },
     onEvaluate(fn) { hook = fn; },
     alterState(fn) { fn(current); },
@@ -1126,4 +1128,102 @@ for (const mode of ['live', 'mock']) test(`${mode} hostile renderer diagnostic c
     assert.doesNotMatch(JSON.stringify(d), /PRIVATE|https|className|conversationId|content|path/); return true;
   });
   assert.equal(fake.sends(), 1);
+});
+
+function messageEntrance(f, change = () => {}) {
+  const row = { isConnected: true, parentElement: f.root, className: '_msg_pin_456',
+    style: { display: 'flex', visibility: 'visible', opacity: '0', filter: 'blur(3px)' } };
+  const column = { isConnected: true, parentElement: row, style: { display: 'block', visibility: 'visible', opacity: '1' } };
+  f.body.parentElement = column;
+  const timing = { duration: 400, delay: 40, endDelay: 0, iterations: 1, iterationStart: 0, fill: 'both', direction: 'normal' };
+  let resolve, reject, reads = 0;
+  const finished = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const animation = { animationName: '_opRise_pin_519', playState: 'running', playbackRate: 1,
+    effect: { target: row, getTiming: () => timing }, get finished() { reads++; change(); return finished; } };
+  row.getAnimations = () => [animation];
+  return { row, timing, animation, reads: () => reads, reject,
+    finish(visible = true) { animation.playState = 'finished';
+      if (visible) { row.style.opacity = '1'; row.style.filter = 'none'; }
+      resolve(animation);
+    } };
+}
+const terminalReadArgs = () => ({ role: 'owner', deadline: Date.now() + 1000,
+  diagnostics: true, expectedGeneration: 0, expectedConversationId: 73 });
+
+test('PIN message entrance has a finite 400ms opacity/blur transition and capped delay', () => {
+  const css = readPinnedSource('web/src/components/ChatPanel/ChatPanel.module.css');
+  const bubble = readPinnedSource('web/src/components/ChatPanel/MessageBubble.tsx');
+  assert.match(css, /\.msg \{[^}]*animation: opRise 0\.4s var\(--op-ease\) both;/);
+  assert.match(css, /@keyframes opRise \{\s+from \{\s+opacity: 0;\s+transform: translateY\(7px\);\s+filter: blur\(3px\);\s+\}\s+to \{\s+opacity: 1;\s+transform: none;\s+filter: none;/);
+  assert.match(bubble, /animationDelay: `\$\{Math\.min\(index, 6\) \* 0\.04\}s`/);
+});
+
+for (const opacity of ['0', '0.3']) test(`terminal waits for the same finite opRise at opacity ${opacity} to finish visibly`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  entrance.row.style.opacity = opacity;
+  let settled = false;
+  const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()).then(value => { settled = true; return value; });
+  await flush(); assert.equal(settled, false, 'zero opacity or partially blurred entrance cannot pass');
+  assert.equal(entrance.reads(), 1);
+  entrance.finish(); const result = await pending;
+  assert.equal(result.status, 'READY'); assert.equal(result.content, SECRET);
+  assert.equal(result.diagnostic.bodyVisible, true);
+});
+
+for (const mode of ['live', 'mock']) test(`${mode} completion awaits one natural entrance and keeps one admitted request`, async t => {
+  const fake = await harness(t, { deadline: 1000 }); let entrance;
+  fake.transport.afterSend = () => { entrance = messageEntrance(fake.owner, () => entrance.finish()); };
+  const proof = await (mode === 'live' ? fake.prove() : observePilotCompletion(mockObservationArgs(fake)));
+  assert.equal(proof.checks.terminalTextProven, true); assert.equal(entrance.reads(), 1); assert.equal(fake.sends(), 1);
+});
+
+for (const fault of ['permanent-opacity', 'permanent-blur', 'replacement', 'paragraph-replacement', 'generation', 'conversation', 'pending', 'rejected', 'removed-and-restored']) {
+  test(`finite entrance still rejects ${fault} after waiting`, async () => {
+    const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+    const pending = f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs()); await flush();
+    assert.equal(entrance.reads(), 1, 'the known animation must be observed before mutation');
+    if (fault === 'replacement') f.replaceBody();
+    if (fault === 'paragraph-replacement') f.markdown.childNodes = [{ ...f.paragraph }];
+    if (fault === 'generation') f.alterState(s => { s.generation = 1; });
+    if (fault === 'conversation') f.alterState(s => { s.snapshot.conversationId = 74; });
+    if (fault === 'pending') f.alterState(s => { s.snapshot.hasPending = true; });
+    if (fault === 'removed-and-restored') {
+      // A same-object reattachment must not erase the intervening removal.
+      f.notifyMutation([{ removedNodes: [f.body] }]);
+    }
+    if (fault === 'rejected') entrance.reject(new Error('PRIVATE_ANIMATION_ERROR'));
+    else { entrance.finish(fault !== 'permanent-opacity'); if (fault === 'permanent-blur') entrance.row.style.filter = 'blur(1px)'; }
+    const result = await pending; assert.equal(result.status, 'UNSAFE');
+    assert.doesNotMatch(JSON.stringify(result.diagnostic), /PRIVATE|className|animationName/);
+  });
+}
+
+for (const fault of ['static', 'unknown-name', 'paused', 'infinite', 'long-duration', 'wrong-target', 'two-animations', 'hidden-body', 'hidden-paragraph', 'transparent-child']) {
+  test(`terminal does not await ${fault} transparency`, async () => {
+    const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+    if (fault === 'static') entrance.row.getAnimations = () => [];
+    if (fault === 'unknown-name') entrance.animation.animationName = 'unknown';
+    if (fault === 'paused') entrance.animation.playState = 'paused';
+    if (fault === 'infinite') entrance.timing.iterations = Infinity;
+    if (fault === 'long-duration') entrance.timing.duration = 4000;
+    if (fault === 'wrong-target') entrance.animation.effect.target = f.root;
+    if (fault === 'two-animations') entrance.row.getAnimations = () => [entrance.animation, entrance.animation];
+    if (fault === 'hidden-body') f.body.style.visibility = 'hidden';
+    if (fault === 'hidden-paragraph') f.paragraph.style.visibility = 'hidden';
+    if (fault === 'transparent-child') f.paragraph.style.opacity = '0';
+    assert.equal((await f.page.evaluate(readLiveTerminalRenderer, terminalReadArgs())).status, 'UNSAFE');
+    assert.equal(entrance.reads(), 0);
+  });
+}
+
+for (const budget of [80, 10000]) test(`nonresolving finite entrance respects ${budget}ms remaining and the 5s read cap`, async () => {
+  const f = renderer('owner'); await f.publish(state('idle', 73)); const entrance = messageEntrance(f);
+  let callback, delay, cleared = false;
+  f.context.setTimeout = (fn, ms) => { callback = fn; delay = ms; return 77; };
+  f.context.clearTimeout = id => { assert.equal(id, 77); cleared = true; };
+  const deadline = Date.now() + budget;
+  const pending = f.page.evaluate(readLiveTerminalRenderer, { ...terminalReadArgs(), deadline }); await flush();
+  assert.equal(entrance.reads(), 1); assert.equal(typeof callback, 'function'); assert.ok(delay > 0 && delay <= Math.min(budget, 5000));
+  f.context.Date.now = () => deadline; callback();
+  assert.equal((await pending).status, 'UNSAFE'); assert.equal(cleared, true);
 });

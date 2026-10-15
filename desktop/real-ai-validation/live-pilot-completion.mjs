@@ -248,7 +248,7 @@ function ledgerProven(value, before, previousCount) {
 
 // Raw text and IDs exist only for this short in-memory comparison. The proof
 // returned by the orchestrator contains booleans and fixed result codes only.
-export async function readLiveTerminalRenderer({ role, deadline, diagnostics = false, expectedGeneration, expectedConversationId }) {
+export async function readLiveTerminalRenderer({ role, deadline, diagnostics = false, expectedGeneration, expectedConversationId, entranceWaited = false }) {
   const detail = { rootCount: null, bodyCount: null, assistantCount: null,
     documentVisible: null, rootVisible: null, bodyVisible: null, generationMatches: null, conversationMatches: null };
   const result = (status, reason, values = {}) => ({ status, ...values,
@@ -280,7 +280,7 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
   if (typeof s.loading !== 'boolean') return result('UNSAFE', 'LOADING');
   if (s.taskState === 'idle' && s.loading === false && s.canStop !== false) return result('UNSAFE', 'STOP_CONTROL');
   let opacityZero = false;
-  const visible = node => {
+  const visible = (node, enteringRow = null) => {
     opacityZero = false;
     if (document.visibilityState !== 'visible' || !node || !node.isConnected
       || ![...node.getClientRects()].some(rect => rect.width > 0 && rect.height > 0)) return false;
@@ -288,7 +288,7 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
       const style = getComputedStyle(p);
       if (p.hidden || style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility)
         || style.contentVisibility === 'hidden') return false;
-      if (Number(style.opacity) === 0) { opacityZero = true; return false; }
+      if (Number(style.opacity) === 0 && p !== enteringRow) { opacityZero = true; return false; }
     }
     return true;
   };
@@ -305,6 +305,71 @@ export async function readLiveTerminalRenderer({ role, deadline, diagnostics = f
   if (nodes.length > 1 || messages.length > 1) return result('UNSAFE', 'DUPLICATE_BODY');
   if (nodes.length === 0 || messages.length === 0) return pending('BODY_MISSING');
   detail.bodyVisible = visible(nodes[0]);
+  // PIN's MessageBubble row enters through opRise (400ms, <=240ms delay).
+  // The canonical terminal can mount before that row is visible. Observe its
+  // natural finish; never alter CSS, accept hidden text, or wait for arbitrary
+  // unsafe renderers. Keep the same DOM objects throughout this one read.
+  const row = role === 'owner' ? nodes[0].parentElement?.parentElement : null;
+  const animations = row?.getAnimations?.() ?? [];
+  const active = animations.filter(animation => animation.pending || animation.playState === 'running');
+  if (active.length) {
+    const animation = active[0], timing = animation.effect?.getTiming?.();
+    const pinnedName = /^_?opRise(?:_[A-Za-z0-9_]+)?$/.test(animation.animationName ?? '');
+    const valid = !entranceWaited && animations.length === 1 && active.length === 1
+      && typeof row.className === 'string' && /(?:^|\s)_msg_[A-Za-z0-9_]+(?:\s|$)/.test(row.className)
+      && pinnedName && animation.playState === 'running' && animation.playbackRate === 1
+      && animation.effect.target === row && timing?.duration === 400 && timing.iterations === 1
+      && timing.iterationStart === 0 && timing.endDelay === 0 && timing.fill === 'both' && timing.direction === 'normal'
+      && [0, 40, 80, 120, 160, 200, 240].includes(timing.delay);
+    if (!valid) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'BODY_VISIBILITY');
+    const chain = []; for (let node = nodes[0]; node; node = node.parentElement) chain.push(node);
+    if (!chain.includes(root)) return result('UNSAFE', 'BODY_VISIBILITY');
+    const tree = node => [node, ...[...node.childNodes].flatMap(tree)];
+    const bodyTree = tree(nodes[0]), retained = new Set([...chain, ...bodyTree]);
+    // Only this row's zero-opacity entrance may wait. Hidden children or any
+    // other hidden ancestor remain immediate failures even during opRise.
+    if (bodyTree.some(node => node.nodeType === 1 && !visible(node, row))) {
+      return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'BODY_VISIBILITY');
+    }
+    let changed = false, timer;
+    const note = (records = []) => {
+      if (records.some(record => [...record.removedNodes].some(node => retained.has(node)
+        || [...retained].some(original => node.contains?.(original))))) changed = true;
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    const settled = () => {
+      const current = row.getAnimations(), style = getComputedStyle(row);
+      return current.length === 1 && current[0] === animation && !animation.pending
+        && animation.playState === 'finished' && Number(style.opacity) === 1
+        && ['none', 'blur(0px)'].includes(style.filter);
+    };
+    const unchanged = () => {
+      note(observer.takeRecords?.() ?? []);
+      const currentRoots = [...document.querySelectorAll('[data-onboarding-target="pilot"]')];
+      const currentBodies = [...root.querySelectorAll('[class*="bubbleAssistant"]')];
+      const currentTree = tree(nodes[0]);
+      return !changed && currentRoots.length === 1 && currentRoots[0] === root
+        && currentBodies.length === 1 && currentBodies[0] === nodes[0]
+        && chain.every((node, index) => node.isConnected && node.parentElement === (chain[index + 1] ?? null))
+        && currentTree.length === bodyTree.length && currentTree.every((node, index) => node === bodyTree[index]);
+    };
+    try {
+      const left = Math.min(5000, deadline - Date.now());
+      if (left <= 0) return result('UNSAFE', 'OPACITY_ZERO');
+      const finished = await Promise.race([animation.finished.then(() => true, () => false),
+        new Promise(resolve => { timer = setTimeout(() => resolve(false), left); })]);
+      if (!finished || Date.now() >= deadline || !unchanged() || !settled()) return result('UNSAFE', 'BODY_VISIBILITY');
+      const current = await bridge.getState();
+      if (current?.connected !== true || current.generation !== state.generation
+        || JSON.stringify(current.snapshot) !== JSON.stringify(s)) return result('UNSAFE', 'SNAPSHOT');
+      const observed = await readLiveTerminalRenderer({ role, deadline, diagnostics, expectedGeneration, expectedConversationId, entranceWaited: true });
+      return Date.now() < deadline && unchanged() && settled()
+        && observed.conversationId === identity.conversationId && observed.generation === identity.generation
+        ? observed : result('UNSAFE', 'BODY_VISIBILITY');
+    } catch { return result('UNSAFE', 'BODY_VISIBILITY'); }
+    finally { clearTimeout(timer); observer.disconnect(); }
+  }
   if (!detail.bodyVisible) return result('UNSAFE', opacityZero ? 'OPACITY_ZERO' : 'BODY_VISIBILITY');
   // PIN renders a plain response as Markdown div > p > text/BR in Pilot,
   // and literal p > text in Haru. No HTML stripping or Markdown guessing.
