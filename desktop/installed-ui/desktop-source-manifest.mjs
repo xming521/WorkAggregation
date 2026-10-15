@@ -1,6 +1,6 @@
 // Reviewed local CJS closure of the fixed product. The unsigned release policy
 // leaves electron-updater's lazy dependency unloaded; no updater actions are run.
-export const AUDITED_DESKTOP_PRODUCT = 'b0f36f83c42e1952e21e350beff7bba9ee779546';
+export const AUDITED_DESKTOP_PRODUCT = '4844b591b18c13acb1633b63e883f2ba6d861956';
 export const AUDITED_DESKTOP_MODULE_SHA256 = Object.freeze({
   'main.cjs': 'a7a8566ac0fd4a7e9c31d12891e4712906a331249d288f2508b0a8d6fa35a6f6',
   'lifecycle.cjs': 'd2eb0e4bacc449b561f73b10f999d0458e9a3a64e9fdae90961daa8f9c2c4b9f',
