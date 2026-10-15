@@ -9,6 +9,7 @@ import { PIN } from '../contract.mjs';
 
 const localRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const sourceFiles = new Set(['src/offerpilot/api.py', 'src/offerpilot/pilot_control.py',
+  'src/offerpilot/pilot_timeline.py', 'src/offerpilot/pilot_runtime/managed_execution.py',
   'web/src/services/pilotRuntime.ts', 'web/src/services/chat.ts',
   'web/src/features/assistantSurface/usePilotConversationController.ts',
   'web/src/features/assistantSurface/AssistantSurfaceProvider.test.tsx',

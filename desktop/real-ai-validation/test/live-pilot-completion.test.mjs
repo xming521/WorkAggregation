@@ -773,3 +773,90 @@ for (const config of [{ status: 404, redirected: true }, { status: 404, url: 'ht
     }); assert.equal(fake.sends(), 1);
   });
 }
+
+function preManager() {
+  const value = terminal(); value.terminal = {}; value.recovery.requires_resync = true;
+  for (const v of [value, value.execution]) Object.assign(v, { state: 'running', worker_done: true, actual_worker_alive: false, budget: {} });
+  return value;
+}
+function managerPhase(state) {
+  const value = terminal();
+  for (const v of [value, value.execution]) Object.assign(v, { state, worker_done: false, actual_worker_alive: true, budget: { model_calls: 1 } });
+  if (state !== 'completed') value.terminal = {};
+  return value;
+}
+test('full original request sequence: 404, durable lease, manager queue/run, draining, terminal', async t => {
+  const fake = await harness(t, { deadline: 1000 }); const values = [null, preManager(), managerPhase('queued'), managerPhase('running'), managerPhase('completed'), terminal()];
+  let reads = 0; const evaluate = fake.owner.page.evaluate;
+  fake.owner.page.evaluate = async (fn, arg) => {
+    if (fn === readLivePilotJson && arg.requestId) {
+      const value = values[reads++]; assert.ok(reads <= values.length);
+      return { value, readOutcome: value ? 'OK' : 'HTTP_STATUS', httpStatus: value ? 200 : 404 };
+    }
+    return evaluate(fn, arg);
+  };
+  assert.equal((await fake.prove()).code, 'LIVE_COMPLETION_ONLY'); assert.equal(reads, values.length); assert.equal(fake.sends(), 1);
+});
+for (const [name, mutate] of [
+  ['terminal', v => { v.terminal = terminal().terminal; }],
+  ['completed', v => { v.state = v.execution.state = 'completed'; }],
+  ['queued', v => { v.state = v.execution.state = 'queued'; }],
+  ['failed', v => { v.state = v.execution.state = 'failed'; }],
+  ['pending confirmation', v => { v.pending_action = null; }],
+  ['write', v => { v.operation_id = null; }],
+  ['budget', v => { v.budget.model_calls = 1; }],
+  ['nested budget', v => { v.execution.budget.model_calls = 1; }],
+  ['worker alive', v => { v.actual_worker_alive = true; }],
+  ['worker unfinished', v => { v.execution.worker_done = false; }],
+  ['accepted timestamp', v => { v.accepted_at = 1; }],
+  ['auto resume', v => { v.recovery.auto_resume = true; }],
+  ['old generation', v => { v.execution_generation = v.execution.execution_generation = 2; }],
+]) test(`pre-manager waiting refuses ${name}`, () => {
+  const value = preManager(); mutate(value); assert.throws(() => projectRequestExecution(value, ID));
+});
+test('manager loss after its first observation never becomes startup waiting', () => {
+  assert.deepEqual(projectRequestExecution(preManager(), ID), ID);
+  assert.throws(() => projectRequestExecution(preManager(), ID, true), { proofFault: 'STATUS_RECOVERY_INVALID' });
+});
+test('permanent pre-manager lease remains bounded and cannot prove completion', async t => {
+  const fake = await harness(t, { deadline: 140 }); fake.setStatus(preManager());
+  await assert.rejects(fake.prove(), error => { assert.equal(error.pilotProofDiagnostic.fault, 'OBSERVE_DEADLINE'); return true; });
+  assert.equal(fake.sends(), 1);
+});
+test('PIN persistence, manager registration and pre-manager payload ordering are fixed', () => {
+  const api = readPinnedSource('src/offerpilot/api.py');
+  const start = api.indexOf('    def _submit_runtime_turn(');
+  const end = api.indexOf('    @app.get(f"{runtime_base_path}/turns/{{turn_id}}")', start);
+  assert.ok(start > 0 && end > start, 'exact PIN submit function boundaries must exist');
+  const submit = api.slice(start, end);
+  const admit = submit.indexOf('_runtime_admit_start('), register = submit.indexOf('runtime_manager.submit(');
+  assert.ok(admit > 0 && register > admit);
+  assert.match(api, /on_admitted=claim/);
+  const timeline = readPinnedSource('src/offerpilot/pilot_timeline.py');
+  assert.match(timeline, /on_admitted\(session, turn\)[\s\S]*?session.commit\(\)\s+return result/);
+  const controls = readPinnedSource('src/offerpilot/pilot_control.py');
+  assert.match(controls, /owner_token=lease.owner_token, state="running"/);
+  assert.match(api, /actual_worker_alive = False\s+worker_done = True\s+accepted_at = None\s+deadline_at = None\s+budget = \{\}/);
+  assert.match(api, /payload\["terminal"\] = \{\}/);
+  const manager = readPinnedSource('src/offerpilot/pilot_runtime/managed_execution.py');
+  assert.match(manager, /handle.state = "queued"[\s\S]*?self._runs\[key\] = handle/);
+  assert.match(manager, /handle.state = "running"/);
+  assert.match(manager, /actual_worker_alive=not handle.worker_done/);
+});
+
+for (const mode of ['manager-loss', 'pre-manager-identity-change']) test(`stateful sequence refuses ${mode}`, async t => {
+  const fake = await harness(t, { deadline: 1000 }); let reads = 0;
+  const evaluate = fake.owner.page.evaluate;
+  fake.owner.page.evaluate = async (fn, arg) => {
+    if (fn === readLivePilotJson && arg.requestId) {
+      reads++;
+      const value = reads === 1 ? (mode === 'manager-loss' ? managerPhase('running') : preManager()) : preManager();
+      if (reads > 1 && mode === 'pre-manager-identity-change') value.turn_id = value.execution.turn_id = 'changed-turn';
+      return { value, readOutcome: 'OK', httpStatus: 200 };
+    }
+    return evaluate(fn, arg);
+  };
+  await assert.rejects(fake.prove(), error => {
+    assert.equal(error.pilotProofDiagnostic.fault, mode === 'manager-loss' ? 'STATUS_RECOVERY_INVALID' : 'STATUS_IDENTITY_INVALID'); return true;
+  }); assert.equal(reads, 2); assert.equal(fake.sends(), 1);
+});

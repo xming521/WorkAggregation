@@ -128,12 +128,21 @@ export function projectUiRequest(body) {
 
 // GET-by-request is PIN's admission recovery authority. The POST may be
 // intentionally aborted; its response body is not a completion prerequisite.
-export function projectRequestExecution(value, submitted) {
+export function projectRequestExecution(value, submitted, managerSeen = false) {
   requireProof(object(value) && value.request_id === submitted.request_id && !unsafe(value, true), 'STATUS_IDENTITY_INVALID');
   const target = identity(value);
   requireProof(target.execution_generation === 1 && matches(value.execution, target), 'STATUS_IDENTITY_INVALID');
   requireProof(value.protocol_version === 'pilot-runtime-v1' && value.execution.protocol_version === 'pilot-runtime-v1', 'STATUS_PROTOCOL_INVALID');
-  requireProof(value.recovery?.requires_resync === false && value.recovery?.auto_resume === false, 'STATUS_RECOVERY_INVALID');
+  requireProof(value.recovery?.auto_resume === false, 'STATUS_RECOVERY_INVALID');
+  if (value.recovery?.requires_resync === true) {
+    // PIN commits its initial lease before registering the manager handle.
+    // This exact pre-manager shape is waiting evidence only, never a terminal.
+    const empty = v => object(v) && Object.keys(v).length === 0;
+    requireProof(!managerSeen && empty(value.terminal) && [value, value.execution].every(v =>
+      v.state === 'running' && v.worker_done === true && v.actual_worker_alive === false
+      && empty(v.budget) && !Object.hasOwn(v, 'accepted_at') && !Object.hasOwn(v, 'deadline_at')),
+    'STATUS_RECOVERY_INVALID');
+  } else requireProof(value.recovery?.requires_resync === false, 'STATUS_RECOVERY_INVALID');
   return Object.freeze(target);
 }
 
@@ -272,7 +281,7 @@ export async function proveLivePilotCompletion(args) {
 export async function observePilotCompletion({ mode, page, haru, broker, requestCountBefore, send, deadlineMs, ctx }) {
   requireProof(['live', 'mock'].includes(mode) && (mode === 'live' ? broker?.mode !== 'MOCK' : broker?.mode === 'MOCK')
     && page !== haru && typeof send === 'function' && Number.isFinite(deadlineMs), 'HARNESS_INVALID');
-  let alive = true, admission, capture, primaryFailure, admitted = null;
+  let alive = true, admission, capture, primaryFailure, admitted = null, managerSeen = false;
   const started = performance.now();
   const diagnostic = { pollCount: 0 };
   const remember = (error, stage = diagnostic.lastReadStage) => {
@@ -355,12 +364,12 @@ export async function observePilotCompletion({ mode, page, haru, broker, request
       if (response !== null && message === null) requireProof(!admitted
         && response.readOutcome === 'HTTP_STATUS' && response.httpStatus === 404, 'READ_FAILED');
       if (message !== null) {
-        const recovered = projectRequestExecution(message, submitted);
+        const recovered = projectRequestExecution(message, submitted, managerSeen);
         if (admitted) requireProof(matches(recovered, admitted), 'STATUS_IDENTITY_INVALID');
         else admitted = recovered;
-        diagnostic.admissionValid = true;
+        if (message.recovery.requires_resync === false) { managerSeen = true; diagnostic.admissionValid = true; }
       }
-      const content = message === null ? null : projectTerminal(message, admitted);
+      const content = message === null || message.recovery.requires_resync === true ? null : projectTerminal(message, admitted);
       if (message !== null) {
         diagnostic.lastValidState = message.state;
         diagnostic.workerDone = message.worker_done; diagnostic.actualWorkerAlive = message.actual_worker_alive;
