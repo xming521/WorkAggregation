@@ -10,7 +10,7 @@ import { validateSyntheticRoute } from '../synthetic-api.mjs';
 import { safeResults, numericLedger, saveEvidence } from '../safe-evidence.mjs';
 import { githubReader } from '../github-read.mjs';
 const here = new URL('../', import.meta.url);
-const priceProvenance = { priceCheckedAt: '2026-10-11', validUntilUtc: '2026-10-11T23:59:59.999Z',
+const priceProvenance = { priceCheckedAt: '2026-10-15', validUntilUtc: '2026-10-15T23:59:59.999Z',
   priceBasis: 'PEAK_CNY', sessionId: 'offerpilot-fixed-exe-real-ai-20261008', mode: 'FIXED_EXE_UI_BUDGET_BROKER' };
 const workflow = parse(await fs.readFile(new URL('../../.github/workflows/desktop-real-ai.yml', here), 'utf8'));
 test('only original branch push route; no dispatch/PR/schedule triggers', () => {
@@ -161,7 +161,7 @@ test('stale price evidence writes nothing and cannot release an uncertain reserv
     }
     await saveEvidence(directory, report, snapshot);
     const output = JSON.parse(await fs.readFile(path.join(directory, 'ledger.json'), 'utf8'));
-    assert.equal(output.priceCheckedAt, '2026-10-11');
+    assert.equal(output.priceCheckedAt, '2026-10-15');
     assert.equal(output.sessionId, 'offerpilot-fixed-exe-real-ai-20261008');
     assert.equal(output.retainedMicroCny, 3000000); assert.equal(output.settledMicroCny, 0);
     assert.equal(output.requests[0].micro, 3000000); assert.equal(output.requests[0].status, 'TIMEOUT');
