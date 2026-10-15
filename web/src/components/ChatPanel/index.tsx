@@ -1,5 +1,5 @@
 import ConversationSummaryControl from '../ConversationSummaryControl';
-import type { ChatImageReference } from '@/services/chatImages';
+import { chatImageScope, type ChatImageReference } from '@/services/chatImages';
 import ConversationReadinessControl from '../ConversationReadinessControl';
 import { useEffect, useReducer, useRef, useState, createElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -460,12 +460,10 @@ function ChatPanelView({
   const imageScopeContext = buildRequestContext({ conversationId: convID, draftContext,
     offerApplicationId: offer?.application_id, offerId,
     pageContext: convID === undefined ? activePageContext : pinnedContext, attachments: [] });
-  const imageScope = { conversation_id: convID, context_type: imageScopeContext.context_type,
-    context_ref: imageScopeContext.context_ref };
-  const imageScopeKey = convID === undefined
-    ? `new:${imageScope.context_type ?? 'workspace'}:${imageScope.context_ref ?? ''}` : `conversation:${convID}`;
+  const { scope: imageScope, scopeKey: imageScopeKey } = chatImageScope(convID, imageScopeContext);
   const imageDrafts = controller.imageDrafts.drafts.filter((item) => item.scopeKey === imageScopeKey);
   const imageCapability = settingsQuery.data?.image_capability;
+  useEffect(() => controller.setImageCapability(imageCapability), [imageCapability, controller.setImageCapability]);
   const imageDisabledReason = imageCapability?.enabled ? undefined : imageCapability?.reason ?? '正在检查图片输入能力';
   function addImages(files: File[]) {
     if (imageDisabledReason) { toast.info(imageDisabledReason); return; }
@@ -1496,7 +1494,7 @@ function ChatPanelView({
       if (lastUndo?.parent_operation_id !== operationId) return;
       await handleUndoLastWrite();
     },
-    sendMessage,
+    sendMessage: (text, options) => sendMessage(text, undefined, options?.includeImageDrafts),
     selectConversation,
     startNewChat,
     retryLastMessage,

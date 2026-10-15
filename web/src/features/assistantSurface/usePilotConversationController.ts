@@ -1,4 +1,5 @@
 import { useChatImageDrafts } from './useChatImageDrafts';
+import type { ImageCapability } from '@/services/chatImages';
 import {
   useCallback,
   useEffect,
@@ -64,7 +65,7 @@ export interface ActiveConversationRequest extends ActiveConversationRequestOwne
 
 export interface PilotConversationActions {
   undoOperation?: (operationId: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<SendMessageOutcome>;
+  sendMessage: (text: string, options?: { includeImageDrafts?: boolean }) => Promise<SendMessageOutcome>;
   selectConversation: (conversationId: number, options?: { refresh?: boolean }) => Promise<void>;
   startNewChat: () => boolean;
   retryLastMessage: () => void;
@@ -158,6 +159,10 @@ export function usePilotConversationControllerState(observationEnabled = true) {
   const [loading, setLoading] = useState(false);
   const [autoApprove, setAutoApprove] = useState(false);
   const [hasKey, setHasKey] = useState(true);
+  const [imageCapability, setImageCapabilityState] = useState<ImageCapability>();
+  const setImageCapability = useCallback((next: ImageCapability | undefined) => {
+    setImageCapabilityState((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+  }, []);
   const [degraded, setDegraded] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [showArchived, setShowArchived] = useState(false);
@@ -600,8 +605,8 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     return () => { cancelled = true; clearTimeout(timer); lookup.abort(); };
   }, [observationEnabled, loading, executionControl.acceptExecution, stoppedExecution]);
 
-  const sendMessage = useCallback((text: string) => executionControl.execution?.state === 'running'
-    ? Promise.resolve('ignored' as const) : actionsRef.current.sendMessage(text), [executionControl.execution]);
+  const sendMessage = useCallback((text: string, options?: { includeImageDrafts?: boolean }) => executionControl.execution?.state === 'running'
+    ? Promise.resolve('ignored' as const) : actionsRef.current.sendMessage(text, options), [executionControl.execution]);
   const selectConversation = useCallback(
     (id: number, options?: { refresh?: boolean }) => actionsRef.current.selectConversation(id, options),
     [],
@@ -674,6 +679,8 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     setAutoApprove,
     hasKey,
     setHasKey,
+    imageCapability,
+    setImageCapability,
     degraded,
     setDegraded,
     conversations,
@@ -794,6 +801,8 @@ export function usePilotConversationControllerState(observationEnabled = true) {
     finishActiveRequest,
     finishConversationSelection,
     hasKey,
+    imageCapability,
+    setImageCapability,
     hasStreamingAssistantContent,
     lastError,
     lastFailedText,

@@ -28,6 +28,13 @@ export interface ImageUploadScope {
   context_ref?: string | number;
 }
 
+export function chatImageScope(conversationId: number | undefined, context: ImageUploadScope) {
+  const scope = { conversation_id: conversationId, context_type: context.context_type, context_ref: context.context_ref };
+  const scopeKey = conversationId === undefined
+    ? `new:${scope.context_type ?? 'workspace'}:${scope.context_ref ?? ''}` : `conversation:${conversationId}`;
+  return { scope, scopeKey };
+}
+
 const http = createApiClient({ baseURL: '/api', timeout: 45000 });
 export async function getImageCapability(): Promise<ImageCapability> {
   return (await http.get<ImageCapability>('/chat/image-capability')).data;

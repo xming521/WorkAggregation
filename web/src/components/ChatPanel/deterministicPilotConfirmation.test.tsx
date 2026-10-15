@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App as AntApp } from 'antd';
 import ProposalCard from './ProposalCard';
 import type { PendingAction } from '@/types/chat';
-import { AssistantSurfaceProvider, usePilotConversationController } from '@/features/assistantSurface/AssistantSurfaceProvider';
+import { AssistantSurfaceProvider, useAssistantSurface, usePilotConversationController } from '@/features/assistantSurface/AssistantSurfaceProvider';
+import HaruChatWindow from '@/features/assistantSurface/HaruChatWindow';
 import type { PilotConversationController } from '@/features/assistantSurface/usePilotConversationController';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -18,6 +19,7 @@ const chatState = vi.hoisted(() => ({
   listConversations: vi.fn().mockResolvedValue([]),
   getOffer: vi.fn().mockResolvedValue({ id: 17, application_id: 42 }),
   attachments: [] as Array<{ kind: 'application' | 'offer' | 'resume'; id: string; label: string }>,
+  settings: { has_api_key: true, chat_auto_approve_writes: false, image_capability: { enabled: true } },
 }));
 
 vi.mock('@/services/chat', () => ({
@@ -37,7 +39,7 @@ vi.mock('@/services/onboarding', () => ({ ONBOARDING_QUERY_KEY: ['onboarding'] }
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   useQuery: ({ queryKey }: { queryKey?: readonly unknown[] }) => ({
-    data: queryKey?.[0] === 'settings' ? { image_capability: { enabled: true } } : [], isLoading: false,
+    data: queryKey?.[0] === 'settings' ? chatState.settings : [], isLoading: false,
   }),
 }));
 vi.mock('@/features/pilot/PilotAttachmentContext', () => ({
@@ -55,6 +57,7 @@ vi.mock('@/features/pilot/PilotAttachmentContext', () => ({
 }));
 vi.mock('./ThreadRail', () => ({ default: () => null }));
 vi.mock('./MessageBubble', () => ({ default: () => null }));
+vi.mock('./ChatImagePreview', () => ({ default: ({ image }: { image?: { id: string } }) => <span data-image-id={image?.id}>图片预览</span> }));
 vi.mock('./ThinkingIndicator', () => ({ default: () => null }));
 vi.mock('./Composer', () => ({
   default: (props: { draftValue?: string; onSend?: (value: string) => void }) => (
@@ -177,6 +180,74 @@ it('uses Offer-specific Chinese status labels in the editor and change summary',
 });
 
 describe('deterministic Pilot JD confirmation card', () => {
+  it('shares Haru image-only retries with Pilot and clears only after admission', async () => {
+    let owner!: PilotConversationController;
+    let surface!: ReturnType<typeof useAssistantSurface>;
+    function Observe() { owner = usePilotConversationController(); surface = useAssistantSurface(); return null; }
+    chatState.streamChat.mockRejectedValueOnce(new Error('受理状态未知'))
+      .mockImplementationOnce(async (_message, _conversationId, _context, options) => {
+        options.onAccepted({ conversationId: 501, turnId: 'haru-image-turn' });
+        return { type: 'message', conversation_id: 501, message: '看到了图片' };
+      });
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => root?.render(<AntApp><AssistantSurfaceProvider><Observe />
+      <ChatPanel open variant="page" onClose={vi.fn()} /><HaruChatWindow returnFocusRef={{ current: null }} />
+    </AssistantSurfaceProvider></AntApp>));
+    act(() => {
+      owner.imageDrafts.reference({ id: 'img_haru', sha256: 'hash', mime_type: 'image/png',
+        size_bytes: 10, width: 2, height: 2, normalization_version: 'image-normalize-v1' }, {}, 'new:workspace:');
+      surface.openHaru();
+    });
+    expect(container.querySelector('#haru-chat-window [data-image-id="img_haru"]')).not.toBeNull();
+    await act(async () => container?.querySelector<HTMLButtonElement>('#haru-chat-window [aria-label="发送消息"]')?.click());
+    expect(chatState.streamChat).toHaveBeenCalledTimes(1);
+    expect(chatState.streamChat.mock.calls[0][0]).toBe('');
+    expect(chatState.streamChat.mock.calls[0][2].image_attachment_ids).toEqual(['img_haru']);
+    expect(owner.imageDrafts.drafts).toHaveLength(1);
+    act(() => container?.querySelector<HTMLButtonElement>('[aria-label="展开到 Pilot 工作区"]')?.click());
+    expect(owner.imageDrafts.drafts).toHaveLength(1);
+    await act(async () => container?.querySelector<HTMLButtonElement>('[data-testid="mock-pilot-send"]')?.click());
+    expect(chatState.streamChat.mock.calls[1][3].requestId).toBe(chatState.streamChat.mock.calls[0][3].requestId);
+    expect(chatState.streamChat.mock.calls[1][2].image_attachment_ids).toEqual(['img_haru']);
+    expect(owner.imageDrafts.drafts).toHaveLength(0);
+  });
+
+  it('keeps an accepted Haru image request in history without exposing resend after a stream failure', async () => {
+    let owner!: PilotConversationController;
+    let surface!: ReturnType<typeof useAssistantSurface>;
+    function Observe() { owner = usePilotConversationController(); surface = useAssistantSurface(); return null; }
+    const image = { id: 'img_haru', sha256: 'hash', mime_type: 'image/png', size_bytes: 10,
+      width: 2, height: 2, normalization_version: 'image-normalize-v1' };
+    chatState.getConversation.mockResolvedValue([{ id: 9, conversation_id: 501, role: 'user', content: '', image_attachments: [image] }]);
+    chatState.streamChat.mockImplementationOnce(async (_message, _conversationId, _context, options) => {
+      options.onAccepted({ conversationId: 501, turnId: 'accepted-haru-image' });
+      throw new Error('已受理后连接中断');
+    });
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => root?.render(<AntApp><AssistantSurfaceProvider><Observe />
+      <ChatPanel open variant="page" onClose={vi.fn()} /><HaruChatWindow returnFocusRef={{ current: null }} />
+    </AssistantSurfaceProvider></AntApp>));
+    act(() => { owner.imageDrafts.reference(image, {}, 'new:workspace:'); surface.openHaru(); });
+    await act(async () => container?.querySelector<HTMLButtonElement>('#haru-chat-window [aria-label="发送消息"]')?.click());
+    expect(owner.imageDrafts.drafts).toHaveLength(0);
+    expect(owner.lastSubmissionRef.current).toBeNull();
+    expect(container.querySelector('#haru-chat-window [aria-label="消息图片"] [data-image-id="img_haru"]')).not.toBeNull();
+    expect([...container.querySelectorAll('#haru-chat-window button')].some((button) => button.textContent === '重试')).toBe(false);
+  });
+
+  it('never includes a shared image draft in a quick action send', async () => {
+    let owner!: PilotConversationController;
+    function Observe() { owner = usePilotConversationController(); return null; }
+    chatState.streamChat.mockResolvedValue({ type: 'message', conversation_id: 501, message: '收到' });
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => root?.render(<AntApp><AssistantSurfaceProvider><Observe /><ChatPanel open variant="page" onClose={vi.fn()} /></AssistantSurfaceProvider></AntApp>));
+    act(() => owner.imageDrafts.reference({ id: 'img_quick', sha256: 'hash', mime_type: 'image/png',
+      size_bytes: 10, width: 2, height: 2, normalization_version: 'image-normalize-v1' }, {}, 'new:workspace:'));
+    await act(async () => { await owner.sendMessage('快捷操作'); });
+    expect(chatState.streamChat.mock.calls[0][2].image_attachment_ids).toBeUndefined();
+    expect(owner.imageDrafts.drafts).toHaveLength(1);
+  });
+
   it('reuses the original request identity when sending an unaccepted image draft again', async () => {
     let owner!: PilotConversationController;
     function Observe() { owner = usePilotConversationController(); return null; }
