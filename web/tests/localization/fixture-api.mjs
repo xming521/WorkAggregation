@@ -52,7 +52,11 @@ export function createFixtureApi({ retainedConversation = false, configuredAi = 
       if(['/api/resumes','/api/offers','/api/notes','/api/questions','/api/questions/due','/api/confirmed-memory','/api/knowledge/sources','/api/knowledge/notes','/api/interview-stories','/api/chat/conversations','/api/applications/101/notes'].includes(p))return answer([]);
     }
     if(method==='POST'&&p==='/api/job-mail/imports'){imported=true;return answer({items:[sampleMail],deduplicated:false,evidence_id:'evidence-fixture-1'});}
-    if(method==='POST'&&p==='/api/job-mail/suggestions/mail-fixture-1/preview')return answer({preview_token:'synthetic-preview',operation_id:body.operation_id,suggestion_id:sampleMail.id,suggestion_version:1,action:'create_event',application_id:101,application_snapshot:{...sampleApplication},target_event_id:null,edited_fields:body.edited_fields,before:null,after:{...body.edited_fields,application_id:101},changes:Object.entries(body.edited_fields).map(([field,after])=>({field,before:null,after})),scope_version:null,expires_at:'2030-01-01T00:00:00Z',warnings:[]});
+    if(method==='POST'&&p==='/api/job-mail/suggestions/mail-fixture-1/preview') {
+      // Match job_mail/review.py _resolve: defaults, nonempty proposal, then explicit edits.
+      const fields={subtype:'',tags:[],round:0,location:'',notes:'',remind_at:null,...Object.fromEntries(Object.entries(sampleMail.proposed_fields).filter(([,value])=>value!==null&&value!=='')),...body.edited_fields};
+      return answer({preview_token:'synthetic-preview',operation_id:body.operation_id,suggestion_id:sampleMail.id,suggestion_version:1,action:'create_event',application_id:101,application_snapshot:{id:101,company_name:sampleApplication.company_name,position_name:sampleApplication.position_name,status:sampleApplication.status,updated_at:sampleApplication.updated_at},target_event_id:null,edited_fields:body.edited_fields,before:{},after:{...fields,application_id:101,status:'todo'},changes:Object.keys(fields).sort().filter(field=>fields[field]!==null).map(field=>({field,before:null,after:fields[field]})),scope_version:null,expires_at:'2030-01-01T00:00:00Z',warnings:['本次仅写入事件，不改变投递阶段，不发送邮件。']});
+    }
     unexpected.push({method,path:p});return answer({error_code:'unmocked_test_request',detail:'Blocked by localization fixture'},501);
   }
   return {handle,requests,unexpected};

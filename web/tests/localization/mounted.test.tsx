@@ -9,7 +9,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale, useLocale, t } from '../../src/i18n';
 import { ThemeProvider } from '../../src/theme/ThemeContext';
-import { createFixtureApi, retainedUserBody, retainedAiBody } from './fixture-api.mjs';
+import { createFixtureApi, retainedUserBody, retainedAiBody, sampleMail } from './fixture-api.mjs';
 
 const state = vi.hoisted(() => ({ api: null as any }));
 vi.mock('@/services/http', () => ({
@@ -52,6 +52,17 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); client.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setLocale('zh-CN'); });
 
 describe('real AppShell localization with strict synthetic API fixtures', () => {
+  it('models unchanged and edited mail previews with the backend proposal merge contract', () => {
+    const preview = (edited_fields: Record<string, unknown>) => state.api.handle('POST', '/api/job-mail/suggestions/mail-fixture-1/preview', { operation_id: 'synthetic-operation', edited_fields }).data;
+    const unchanged = preview({});
+    expect(unchanged.after).toMatchObject(sampleMail.proposed_fields);
+    expect(unchanged.after).toMatchObject({ application_id: 101, status: 'todo', subtype: '', remind_at: null });
+    expect(unchanged.warnings).toEqual(['本次仅写入事件，不改变投递阶段，不发送邮件。']);
+    expect(unchanged.changes).toContainEqual({ field: 'scheduled_at', before: null, after: sampleMail.proposed_fields.scheduled_at });
+    expect(preview({ location: 'Edited meeting', notes: '' }).after).toMatchObject({ scheduled_at: sampleMail.proposed_fields.scheduled_at, location: 'Edited meeting', notes: '' });
+    expect(state.api.unexpected).toEqual([]);
+  });
+
   it.each(['settings', 'dashboard', 'board', 'applications-list', 'calendar', 'interview', 'questions', 'pilot'])('renders %s in both languages without new writes or untranslated authored Chinese', async (view) => {
     await mount(view); expect(document.body.textContent).toContain('OfferPilot');
     const count = writes().length; await switchLocale('en-US');

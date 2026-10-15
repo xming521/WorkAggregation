@@ -9,7 +9,7 @@ import { listEvents } from '@/services/events';
 import { confirmJobMail, getJobMailReceipt, getJobMailSuggestion, ignoreJobMail, JOB_MAIL_QUERY_KEY, previewJobMail } from '@/services/jobMail';
 import type { JobMailFields, JobMailPreview, JobMailPreviewInput, JobMailReceipt, JobMailSuggestion } from '@/types/jobMail';
 import type { ViewMode } from '@/layout/navigation';
-import { displayMailField, displayMailTime, fieldLabel, isDefiniteMailRejection, mailActionLabel, mailErrorText, mailFieldErrors, mergeMailFields, readMailRecovery, saveMailRecovery, validateMailFields } from './jobMailModel';
+import { displayMailWarning, displayMailField, displayMailTime, fieldLabel, isDefiniteMailRejection, mailActionLabel, mailErrorText, mailFieldErrors, mergeMailFields, readMailRecovery, saveMailRecovery, validateMailFields } from './jobMailModel';
 import styles from './jobMail.module.css';
 
 interface Props {
@@ -256,7 +256,7 @@ function ReviewContent({ suggestion, onClose, onOpenRecord, onNavigate, onProces
       <div className={styles.sectionHeader}><h3 ref={previewHeading} tabIndex={-1} className={styles.title}>{t("最终确认摘要")}</h3><span className={styles.status}>{t("尚未写入")}</span></div>
       <div className={styles.targetSummary}><strong>{preview.application_snapshot.company_name} · {preview.application_snapshot.position_name}</strong><span className={styles.muted}>{t("投递 #")}{preview.application_id} · {preview.target_event_id ? t("更新事件 #{target_event_id}", { target_event_id: preview.target_event_id }) : t("新增一个事件")}</span></div>
       <FinalFields preview={preview} />
-      {preview.warnings.map((warning, index) => <Alert key={index} type="warning" message={warning} />)}
+      {preview.warnings.map((warning, index) => <Alert key={index} type="warning" message={displayMailWarning(warning)} />)}
       <details className={styles.disclosure}><summary>{t("查看完整变更与目标快照")}</summary><div className={styles.section}>
         <h4 className={styles.subheading}>{t("目标投递当前快照")}</h4><MailRecord value={preview.application_snapshot} kind="application" />
         <div className={styles.twoColumns}><section className={styles.section}><h4 className={styles.subheading}>{t("目标事件当前快照")}</h4><MailRecord value={preview.before} /></section><section className={styles.section}><h4 className={styles.subheading}>{t("确认后最终字段")}</h4><MailRecord value={preview.after} /></section></div>

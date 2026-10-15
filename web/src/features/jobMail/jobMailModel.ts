@@ -84,3 +84,14 @@ export function mailErrorText(error: unknown, fallback: string): string {
   if (status === 401 || status === 403) return t("没有权限执行此操作，请检查当前工作区登录状态。");
   return fallback;
 }
+
+// Only backend-authored review warnings are UI text. Unknown server text stays verbatim.
+export function displayMailWarning(warning: string): string {
+  switch (warning) {
+    case '本次仅写入事件，不改变投递阶段，不发送邮件。':
+      return t("本次仅写入事件，不改变投递阶段，不发送邮件。");
+    case '开始时间变化后，旧提醒将清除；请按新安排另设提醒。':
+      return t("开始时间变化后，旧提醒将清除；请按新安排另设提醒。");
+    default: return warning;
+  }
+}
