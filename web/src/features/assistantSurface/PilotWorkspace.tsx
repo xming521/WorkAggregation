@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useCallback, useEffect, useRef } from 'react';
 import ChatPanel, { type Props as ChatPanelProps } from '@/components/ChatPanel';
 import { useAssistantSurface, usePilotConversationController } from './AssistantSurfaceProvider';
@@ -17,6 +18,7 @@ export default function PilotWorkspace({
   onboardingFocusToken,
   ...props
 }: Props) {
+  useLocale();
   const surface = useAssistantSurface();
   const controller = usePilotConversationController();
   const lifecycleForegroundRef = useRef(open || surface.surface === 'haru_chat');
@@ -35,11 +37,11 @@ export default function PilotWorkspace({
       pageActive && controller.contextChangeNotice ? styles.pilotWorkspaceWithContext : ''
     }`}>
       {pageActive && controller.contextChangeNotice ? (
-        <section className={styles.pilotContextChange} aria-label="页面上下文已变化" aria-live="polite">
+        <section className={styles.pilotContextChange} aria-label={t("页面上下文已变化")} aria-live="polite">
           <div>
-            <span>当前会话</span>
+            <span>{t("当前会话")}</span>
             <b>{controller.contextChangeNotice.currentConversationLabel}</b>
-            <span>当前页面</span>
+            <span>{t("当前页面")}</span>
             <b>{controller.contextChangeNotice.currentPageLabel}</b>
           </div>
           <button
@@ -47,10 +49,10 @@ export default function PilotWorkspace({
             onClick={controller.switchToFollowingContext}
             disabled={controller.loading || Boolean(controller.pending)}
           >
-            切换到当前页面
+            {t("切换到当前页面")}
           </button>
           <button type="button" onClick={controller.dismissContextChangeNotice}>
-            保持原上下文
+            {t("保持原上下文")}
           </button>
         </section>
       ) : null}

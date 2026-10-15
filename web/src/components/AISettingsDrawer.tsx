@@ -1,3 +1,6 @@
+import { liveText } from '@/i18n/liveText';
+import { useLocalizedValidation } from './applicationUiText';
+import { t, useLocale } from '@/i18n';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -67,14 +70,14 @@ interface FormValues {
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
-  openai_compatible: 'OpenAI 兼容',
+  get openai_compatible() { return t("OpenAI 兼容"); },
   anthropic: 'Anthropic',
   openrouter: 'OpenRouter',
 };
 
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI' },
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
+  { value: 'openai_compatible', get label() { return t("OpenAI 兼容"); } },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openrouter', label: 'OpenRouter' },
 ];
@@ -84,7 +87,9 @@ const DEFAULT_MODEL = 'gpt-4o';
 const PROVIDER_FRAMING_RESERVE = 1_024;
 
 export default function AISettingsDrawer({ open, onClose }: Props) {
+  useLocale();
   const [form] = Form.useForm<FormValues>();
+  useLocalizedValidation(form);
   const qc = useQueryClient();
   const [providers, setProviders] = useState<EditableProvider[]>([]);
   const [activeProviderId, setActiveProviderId] = useState('default');
@@ -134,7 +139,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           && !hasValidProviderBudget(provider),
       );
       if (incompleteProvider) {
-        throw new Error(`请先补全 ${incompleteProvider.label || incompleteProvider.id} 的模型预算配置`);
+        throw new Error(t("请先补全 {value0} 的模型预算配置", { value0: incompleteProvider.label || incompleteProvider.id }));
       }
       const nextActive = nextProviders.find((item) => item.id === nextActiveId) ?? nextProviders[0];
       setProviders(nextProviders);
@@ -154,7 +159,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
       qc.setQueryData(SETTINGS_QUERY_KEY, settings);
       qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY });
-      message.success('AI 设置已保存');
+      message.success(liveText(() => t("AI 设置已保存")));
       setProviders(toEditableProviders(settings));
       setActiveProviderId(settings.active_provider_id);
       setFallbackProviderIds(settings.fallback_provider_ids ?? []);
@@ -162,7 +167,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
       onClose();
     },
     onError: (error) => {
-      message.error(error instanceof Error ? error.message : 'AI 设置保存失败');
+      message.error(error instanceof Error ? error.message : t("AI 设置保存失败"));
     },
   });
 
@@ -180,14 +185,14 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
     onSuccess: (result) => {
       setConnectionResult(result);
       if (result.ok) {
-        message.success(result.message || '连接成功');
+        message.success(result.message || t("连接成功"));
       } else {
-        message.error(result.error || '连接失败');
+        message.error(result.error || t("连接失败"));
       }
     },
     onError: () => {
-      setConnectionResult({ ok: false, error: '连接失败' });
-      message.error('连接失败');
+      setConnectionResult({ ok: false, error: "连接失败" });
+      message.error(liveText(() => t("连接失败")));
     },
   });
 
@@ -198,7 +203,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
     const id = uniqueProviderId('provider', providers);
     const provider: EditableProvider = {
       id,
-      label: '新供应商',
+      label: t("新供应商"),
       provider: 'openai',
       base_url: DEFAULT_BASE_URL,
       model: DEFAULT_MODEL,
@@ -225,7 +230,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
     const nextProvider = formToProvider(values, providers.find((item) => item.id === values.id));
     setProviders((current) => upsertProvider(current, nextProvider));
     setEditingId(nextProvider.id);
-    message.success('供应商已更新');
+    message.success(liveText(() => t("供应商已更新")));
   }
 
   function removeProvider(providerId: string) {
@@ -243,7 +248,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
 
   function markDefault(provider: EditableProvider) {
     if (!hasValidProviderBudget(provider)) {
-      message.warning('请先补全该供应商的模型预算配置');
+      message.warning(liveText(() => t("请先补全该供应商的模型预算配置")));
       return;
     }
     setActiveProviderId(provider.id);
@@ -253,7 +258,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
   if (!open) return null;
 
   return (
-    <section aria-label="AI 设置" className={`${workflowStyles.surface} ${workflowStyles.stack}`} style={{ maxWidth: 1040 }}>
+    <section aria-label={t("AI 设置")} className={`${workflowStyles.surface} ${workflowStyles.stack}`} style={{ maxWidth: 1040 }}>
       <div className={workflowStyles.sectionHeader}>
         <div>
         <Button
@@ -262,51 +267,45 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           onClick={onClose}
           style={{ width: 'fit-content', height: 'auto', padding: 0 }}
         >
-          返回设置
-        </Button>
+          {t("返回设置")}</Button>
           <Typography.Title level={3} style={{ margin: '8px 0 0', color: 'var(--op-ink)' }}>
-            <ApiOutlined /> AI 设置
-          </Typography.Title>
+            <ApiOutlined /> {t("AI 设置")}</Typography.Title>
         </div>
           <Button type="primary" loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
-            保存
-          </Button>
+            {t("保存")}</Button>
       </div>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Alert
           type={hasKey && hasBudget ? 'success' : 'warning'}
           showIcon
           icon={hasKey && hasBudget ? <CheckCircleOutlined /> : <WarningOutlined />}
-          message={!hasKey ? '尚未配置密钥' : hasBudget ? 'AI 配置已就绪' : '预算配置待补全'}
+          message={!hasKey ? t("尚未配置密钥") : hasBudget ? t("AI 配置已就绪") : t("预算配置待补全")}
           description={
             !hasKey
-              ? '配置模型供应商密钥后即可使用 AI 能力。'
+              ? t("配置模型供应商密钥后即可使用 AI 能力。")
               : hasBudget
-                ? '密钥留空保存会保留当前密钥。'
-                : '请按当前模型的官方规格填写上下文窗口和单次最大输出。'
+                ? t("密钥留空保存会保留当前密钥。")
+                : t("请按当前模型的官方规格填写上下文窗口和单次最大输出。")
           }
         />
 
         <section data-testid="ai-provider-list" className={workflowStyles.section}>
           <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
             <Typography.Title level={5} style={{ margin: 0 }}>
-              Provider 列表
-            </Typography.Title>
+              {t("Provider 列表")}</Typography.Title>
             <Button icon={<PlusOutlined />} onClick={startNewProvider}>
-              新增供应商
-            </Button>
+              {t("新增供应商")}</Button>
           </Space>
           <List
             size="small"
             dataSource={providers}
-            locale={{ emptyText: '暂无供应商' }}
+            locale={{ emptyText: t("暂无供应商") }}
             renderItem={(provider) => (
               <List.Item
                 className={workflowStyles.listRow}
                 actions={[
                   <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => editProvider(provider)}>
-                    编辑供应商
-                  </Button>,
+                    {t("编辑供应商")}</Button>,
                   <Button
                     key="default"
                     size="small"
@@ -314,19 +313,17 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
                     disabled={provider.id === activeProviderId || !hasValidProviderBudget(provider)}
                     onClick={() => markDefault(provider)}
                   >
-                    设为默认
-                  </Button>,
+                    {t("设为默认")}</Button>,
                   <Popconfirm
                     key="delete"
-                    title="删除供应商"
-                    okText="删除"
-                    cancelText="取消"
+                    title={t("删除供应商")}
+                    okText={t("删除")}
+                    cancelText={t("取消")}
                     disabled={provider.id === activeProviderId}
                     onConfirm={() => removeProvider(provider.id)}
                   >
                     <Button size="small" danger icon={<DeleteOutlined />} disabled={provider.id === activeProviderId}>
-                      删除供应商
-                    </Button>
+                      {t("删除供应商")}</Button>
                   </Popconfirm>,
                 ]}
               >
@@ -334,11 +331,11 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
                   title={
                     <Space wrap>
                       <Typography.Text strong>{provider.label || provider.id}</Typography.Text>
-                      {provider.id === activeProviderId ? <Tag color="blue">默认</Tag> : null}
+                      {provider.id === activeProviderId ? <Tag color="blue">{t("默认")}</Tag> : null}
                       {fallbackProviderIds.includes(provider.id) ? <Tag color="gold">Fallback</Tag> : null}
-                      {provider.has_api_key ? <Tag color="green">密钥已配置</Tag> : <Tag>未配置密钥</Tag>}
+                      {provider.has_api_key ? <Tag color="green">{t("密钥已配置")}</Tag> : <Tag>{t("未配置密钥")}</Tag>}
                       {provider.enabled && !hasValidProviderBudget(provider) ? (
-                        <Tag color="orange">预算配置待补全</Tag>
+                        <Tag color="orange">{t("预算配置待补全")}</Tag>
                       ) : null}
                     </Space>
                   }
@@ -358,74 +355,73 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           className={workflowStyles.section}
         >
           <Typography.Title level={5} style={{ marginTop: 0 }}>
-            编辑供应商
-          </Typography.Title>
+            {t("编辑供应商")}</Typography.Title>
 
-          <Form.Item label="配置 ID" name="id" rules={[{ required: true, message: '请输入配置 ID' }]}>
+          <Form.Item label={t("配置 ID")} name="id" rules={[{ required: true, message: t("请输入配置 ID") }]}>
             <Input placeholder="openai" disabled={providers.some((item) => item.id === editingId)} />
           </Form.Item>
 
-          <Form.Item label="显示名称" name="label" rules={[{ required: true, message: '请输入显示名称' }]}>
+          <Form.Item label={t("显示名称")} name="label" rules={[{ required: true, message: t("请输入显示名称") }]}>
             <Input placeholder="OpenAI" />
           </Form.Item>
 
-          <Form.Item label="API 密钥" name="api_key">
+          <Form.Item label={t("API 密钥")} name="api_key">
             <Input.Password
               prefix={<KeyOutlined />}
               autoComplete="off"
-              placeholder={activeProvider?.has_api_key ? '留空则保留当前密钥' : 'sk-...'}
+              placeholder={activeProvider?.has_api_key ? t("留空则保留当前密钥") : 'sk-...'}
             />
           </Form.Item>
 
-          <Form.Item label="模型供应商" name="provider">
-            <Select options={PROVIDER_OPTIONS} />
+          <Form.Item label={t("模型供应商")} name="provider">
+            <Select options={PROVIDER_OPTIONS.map((option) => ({ ...option }))} />
           </Form.Item>
 
-          <Form.Item label="接口地址" name="base_url" tooltip="OpenAI 兼容接口地址">
+          <Form.Item label={t("接口地址")} name="base_url" tooltip={t("OpenAI 兼容接口地址")}>
             <Input placeholder={DEFAULT_BASE_URL} />
           </Form.Item>
 
-          <Form.Item label="模型" name="model">
+          <Form.Item label={t("模型")} name="model">
             <Input placeholder={DEFAULT_MODEL} />
           </Form.Item>
 
           <Form.Item
-            label="上下文窗口（tokens）"
+            label={t("上下文窗口（tokens）")}
             name="context_window"
             required
             dependencies={['enabled', 'max_output_tokens']}
-            tooltip="填写当前模型官方公布的上下文窗口，不会根据模型名称自动猜测。"
+            tooltip={t("填写当前模型官方公布的上下文窗口，不会根据模型名称自动猜测。")}
             rules={[
               ({ getFieldValue }) => ({
                 validator(_, value) {
                   if (getFieldValue('enabled') !== true && (!value || value <= 0)) return Promise.resolve();
                   if (!Number.isInteger(value) || value <= 0) {
-                    return Promise.reject(new Error('请输入大于 0 的整数上下文窗口'));
+                    return Promise.reject(new Error(t("请输入大于 0 的整数上下文窗口")));
                   }
                   const output = getFieldValue('max_output_tokens');
                   if (Number.isInteger(output) && output > 0 && value <= output + PROVIDER_FRAMING_RESERVE) {
-                    return Promise.reject(new Error('上下文窗口必须大于最大输出与协议预留之和'));
+                    return Promise.reject(new Error(t("上下文窗口必须大于最大输出与协议预留之和")));
                   }
                   return Promise.resolve();
                 },
               }),
             ]}
           >
-            <InputNumber min={1} precision={0} step={1_024} style={{ width: '100%' }} placeholder="例如 131072" />
+            <InputNumber min={1} precision={0} step={1_024} style={{ width: '100%' }} placeholder={t("例如 131072")} />
           </Form.Item>
 
           <Form.Item
-            label="单次最大输出（tokens）"
+            label={t("单次最大输出（tokens）")}
             name="max_output_tokens"
             required
             dependencies={['enabled', 'context_window']}
-            tooltip="填写每次请求允许模型生成的最大 token 数。"
+            tooltip={t("填写每次请求允许模型生成的最大 token 数。")}
             rules={[
               ({ getFieldValue }) => ({
                 validator(_, value) {
                   if (getFieldValue('enabled') !== true && (!value || value <= 0)) return Promise.resolve();
                   if (!Number.isInteger(value) || value <= 0) {
-                    return Promise.reject(new Error('请输入大于 0 的整数最大输出'));
+                    return Promise.reject(new Error(t("请输入大于 0 的整数最大输出")));
                   }
                   const contextWindow = getFieldValue('context_window');
                   if (
@@ -433,33 +429,33 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
                     && contextWindow > 0
                     && contextWindow <= value + PROVIDER_FRAMING_RESERVE
                   ) {
-                    return Promise.reject(new Error('单次最大输出必须为上下文和协议预留留出空间'));
+                    return Promise.reject(new Error(t("单次最大输出必须为上下文和协议预留留出空间")));
                   }
                   return Promise.resolve();
                 },
               }),
             ]}
           >
-            <InputNumber min={1} precision={0} step={1_024} style={{ width: '100%' }} placeholder="例如 8192" />
+            <InputNumber min={1} precision={0} step={1_024} style={{ width: '100%' }} placeholder={t("例如 8192")} />
           </Form.Item>
 
-          <Form.Item label="启用" name="enabled" valuePropName="checked">
+          <Form.Item label={t("启用")} name="enabled" valuePropName="checked">
             <Switch />
           </Form.Item>
 
           <Form.Item
-            label="原生 JSON Schema"
+            label={t("原生 JSON Schema")}
             name="supports_json_schema"
             valuePropName="checked"
-            tooltip="仅在 Provider 明确支持时启用"
+            tooltip={t("仅在 Provider 明确支持时启用")}
           >
             <Switch />
           </Form.Item>
 
-          <Form.Item label="Fallback 供应商">
+          <Form.Item label={t("Fallback 供应商")}>
             <Select
               mode="multiple"
-              placeholder="默认供应商失败时依次尝试"
+              placeholder={t("默认供应商失败时依次尝试")}
               value={fallbackProviderIds}
               onChange={(value: string[]) => setFallbackProviderIds(value)}
               options={providers
@@ -472,15 +468,14 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
             />
           </Form.Item>
 
-          <Form.Item label="写操作自动确认" name="chat_auto_approve_writes" valuePropName="checked">
+          <Form.Item label={t("写操作自动确认")} name="chat_auto_approve_writes" valuePropName="checked">
             <Switch />
           </Form.Item>
 
           <Space wrap className={workflowStyles.actionGroup}>
-            <Button onClick={applyProviderForm}>应用到 Provider 列表</Button>
+            <Button onClick={applyProviderForm}>{t("应用到 Provider 列表")}</Button>
             <Button icon={<SyncOutlined />} loading={testMutation.isPending} onClick={() => testMutation.mutate()}>
-              测试连接
-            </Button>
+              {t("测试连接")}</Button>
           </Space>
 
           {connectionResult ? (
@@ -488,7 +483,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
               style={{ marginTop: 12 }}
               type={connectionResult.ok ? 'success' : 'error'}
               showIcon
-              message={connectionResult.ok ? connectionResult.message || '连接成功' : connectionResult.error || '连接失败'}
+              message={connectionResult.ok ? connectionResult.message || t("连接成功") : t(connectionResult.error || "连接失败")}
               description={
                 connectionResult.ok && connectionResult.latency_ms !== undefined
                   ? `${connectionResult.model || ''} · ${connectionResult.latency_ms}ms`
@@ -498,12 +493,11 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           ) : null}
 
           <Typography.Paragraph type="secondary" style={{ marginTop: 14, marginBottom: 0 }}>
-            设置保存在本地 OfferPilot 配置中；接口只返回密钥是否存在。
-          </Typography.Paragraph>
+            {t("设置保存在本地 OfferPilot 配置中；接口只返回密钥是否存在。")}</Typography.Paragraph>
 
           <div style={{ marginTop: 14 }}>
             <Tag color="blue">LiteLLM</Tag>
-            <Tag color="default">本地配置</Tag>
+            <Tag color="default">{t("本地配置")}</Tag>
           </div>
         </Form>
       </Space>

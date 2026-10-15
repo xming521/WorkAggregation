@@ -5,7 +5,7 @@ const { EventEmitter } = require('node:events');
 const { createCapabilities, localURL, externalURL, safeFilename, sourceDownload, contentSecurityPolicy } = require('../capabilities.cjs');
 const origin = 'http://127.0.0.1:18420';
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function fixture() {
+function fixture(t) {
   const session = new EventEmitter();
   session.setPermissionCheckHandler = fn => session.check = fn;
   session.setPermissionRequestHandler = fn => session.request = fn;
@@ -20,7 +20,7 @@ function fixture() {
     showSaveDialogSync(_win, options) { saved.push(options); return answers.shift(); },
   };
   const capability = createCapabilities({ origin, desktopSession: session, isTrustedContents: c => c === contents,
-    dialog, shell: { async openExternal(url) { opened.push(url); } }, BrowserWindow: { fromWebContents: () => win } });
+    dialog, t, shell: { async openExternal(url) { opened.push(url); } }, BrowserWindow: { fromWebContents: () => win } });
   capability.installWindowPolicy(win);
   const details = { isMainFrame: true, requestingUrl: origin, mediaTypes: ['audio'], mediaType: 'audio' };
   const request = (permission = 'media', overrides = {}) => new Promise(resolve => session.request(contents, permission, resolve, { ...details, ...overrides }));
@@ -127,4 +127,18 @@ test('clipboard text writes require per-request confirmation and never grant cli
   assert.equal(await f.request('clipboard-sanitized-write',{isMainFrame:false}),false);
   assert.equal(await f.request('clipboard-read'),false);
   assert.equal(await f.request('deprecated-sync-clipboard-read'),false);
+});
+
+test('native capability prompts follow current locale while retaining cancel defaults and scope', async () => {
+  const { translate } = require('../locale.cjs'); let locale = 'en-US';
+  const f = fixture(source => translate(source, locale));
+  assert.equal(await f.request(), false);
+  assert.equal(f.prompts[0].title, 'Allow recording?');
+  assert.deepEqual(f.prompts[0].buttons, ['Cancel', 'Allow Microphone']);
+  assert.equal(f.prompts[0].defaultId, 0); assert.equal(f.prompts[0].cancelId, 0);
+  assert.match(f.prompts[0].detail, /does not grant access to the camera/);
+  locale = 'zh-CN'; await f.request(); assert.equal(f.prompts[1].title, '允许录音？');
+  locale = 'en-US'; f.download(); assert.equal(f.saved[0].title, 'Save OfferPilot Export');
+  f.contents.open({ url: 'https://example.com' }); await flush();
+  assert.equal(f.prompts[2].title, 'Open external link?'); assert.equal(f.opened.length, 0);
 });

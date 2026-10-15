@@ -23,6 +23,7 @@ function sanitizeSnapshot(value) {
     canStop: value.canStop === true,
     stopping: value.stopping === true,
     error: text(value.error, 1200),
+    ...(value.errorKey === 'desktop_send_failed' ? { errorKey: value.errorKey } : {}),
     stopMessage: text(value.stopMessage, 500),
   };
 }

@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { CHANNEL, sanitizeSnapshot, validateRequest, isTrustedFrame, clampBounds, allowHaruResource, authenticatedHeaders } = require('../haru-protocol.cjs');
 const { createHaruShell } = require('../haru.cjs');
+const { createLocaleStore } = require('../locale.cjs');
 const origin = 'http://127.0.0.1:4040';
 const view = { version: 1, taskState: 'idle', conversationId: 7, messages: [{ role: 'assistant', content: 'hello', confirmation_token: 'secret' }], canSend: true, pending: { confirmation_token: 'secret' }, config: { api_key: 'secret' } };
 
@@ -14,6 +15,8 @@ test('snapshot copies only bounded prose, booleans and theme enum; never credent
   const value = sanitizeSnapshot({ ...view, error: 'x'.repeat(5000) });
   assert.equal(value.messages[0].content, 'hello');
   assert.equal(value.error.length, 1200);
+  assert.equal(sanitizeSnapshot({ ...view, errorKey: 'desktop_send_failed' }).errorKey, 'desktop_send_failed');
+  for (const errorKey of ['provider_error', {}, null, 'desktop_send_failed;secret']) assert(!('errorKey' in sanitizeSnapshot({ ...view, errorKey })));
   assert(!JSON.stringify(value).includes('secret'));
   assert(!('pending' in value));
   for (const animationLevel of ['full', 'minimal', 'off']) assert.equal(sanitizeSnapshot({ ...view, animationLevel }).animationLevel, animationLevel);
@@ -104,10 +107,10 @@ function harness(t, { trayFails = false } = {}) {
   }
   Window.all = [];
   class Tray extends EventEmitter {
-    constructor() { super(); if (trayFails) throw new Error('missing tray'); }
+    constructor() { super(); if (trayFails) throw new Error('missing tray'); Tray.instance = this; }
     isDestroyed() { return Boolean(this.destroyed); }
     destroy() { this.destroyed = true; }
-    setToolTip() {}
+    setToolTip(value) { this.tip = value; }
     setContextMenu(menu) { this.menu = menu; }
   }
   class Ipc extends EventEmitter {
@@ -123,17 +126,18 @@ function harness(t, { trayFails = false } = {}) {
   screen.getCursorScreenPoint = () => ({ ...cursor });
   const main = new Window();
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'haru-shell-'));
+  const locale = createLocaleStore(folder);
   let quitting = false;
   let quitCalls = 0;
   const registered = [];
-  const shell = createHaruShell({ BrowserWindow: Window, Tray, Menu: { buildFromTemplate: value => value }, nativeImage: { createFromPath: value => value }, screen, ipcMain: ipc, mainWindow: main, desktopSession: {}, origin, userData: folder, registerWindow: win => registered.push(win), isQuitting: () => quitting, quit: () => { quitCalls++; quitting = true; } });
+  const shell = createHaruShell({ BrowserWindow: Window, Tray, Menu: { buildFromTemplate: value => value }, nativeImage: { createFromPath: value => value }, screen, ipcMain: ipc, mainWindow: main, desktopSession: {}, origin, userData: folder, registerWindow: win => registered.push(win), isQuitting: () => quitting, quit: () => { quitCalls++; quitting = true; }, t: locale.t, subscribeLocale: locale.subscribe });
   const mirror = Window.all[1];
   mirror.emit('ready-to-show');
   const event = win => ({ sender: win.webContents, senderFrame: win.webContents.mainFrame });
   const invoke = (win, name, value) => ipc.handlers.get(CHANNEL + name)(event(win), value);
   const publish = value => ipc.emit(CHANNEL + 'publish', event(main), value);
   t.after(() => { quitting = true; shell.dispose(); fs.rmSync(folder, { recursive: true, force: true }); });
-  return { main, mirror, ipc, event, invoke, publish, shell, registered, screen, setCursor: point => { cursor = point; }, setQuitting: value => { quitting = value; }, quitCalls: () => quitCalls };
+  return { main, mirror, locale, tray: Tray.instance, ipc, event, invoke, publish, shell, registered, screen, setCursor: point => { cursor = point; }, setQuitting: value => { quitting = value; }, quitCalls: () => quitCalls };
 }
 test('only owner publishes; only mirror sends; stale epochs fail after reload', async t => {
   const h = harness(t);
@@ -443,4 +447,18 @@ test('AI settings intent restores the owner and is delivered once without changi
   assert.deepEqual(h.main.webContents.sent, [{ channel: CHANNEL + 'show-ai-settings', value: undefined }]);
   assert.equal(h.invoke(h.mirror, 'state').snapshot.conversationId, 7);
   assert.equal(h.invoke(h.mirror, 'window', 'show-ai-settings?url=evil'), false);
+});
+
+test('tray labels update immediately on locale changes and preserve window and quit actions', t => {
+  const h = harness(t);
+  assert.equal(h.tray.menu[0].label, '打开 OfferPilot');
+  h.locale.setLocale('en-US');
+  assert.equal(h.tray.menu[0].label, 'Open OfferPilot');
+  assert.equal(h.tray.menu[1].label, 'Hide Haru');
+  assert.match(h.tray.tip, /use the tray menu to quit/);
+  assert.equal(h.shell.getHaruContents(), h.mirror.webContents);
+  h.tray.menu[1].click(); assert.equal(h.tray.menu[1].label, 'Show Haru');
+  h.tray.menu[2].click(); assert.equal(h.mirror.pinned, true);
+  h.locale.setLocale('zh-CN'); assert.equal(h.tray.menu[1].label, '显示 Haru');
+  h.tray.menu[4].click(); assert.equal(h.quitCalls(), 1);
 });

@@ -217,7 +217,7 @@ describe('AppShell source contract', () => {
     expect(source).toContain('buildPilotPageContext({');
     expect(source).toContain('selectedApplication: selectedApp');
     expect(source).toContain('coachedOffer');
-    expect(source).toContain('[view, selectedApp, coachedOffer]');
+    expect(source).toContain('[view, selectedApp, coachedOffer, getLocale()]');
   });
 
   it('routes page context through one stable Pilot owner', () => {
@@ -265,7 +265,7 @@ describe('AppShell source contract', () => {
   it('keeps the stable Pilot owner scope and focus target while presentations change', () => {
     expect(source).toContain('data-pilot-surface-host');
     expect(source).toContain(
-      "'[data-pilot-surface-host] [role=\"group\"][aria-label=\"AI 修改提议\"]'",
+      "'[data-pilot-surface-host] [data-pilot-proposal]'",
     );
     expect(source).toContain('offerId={coachOfferId}');
     expect(source).not.toContain("offerId={view === 'pilot' ? undefined : coachOfferId}");
@@ -378,9 +378,9 @@ describe('AppShell source contract', () => {
       source.indexOf('return (', source.indexOf('let topBarPrimaryAction')),
     );
     for (const label of ['添加投递', '开始面试练习', '开始刷题', '上传简历', '添加经历']) {
-      expect(topBarSource).toContain(`label: '${label}'`);
+      expect(topBarSource).toContain(`label: t("${label}")`);
     }
-    expect(topBarSource).toContain("? '添加投递' : '录入 Offer'");
+    expect(topBarSource).toContain('? t("添加投递") : t("录入 Offer")');
     expect(topBarSource).toContain('setResumeUploadRequestToken((token) => token + 1)');
     expect(topBarSource).toContain("['dashboard', 'reminders', 'board', 'applications-list']");
     expect(topBarSource).not.toContain("'calendar', 'board'");

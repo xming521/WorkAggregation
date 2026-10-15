@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DesktopUpdatesCard from './DesktopUpdatesCard';
+import { setLocale } from '@/i18n';
 import type { DesktopUpdatesBridge, UpdateState } from '@/features/desktopUpdates/types';
 
 let container: HTMLDivElement;
@@ -29,11 +30,12 @@ beforeEach(() => {
   window.offerpilotUpdates = bridge;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
   container.remove();
   delete window.offerpilotUpdates;
   vi.clearAllMocks();
+  await setLocale('zh-CN');
 });
 
 async function render() {
@@ -153,4 +155,18 @@ describe('DesktopUpdatesCard', () => {
     expect(bridge.download).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('更新已下载');
   });
+});
+
+it('switches status and native reasons live without translating release-note content or triggering work', async () => {
+  vi.mocked(bridge.getState).mockResolvedValue({ ...initial, status: 'unavailable', reason: '此验证包尚未配置正式签名更新源。', releaseNotes: '检查更新是发布者写的原文' });
+  await render();
+  await act(async () => { await setLocale('en-US'); });
+  expect(container.textContent).toContain('Desktop App Updates');
+  expect(container.textContent).toContain('This validation build has no officially signed update source configured.');
+  expect(container.textContent).toContain('检查更新是发布者写的原文');
+  expect(button('CheckforUpdates').disabled).toBe(true);
+  expect(bridge.check).not.toHaveBeenCalled(); expect(bridge.install).not.toHaveBeenCalled();
+  await act(async () => { await setLocale('zh-CN'); });
+  expect(container.textContent).toContain('桌面客户端更新');
+  expect(container.textContent).toContain('此验证包尚未配置正式签名更新源。');
 });

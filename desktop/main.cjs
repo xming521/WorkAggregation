@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { allowHaruResource, authenticatedHeaders } = require('./haru-protocol.cjs');
 const { createHaruShell } = require('./haru.cjs');
+const { createLocaleStore, registerLocaleIPC, applicationMenu, startupErrorText } = require('./locale.cjs');
 const { createCapabilities } = require('./capabilities.cjs');
 const { RELEASE_POLICY, unavailableReason, productionAdapter, createUpdater, registerUpdaterIPC } = require('./updater.cjs');
 const { createInstallSafety } = require('./update-safety.cjs');
@@ -16,6 +17,9 @@ const { isSameOrigin, waitForReady, checkHealth, stopBackend } = require('./life
 
 app.setName('OfferPilot Desktop');
 app.setPath('userData', path.join(app.getPath('appData'), 'OfferPilot Desktop'));
+const localeStore = createLocaleStore(app.getPath('userData'));
+const t = localeStore.t;
+let disposeLocale = () => {};
 let child;
 let window;
 let haruShell;
@@ -70,7 +74,7 @@ async function start() {
   child.once('exit', (code, signal) => {
     log(`Backend exited: code=${code} signal=${signal}\n`);
     if (!quitting && window) {
-      dialog.showErrorBox('OfferPilot Desktop', 'The local backend stopped. Close and reopen OfferPilot. Your saved data remains in the desktop data folder.');
+      dialog.showErrorBox('OfferPilot Desktop', t('本地服务已停止。请关闭并重新打开 OfferPilot。已保存的数据仍在桌面数据文件夹中。'));
       app.quit();
     }
   });
@@ -93,7 +97,7 @@ async function start() {
   haruSession.on('will-download', event => event.preventDefault());
   haruSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !allowHaruResource(details, ready.origin) }));
   const { installWindowPolicy, contentSecurityPolicy } = createCapabilities({
-    origin: ready.origin, desktopSession, isTrustedContents, dialog, shell, BrowserWindow,
+    origin: ready.origin, desktopSession, isTrustedContents, dialog, shell, BrowserWindow, t,
   });
   const registerWindow = win => {
     const contents = win.webContents;
@@ -131,13 +135,23 @@ async function start() {
   haruShell = createHaruShell({
     BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain,
     mainWindow: window, desktopSession: haruSession, origin: ready.origin, userData, registerWindow,
-    isQuitting: () => quitting || updateLock, quit: () => app.quit(), log,
+    isQuitting: () => quitting || updateLock, quit: () => app.quit(), log, t, subscribeLocale: localeStore.subscribe,
   });
+  disposeLocale = registerLocaleIPC({ ipcMain, owner: window, getHaruContents: haruShell.getHaruContents,
+    origin: ready.origin, store: localeStore, isQuitting: () => quitting || updateLock });
+  const refreshApplicationMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenu({
+    t, showMain: () => { if (!window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } },
+    quit: () => app.quit(), development: !app.isPackaged,
+  })));
+  refreshApplicationMenu();
+  const unsubscribeMenuLocale = localeStore.subscribe(refreshApplicationMenu);
+  const removeLocaleIPC = disposeLocale;
+  disposeLocale = () => { unsubscribeMenuLocale(); removeLocaleIPC(); };
   const lockUpdates = value => {
     updateLock = value;
     for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.setEnabled(!value);
   };
-  const installSafety = createInstallSafety({ ipcMain, window, origin: ready.origin, dialog,
+  const installSafety = createInstallSafety({ ipcMain, window, origin: ready.origin, dialog, t,
     lock: () => lockUpdates(true), unlock: () => lockUpdates(false) });
   let unavailable = unavailableReason({ packaged: app.isPackaged, platform: process.platform, policy: RELEASE_POLICY });
   // The release channel remains disabled until an approved signed distribution
@@ -153,7 +167,7 @@ async function start() {
     recoveringUpdate = true;
     stopped = true;
     lockUpdates(false);
-    try { dialog.showErrorBox('更新未完成', '更新准备或安装启动失败。将尝试重新启动原版本；若未重新打开，请手动启动并核实安装结果。备份与数据目录未被删除。'); } catch { /* A closed OS dialog must not suppress recovery. */ }
+    try { dialog.showErrorBox(t('更新未完成'), t('更新准备或安装启动失败。将尝试重新启动原版本；若未重新打开，请手动启动并核实安装结果。备份与数据目录未被删除。')); } catch { /* A closed OS dialog must not suppress recovery. */ }
     try { app.relaunch(); } catch { log('Could not schedule the original application restart.\n'); }
     app.quit();
   };
@@ -177,7 +191,7 @@ async function start() {
           recoverStoppedVersion();
         } else {
           quitting = false;
-          dialog.showErrorBox('更新未安装', '无法确认本地服务已停止，已阻止备份和安装。请等待当前操作结束，核对保存结果后重新启动应用。');
+          dialog.showErrorBox(t('更新未安装'), t('无法确认本地服务已停止，已阻止备份和安装。请等待当前操作结束，核对保存结果后重新启动应用。'));
         }
         throw error;
       }
@@ -187,7 +201,7 @@ async function start() {
   disposeUpdates = () => { removeUpdateIPC(); installSafety.dispose(); updates.dispose(); };
   window.webContents.on('render-process-gone', () => {
     if (!quitting) {
-      dialog.showErrorBox('OfferPilot Desktop', 'The application window stopped. Reopen OfferPilot to recover your saved work.');
+      dialog.showErrorBox('OfferPilot Desktop', t('应用窗口已停止。请重新打开 OfferPilot，恢复已保存的工作。'));
       app.quit();
     }
   });
@@ -213,12 +227,13 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     quitting = true;
     disposeUpdates();
+    disposeLocale();
     haruShell?.dispose();
     stopBackend(child).finally(() => { stopped = true; app.quit(); });
   });
   app.whenReady().then(start).catch((error) => {
     log(`${error.message}\n`);
-    if (!quitting) dialog.showErrorBox('OfferPilot Desktop could not start', `${error.message}\n\nLog: ${logFile || app.getPath('userData')}\nIf the saved port is occupied, close the conflicting application and retry. Do not delete the data folder.`);
+    if (!quitting) dialog.showErrorBox(t('OfferPilot Desktop 无法启动'), `${startupErrorText(error, t)}\n\n${t('日志：{path}', { path: logFile || app.getPath('userData') })}\n${t('如果保存的端口被占用，请关闭冲突的应用后重试。请勿删除数据文件夹。')}`);
     app.quit();
   });
 }

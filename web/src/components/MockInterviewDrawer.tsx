@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '@/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Button, Drawer, Empty, Input, List, Select, Space, Spin, Tag,
@@ -150,6 +151,7 @@ export default function MockInterviewDrawer({
   open, applicationId, eventId, resumes, draft, onDraftChange, onClose,
   onVoiceActivityChange, voiceBrowser,
 }: Props) {
+  useLocale();
   const [history, setHistory] = useState<MockInterviewHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [working, setWorking] = useState(false);
@@ -539,76 +541,75 @@ export default function MockInterviewDrawer({
   };
 
   return (
-    <Drawer open={open} width={620} title="模拟面试" onClose={requestClose}>
+    <Drawer open={open} width={620} title={t("模拟面试")} onClose={requestClose}>
       <div data-testid="mock-interview-surface" className={workflowStyles.surface}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <span className={workflowStyles.mutedText}>仅用于练习表达。AI 不提供录用判断、通过率或岗位匹配分。</span>
+        <span className={workflowStyles.mutedText}>{t("仅用于练习表达。AI 不提供录用判断、通过率或岗位匹配分。")}</span>
         {closeConfirming ? (
           <Alert
             type="warning"
             showIcon
-            message="当前录音、转写文字或待确认的表达复盘尚未处理，关闭后会丢失。"
+            message={t("当前录音、转写文字或待确认的表达复盘尚未处理，关闭后会丢失。")}
             action={(
               <Space>
-                <Button size="small" onClick={() => setCloseConfirming(false)}>继续编辑</Button>
-                <Button size="small" danger onClick={() => { voiceCleanupRef.current?.(); onClose(); }}>放弃并关闭</Button>
+                <Button size="small" onClick={() => setCloseConfirming(false)}>{t("继续编辑")}</Button>
+                <Button size="small" danger onClick={() => { voiceCleanupRef.current?.(); onClose(); }}>{t("放弃并关闭")}</Button>
               </Space>
             )}
           />
         ) : null}
         {draft.resumeId && draft.jdVersionId ? (
-          <SourceStateTag state="current" detail="当前面试事件与本次输入" />
+          <SourceStateTag state="current" detail={t("当前面试事件与本次输入")} />
         ) : null}
-        {draft.error ? <Alert type="warning" showIcon message={draft.error} /> : null}
+        {draft.error ? <Alert type="warning" showIcon message={t(draft.error)} /> : null}
         {draft.voicePracticeFocus ? (
           <Alert
             type="info"
             showIcon
-            message={`本次刻意练习：${draft.voicePracticeFocus.title}`}
-            description={`来自已确认表达记录 #${draft.voicePracticeFocus.source_snapshot_id}：${draft.voicePracticeFocus.question_text}`}
+            message={t("本次刻意练习：{focus}", { focus: draft.voicePracticeFocus.title })}
+            description={t("来自已确认表达记录 #{snapshotId}：{question}", { snapshotId: draft.voicePracticeFocus.source_snapshot_id, question: draft.voicePracticeFocus.question_text })}
           />
         ) : null}
         {pending ? (
           <Alert
             type="info"
-            message="结果待确认，请使用原尝试重试；输入已冻结。"
+            message={t("结果待确认，请使用原尝试重试；输入已冻结。")}
             action={(
               <Button
                 size="small"
                 onClick={() => void retryPendingOperation()}
                 disabled={working}
               >
-                使用原尝试重试
-              </Button>
+                {t("使用原尝试重试")}</Button>
             )}
           />
         ) : null}
         {!draft.attemptId && !draft.proposal && !draft.resultUnknown ? (
           <section className={workflowStyles.section}>
             <Select
-              aria-label="选择简历"
-              placeholder="请选择本次使用的简历"
+              aria-label={t("选择简历")}
+              placeholder={t("请选择本次使用的简历")}
               style={{ width: '100%' }}
               value={draft.resumeId}
               onChange={(value) => onDraftChange({ resumeId: value })}
-              options={resumes.map((resume) => ({ value: resume.id, label: resume.name ?? resume.title ?? `简历 ${resume.id}` }))}
+              options={resumes.map((resume) => ({ value: resume.id, label: resume.name ?? resume.title ?? t("简历 {resumeId}", { resumeId: resume.id }) }))}
             />
             <Input.TextArea
-              aria-label="岗位 JD"
-              placeholder="当前投递尚未确认岗位资料"
+              aria-label={t("岗位 JD")}
+              placeholder={t("当前投递尚未确认岗位资料")}
               value={draft.jdText}
               readOnly
               aria-readonly="true"
               autoSize={{ minRows: 5, maxRows: 12 }}
             />
             <span className={workflowStyles.mutedText}>
-              {draft.jdVersionId ? '使用投递当前已确认的岗位资料；如需修改，请先返回 JD 版本入口。' : '请先在投递详情确认岗位资料版本。'}
+              {draft.jdVersionId ? t("使用投递当前已确认的岗位资料；如需修改，请先返回 JD 版本入口。") : t("请先在投递详情确认岗位资料版本。")}
             </span>
             {preparations.length > 0 ? (
               <Select
                 allowClear
-                aria-label="选择面试准备建议"
-                placeholder="可选：选择已确认的面试准备建议"
+                aria-label={t("选择面试准备建议")}
+                placeholder={t("可选：选择已确认的面试准备建议")}
                 value={draft.preparationProposalId}
                 onChange={(value) => onDraftChange({ preparationProposalId: value, preparationItemIds: [] })}
                 dropdownRender={(menu) => (
@@ -628,25 +629,24 @@ export default function MockInterviewDrawer({
                     />
                   </>
                 )}
-                options={preparations.map((item) => ({ value: item.id, label: `准备建议 · ${new Date(item.created_at).toLocaleString()}` }))}
+                options={preparations.map((item) => ({ value: item.id, label: t("准备建议 · {date}", { date: new Date(item.created_at).toLocaleString(getLocale()) }) }))}
               />
             ) : null}
-            <span className={workflowStyles.mutedText}>本次输入将发送给当前配置的 AI 服务。请勿粘贴无关敏感信息。</span>
+            <span className={workflowStyles.mutedText}>{t("本次输入将发送给当前配置的 AI 服务。请勿粘贴无关敏感信息。")}</span>
             <div data-testid="mock-interview-action-group" className={workflowStyles.actionGroup}>
               <Button type="primary" onClick={() => void start()} disabled={!draft.resumeId || !draft.jdVersionId || working}>
-                开始模拟面试
-              </Button>
+                {t("开始模拟面试")}</Button>
             </div>
           </section>
         ) : null}
-        {working && !draft.proposal ? <Spin tip="正在处理，请稍候" /> : null}
+        {working && !draft.proposal ? <Spin tip={t("正在处理，请稍候")} /> : null}
         {draft.attemptId && !draft.proposal ? (
           <section className={workflowStyles.section}>
-            <div className={workflowStyles.sectionHeader}><h3>第 {draft.turnNo} 题</h3></div>
-            <p className="op-long-text">{draft.question || '请介绍一次与本次岗位相关的经历。'}</p>
+            <div className={workflowStyles.sectionHeader}><h3>{t("第 {round} 题", { round: draft.turnNo })}</h3></div>
+            <p className="op-long-text">{draft.question || t("请介绍一次与本次岗位相关的经历。")}</p>
             <VoiceAnswerComposer
               key={`${applicationId}:${eventId}:${draft.attemptId}:${draft.turnNo}`}
-              question={draft.question || '请介绍一次与本次岗位相关的经历。'}
+              question={draft.question || t("请介绍一次与本次岗位相关的经历。")}
               disabled={pending || working}
               textValue={draft.answer}
               onTextChange={(answer) => onDraftChange({ answer })}
@@ -681,8 +681,8 @@ export default function MockInterviewDrawer({
               cleanupRef={voiceCleanupRef}
             />
             <div className={workflowStyles.actionGroup}>
-              <Button onClick={() => void answer()} disabled={!draft.answer.trim() || pending || working}>提交回答</Button>
-              <Button type="primary" onClick={() => void finish()} disabled={!draft.answer.trim() || !draft.answerSubmitted || voiceReviewNeedsDecision || pending || working}>结束并生成复盘建议</Button>
+              <Button onClick={() => void answer()} disabled={!draft.answer.trim() || pending || working}>{t("提交回答")}</Button>
+              <Button type="primary" onClick={() => void finish()} disabled={!draft.answer.trim() || !draft.answerSubmitted || voiceReviewNeedsDecision || pending || working}>{t("结束并生成复盘建议")}</Button>
             </div>
           </section>
         ) : null}
@@ -695,15 +695,15 @@ export default function MockInterviewDrawer({
           />
         ) : null}
         {draft.attemptId && !draft.proposal && draft.answerSubmitted ? (
-          <Button onClick={() => void nextQuestion()} disabled={voiceReviewNeedsDecision || pending || working}>生成下一题</Button>
+          <Button onClick={() => void nextQuestion()} disabled={voiceReviewNeedsDecision || pending || working}>{t("生成下一题")}</Button>
         ) : null}
         {draft.proposal ? (
           <section className={workflowStyles.section}>
             <Tag color={draft.proposal.proposal_status === 'safe_empty' ? 'default' : 'blue'}>
-              {draft.proposal.proposal_status === 'safe_empty' ? '暂无可验证建议' : 'AI 建议（待人工确认）'}
+              {draft.proposal.proposal_status === 'safe_empty' ? t("暂无可验证建议") : t("AI 建议（待人工确认）")}
             </Tag>
             {draft.proposal.proposal_status === 'safe_empty' ? (
-              <Empty description="目前没有可验证、可给出的复盘建议" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <Empty description={t("目前没有可验证、可给出的复盘建议")} image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : blocks(draft.proposal).map((item) => (
               <label key={item.id} className={workflowStyles.evidenceBlock} style={{ display: 'block', marginBottom: 12 }}>
                 <input
@@ -726,23 +726,23 @@ export default function MockInterviewDrawer({
               </label>
             ))}
             {draft.proposal.proposal_status === 'normal' && selectedBlocks.length > 0 && !confirming ? (
-              <Button onClick={() => setConfirming(true)} disabled={pending || working}>准备保存复盘草稿</Button>
+              <Button onClick={() => setConfirming(true)} disabled={pending || working}>{t("准备保存复盘草稿")}</Button>
             ) : null}
             {confirming ? (
               <ConfirmationPanel
-                title="确认保存模拟练习复盘草稿"
-                description="确认后仅保存独立草稿，不会覆盖正式复盘或写入知识库。"
-                sources={[{ state: 'frozen', detail: '本次模拟面试回答' }]}
+                title={t("确认保存模拟练习复盘草稿")}
+                description={t("确认后仅保存独立草稿，不会覆盖正式复盘或写入知识库。")}
+                sources={[{ state: 'frozen', detail: t("本次模拟面试回答") }]}
               >
-                <Button type="primary" onClick={() => void confirmDraft()} disabled={pending || working}>确认保存</Button>
+                <Button type="primary" onClick={() => void confirmDraft()} disabled={pending || working}>{t("确认保存")}</Button>
               </ConfirmationPanel>
             ) : null}
           </section>
         ) : null}
-        <section aria-label="历史模拟面试" className={workflowStyles.section}>
-          <div className={workflowStyles.sectionHeader}><h3>历史记录（只读）</h3></div>
+        <section aria-label={t("历史模拟面试")} className={workflowStyles.section}>
+          <div className={workflowStyles.sectionHeader}><h3>{t("历史记录（只读）")}</h3></div>
           {loadingHistory ? <Spin size="small" /> : null}
-          {!loadingHistory && history.length === 0 ? <span style={{ color: 'var(--op-muted)' }}>暂无历史记录</span> : null}
+          {!loadingHistory && history.length === 0 ? <span style={{ color: 'var(--op-muted)' }}>{t("暂无历史记录")}</span> : null}
           <List
             size="small"
             dataSource={history}
@@ -750,14 +750,14 @@ export default function MockInterviewDrawer({
               <List.Item className={workflowStyles.listRow}>
                 <Space direction="vertical" style={{ width: '100%' }} className="op-long-text">
                   <Space>
-                    <span>{new Date(item.created_at).toLocaleString()}</span>
-                    <Tag>{item.proposal_status === 'safe_empty' ? '暂无可验证建议' : '复盘建议（只读）'}</Tag>
-                    {item.source_status === 'source_changed' ? <Tag color="warning">来源已变化</Tag> : null}
+                    <span>{new Date(item.created_at).toLocaleString(getLocale())}</span>
+                    <Tag>{item.proposal_status === 'safe_empty' ? t("暂无可验证建议") : t("复盘建议（只读）")}</Tag>
+                    {item.source_status === 'source_changed' ? <Tag color="warning">{t("来源已变化")}</Tag> : null}
                   </Space>
                   {(item.turns ?? []).map((turn) => (
                     <div key={turn.turn_no}>
-                      <div>第 {turn.turn_no} 题：{turn.question}</div>
-                      <div className={workflowStyles.mutedText}>回答：{turn.answer || '（未提交）'}</div>
+                      <div>{t("第 {round} 题：", { round: turn.turn_no })}{turn.question}</div>
+                      <div className={workflowStyles.mutedText}>{t("回答：")}{turn.answer || t("（未提交）")}</div>
                     </div>
                   ))}
                   {blocks(item.proposal).map((block) => (
@@ -770,7 +770,7 @@ export default function MockInterviewDrawer({
                   ))}
                   {item.review_draft ? (
                     <div>
-                      <Tag color="green">已确认复盘草稿</Tag>
+                      <Tag color="green">{t("已确认复盘草稿")}</Tag>
                       {Array.isArray(item.review_draft.selected_blocks)
                         ? item.review_draft.selected_blocks.map((selected, index) => (
                           <div key={index}>{typeof selected === 'object' && selected !== null && 'text' in selected ? String(selected.text) : ''}</div>

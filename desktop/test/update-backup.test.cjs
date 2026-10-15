@@ -5,10 +5,12 @@ test('offline local backup preserves source and config without browser snapshot 
   const base = await fs.mkdtemp(path.join(os.tmpdir(),'update-backup-')); t.after(()=>fs.rm(base,{recursive:true,force:true}));
   const userData = path.join(base,'OfferPilot Desktop'); await fs.mkdir(path.join(userData,'data'),{recursive:true});
   await fs.writeFile(path.join(userData,'data','config.json'),'fixture only'); await fs.writeFile(path.join(userData,'data','data.db'),'fixture sqlite');
+  await fs.writeFile(path.join(userData,'desktop-locale.json'),'{"locale":"en-US"}');
   await fs.writeFile(path.join(userData,'desktop-port.json'),'{"port":2345}');
   await assert.rejects(backupForUpdate({userData,version:'1',backendExited:false}));
   const backup = await backupForUpdate({userData,version:'1',backendExited:true});
   assert.equal(await fs.readFile(path.join(backup,'data','config.json'),'utf8'),'fixture only');
+  assert.equal(JSON.parse(await fs.readFile(path.join(backup,'desktop-locale.json'))).locale,'en-US');
   assert.equal(await fs.readFile(path.join(userData,'data','config.json'),'utf8'),'fixture only');
   assert.equal(JSON.parse(await fs.readFile(path.join(backup,'complete.json'))).browserStorage,'retained-in-place-not-snapshotted');
   if(process.platform!=='win32') assert.equal((await fs.stat(path.join(backup,'data','config.json'))).mode&0o077,0);

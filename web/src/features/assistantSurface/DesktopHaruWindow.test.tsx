@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
 import DesktopHaruWindow from './DesktopHaruWindow';
-import type { DesktopHaruState } from './desktopHaru';
+import { initializeLocale, type Locale } from '@/i18n';
+import { DESKTOP_HARU_SEND_FAILURE, type DesktopHaruState } from './desktopHaru';
 import { live2dPilotMascotRuntime } from '@/features/pilotMascot/live2dRuntime';
 import { ContextSystem } from '@pixi/core';
 vi.mock('@/features/pilotMascot/live2dRuntime', () => ({ live2dPilotMascotRuntime: { mount: vi.fn() } }));
@@ -11,14 +12,27 @@ vi.mock('@/features/pilotMascot/live2dRuntime', () => ({ live2dPilotMascotRuntim
 let root: Root; let host: HTMLDivElement; let update: (value: DesktopHaruState) => void;
 const request = vi.fn(); const windowAction = vi.fn().mockResolvedValue(true); const dragWindow = vi.fn().mockResolvedValue(true); const dispose = vi.fn();
 let state: DesktopHaruState;
-beforeEach(() => {
+// initializeLocale owns one subscription for a renderer lifetime. Keep the mock
+// event source stable across fixtures, just like the native preload bridge.
+const localeListeners = new Set<(value: unknown) => void>();
+let nativeLocale: Locale = 'zh-CN';
+function localeChanged(value: Locale) { nativeLocale = value; localeListeners.forEach(listener => listener(value)); }
+const localeBridge = {
+  getLocale: vi.fn(async () => nativeLocale),
+  onLocale: vi.fn((listener: (value: unknown) => void) => { localeListeners.add(listener); return () => { localeListeners.delete(listener); }; }),
+};
+beforeEach(async () => {
   vi.clearAllMocks();
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   state = { connected: true, generation: 3, visible: true, expanded: true, alwaysOnTop: false, snapshot: { version: 2, conversationId: 7, taskState: 'idle', messages: [{ role: 'assistant', content: 'Current answer' }], contextLabel: '工作台', loading: false, hasPending: false, canSend: true, canStop: false, stopping: false, error: '', stopMessage: '' } };
   window.offerpilotDesktop = { role: 'haru', request, windowAction, dragWindow, getState: vi.fn().mockImplementation(async () => state), onState: handler => { update = handler; return vi.fn(); } };
+  window.offerpilotLocale = localeBridge;
+  await initializeLocale();
+  localeChanged('zh-CN');
   vi.mocked(live2dPilotMascotRuntime.mount).mockResolvedValue({ dispose, setActivity: vi.fn(), setZoom: vi.fn() });
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); delete window.offerpilotDesktop; });
+afterEach(() => { act(() => root.unmount()); host.remove(); localeChanged('zh-CN'); delete window.offerpilotDesktop; delete window.offerpilotLocale; });
+afterAll(() => localeListeners.clear());
 async function mount() { await act(async () => root.render(<DesktopHaruWindow />)); }
 const button = (label: string) => [...host.querySelectorAll('button')].find(item => item.textContent === label)!;
 function type(text: string) {
@@ -368,4 +382,38 @@ it('retains explicit animation off during owner loss and only resumes on a later
   await act(async () => update({ ...state, snapshot: { ...state.snapshot!, animationLevel: 'full' } }));
   expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'full');
   expect(dispose).toHaveBeenCalledTimes(1);
+});
+
+it('switches authored Haru text while preserving user drafts, messages, context labels and request state', async () => {
+  state = { ...state, snapshot: { ...state.snapshot!, contextLabel: '我的测试公司', messages: [{ role: 'assistant', content: '随时待命' }, { role: 'user', content: '发送' }] } };
+  request.mockResolvedValue({ ok: false, reason: 'stale' });
+  await mount(); type('给用户保留的草稿');
+  await act(async () => button('发送').click());
+  await act(async () => localeChanged('en-US'));
+  expect(host.querySelector('main')!.getAttribute('aria-label')).toBe('Haru Desktop Companion');
+  expect(host.textContent).toContain('Ready when you are');
+  expect(host.textContent).toContain('The conversation has changed.');
+  expect(host.textContent).toContain('我的测试公司');
+  expect(host.querySelector('[data-role="assistant"] p')!.textContent).toBe('随时待命');
+  expect(host.querySelector('[data-role="user"] p')!.textContent).toBe('发送');
+  expect(host.querySelector('textarea')!.value).toBe('给用户保留的草稿');
+  expect(button('Send')).toBeDefined(); expect(request).toHaveBeenCalledTimes(1);
+  await act(async () => localeChanged('zh-CN'));
+  expect(host.textContent).toContain('对话状态已变化');
+  expect(host.querySelector('textarea')!.value).toBe('给用户保留的草稿');
+});
+
+it('re-renders an authored send failure on native locale events without translating provider errors', async () => {
+  localeChanged('en-US');
+  expect(window.offerpilotLocale).not.toHaveProperty('setLocale');
+  state = { ...state, snapshot: { ...state.snapshot!, error: DESKTOP_HARU_SEND_FAILURE, errorKey: 'desktop_send_failed' } };
+  await mount();
+  expect(host.textContent).toContain('Sending failed. Check the conversation in Pilot before trying again.');
+  await act(async () => localeChanged('zh-CN'));
+  expect(host.textContent).toContain(DESKTOP_HARU_SEND_FAILURE);
+  await act(async () => localeChanged('en-US'));
+  expect(host.textContent).toContain('Sending failed. Check the conversation in Pilot before trying again.');
+  await act(async () => update({ ...state, snapshot: { ...state.snapshot!, errorKey: undefined, error: '检查更新' } }));
+  expect(host.querySelector('[role="alert"]')!.textContent).toBe('检查更新');
+  expect(request).not.toHaveBeenCalled();
 });

@@ -1,3 +1,6 @@
+import { liveText } from '@/i18n/liveText';
+import { t, useLocale } from '@/i18n';
+import { displayPilotUiMessage } from './model';
 import ConversationSummaryControl from '../ConversationSummaryControl';
 import ConversationReadinessControl from '../ConversationReadinessControl';
 import { useEffect, useReducer, useRef, useState, createElement } from 'react';
@@ -167,10 +170,9 @@ export function draftContextMatchesOfferScope(
 }
 
 export function VoiceCoachingPilotEntry({ onOpen }: { onOpen: () => void }) {
+  useLocale();
   return (
-    <Button type="text" icon={<RobotOutlined />} onClick={onOpen} data-testid="pilot-open-voice-coaching-growth">
-      查看表达成长
-    </Button>
+    <Button type="text" icon={<RobotOutlined />} onClick={onOpen} data-testid="pilot-open-voice-coaching-growth">{t("查看表达成长")}</Button>
   );
 }
 
@@ -244,6 +246,7 @@ function streamLoadingLabel(event: ChatStreamEvent): string | undefined {
 }
 
 export default function ChatPanel(props: Props) {
+  useLocale();
   const hasProvider = useHasAssistantSurfaceProvider();
   if (!hasProvider) {
     return (
@@ -283,6 +286,7 @@ function ChatPanelView({
   conversationRequest,
   onConversationRequestConsumed,
 }: Props) {
+  useLocale();
   const queryClient = useQueryClient();
   const { message: toast } = AntApp.useApp();
   const {
@@ -432,7 +436,7 @@ function ChatPanelView({
   const conversationSurfaceActive = open || controllerActive;
   openRef.current = conversationSurfaceActive;
   showArchivedRef.current = showArchived;
-  bindStopFeedback(() => toast.info('已停止当前回复'));
+  bindStopFeedback(() => toast.info(liveText(() => t("已停止当前回复"))));
   const docked = variant === 'rail';
   const inlinePage = variant === 'page';
 
@@ -666,7 +670,7 @@ function ChatPanelView({
 
   function canStartNewChat() {
     if (activeRequestRef.current?.kind === 'confirmation') {
-      toast.info('操作确认仍在处理中，请稍候');
+      toast.info(liveText(() => t("操作确认仍在处理中，请稍候")));
       return false;
     }
     return true;
@@ -790,7 +794,7 @@ function ChatPanelView({
     } catch (e: any) {
       if (refresh) throw e;
       if (requestId === conversationSelectionRequestRef.current) {
-        toast.error(e?.response?.data?.error ?? '加载对话失败');
+        toast.error(e?.response?.data?.error ?? t("加载对话失败"));
       }
     } finally {
       finishConversationSelection(requestId);
@@ -814,7 +818,7 @@ function ChatPanelView({
       if (id === convID) startNewChat();
       refreshConversations();
     } catch (e: any) {
-      toast.error(e?.response?.data?.error ?? '删除失败');
+      toast.error(e?.response?.data?.error ?? t("删除失败"));
     }
   }
 
@@ -829,7 +833,7 @@ function ChatPanelView({
       }
       refreshConversations();
     } catch (e: any) {
-      toast.error(e?.response?.data?.error ?? '更新对话失败');
+      toast.error(e?.response?.data?.error ?? t("更新对话失败"));
     }
   }
 
@@ -1122,7 +1126,7 @@ function ChatPanelView({
         const applied = await finishMessage(resp, visibleRequestGeneration);
         if (applied && autoApprove) onDataChanged?.();
         if (applied && resp.degraded) {
-          toast.info('当前模型不支持工具调用，已切换为只读摘要模式');
+          toast.info(liveText(() => t("当前模型不支持工具调用，已切换为只读摘要模式")));
         }
       }
        if (isNew) {
@@ -1155,14 +1159,14 @@ function ChatPanelView({
         setLastFailedText('');
         return 'ignored';
       }
-      const error = e?.response?.data?.error ?? e?.message ?? '对话失败，请稍后重试';
+      const error = e?.response?.data?.error ?? e?.message ?? "对话失败，请稍后重试";
       if (streamingAssistantActiveRef.current) {
         streamingAssistantActiveRef.current = false;
         await syncConversationAfterAbort(streamConversationId, visibleRequestGeneration);
         if (!isCurrentVisibleRequest(visibleRequestGeneration)) return 'ignored';
         setLastError(error);
         setLastFailedText(trimmed);
-        toast.error(error);
+        toast.error(displayPilotUiMessage(error));
         if (streamConversationId !== undefined) {
           onReplyLifecycle?.({
             status: 'error',
@@ -1178,7 +1182,7 @@ function ChatPanelView({
       });
       setLastError(error);
       setLastFailedText(trimmed);
-      toast.error(error);
+      toast.error(displayPilotUiMessage(error));
       if (streamConversationId !== undefined) {
         onReplyLifecycle?.({
           status: 'error',
@@ -1214,7 +1218,7 @@ function ChatPanelView({
 
   function activePendingLabel(action: PendingAction | null): string {
     if (!action) return '本次写入';
-    return action.workflow?.current_label || toolMeta(action.tool_name).label;
+    return action.workflow?.current_label || toolMeta(action.tool_name).sourceLabel || toolMeta(action.tool_name).label;
   }
 
   async function handleConfirm(input: ConfirmationInput) {
@@ -1282,15 +1286,15 @@ function ChatPanelView({
           setConfirmPhase('success');
           if (approved && applied) onDataChanged?.();
         } else if (resp.write_status === 'failed') {
-          const error = resp.write_error || '写入失败，请检查记录后重试。';
+          const error = resp.write_error || "写入失败，请检查记录后重试。";
           setConfirmError(error);
           setConfirmPhase('error');
-          toast.error(error);
+          toast.error(displayPilotUiMessage(error));
         } else {
           const error = '写入结果未知，请检查记录后再继续。';
           setConfirmError(error);
           setConfirmPhase('error');
-          toast.error(error);
+          toast.error(displayPilotUiMessage(error));
         }
       }
     } catch (e: any) {
@@ -1303,7 +1307,7 @@ function ChatPanelView({
         await syncConversationAfterAbort(convID, visibleRequestGeneration);
         return;
       }
-      const error = e?.response?.data?.error ?? e?.message ?? '确认失败';
+      const error = e?.response?.data?.error ?? e?.message ?? "确认失败";
       if (confirmationErrorAllowsImmediateRetry(e?.code)) {
         clearOwnedConfirmationLock(confirmationLocksRef.current, convID, confirmationExecution);
         if (lockedConfirmationRef.current === confirmationExecution) {
@@ -1312,7 +1316,7 @@ function ChatPanelView({
         restoreConfirmationRetryFocusRef.current = true;
         setConfirmError(error);
         setConfirmPhase('error');
-        toast.error(error);
+        toast.error(displayPilotUiMessage(error));
         return;
       }
       if (confirmationErrorRequiresSync(e?.code)) {
@@ -1352,7 +1356,7 @@ function ChatPanelView({
         } else {
           setConfirmPhase('idle');
         }
-        toast.error(error);
+        toast.error(displayPilotUiMessage(error));
         return;
       }
       if (streamingAssistantActiveRef.current) {
@@ -1371,7 +1375,7 @@ function ChatPanelView({
         input.confirmation_token,
         confirmationExecution,
       );
-      toast.error(error);
+      toast.error(displayPilotUiMessage(error));
     } finally {
       finishActiveRequest(requestLease);
       if (isCurrentVisibleRequest(visibleRequestGeneration)) {
@@ -1412,18 +1416,18 @@ function ChatPanelView({
       if (applied) {
         setLastUndo(null);
         setConfirmPhase('success');
-        toast.success('已撤销最近一次 AI 写入');
+        toast.success(liveText(() => t("已撤销最近一次 AI 写入")));
       }
       if (applied) onDataChanged?.();
     } catch (e: any) {
       if (!isCurrentVisibleRequest(visibleRequestGeneration)) return;
       if (isAbortError(e)) return;
       const error = e?.response?.data?.error_code === 'undo_conflict'
-        ? '当前记录已被修改，无法安全撤销。现有内容已保留。'
-        : '撤销未完成，请刷新对话核对结果后再操作。';
+        ? "当前记录已被修改，无法安全撤销。现有内容已保留。"
+        : "撤销未完成，请刷新对话核对结果后再操作。";
       setConfirmError(error);
       setConfirmPhase('error');
-      toast.error(error);
+      toast.error(displayPilotUiMessage(error));
     } finally {
       finishActiveRequest(requestLease);
       if (isCurrentVisibleRequest(visibleRequestGeneration)) {
@@ -1440,7 +1444,7 @@ function ChatPanelView({
       setHasKey(settings.has_api_key);
     } catch {
       setAutoApprove(!value);
-      toast.error('设置保存失败');
+      toast.error(liveText(() => t("设置保存失败")));
     }
   }
 
@@ -1474,11 +1478,11 @@ function ChatPanelView({
 
   const composerDisabled = loading || controller.executionControl.execution?.state === 'running' || !!activePending || !hasKey;
   const composerDisabledReason = !hasKey
-    ? '先配置 API key 后即可对话'
+    ? t("先配置 API key 后即可对话")
     : activePending
       ? pendingComposerDisabledReason(activePending)
       : loading
-        ? 'AI 正在处理，可点击停止当前回复'
+        ? t("AI 正在处理，可点击停止当前回复")
         : undefined;
   const showEmpty = turns.length === 0 && !activePending && !loading;
   const threadEvidence = collectEvidence(turns);
@@ -1491,11 +1495,11 @@ function ChatPanelView({
       : activeConv?.context_label
         ? activeConv.context_label
         : activeConv?.context_type === 'application' && activeConv.context_ref
-        ? `投递 #${activeConv.context_ref}`
+        ? t("投递 #{context_ref}", { context_ref: activeConv.context_ref })
       : isNego
-        ? '谈薪上下文'
+        ? t("谈薪上下文")
         : convID
-          ? '工作台'
+          ? t("工作台")
           : null;
   const canClearContext = draftContext !== null || (!!convID && !!activeConv && activeConv.context_type !== 'workspace');
 
@@ -1519,7 +1523,7 @@ function ChatPanelView({
           className={styles.resizeHandle}
           role="separator"
           aria-orientation="vertical"
-          aria-label="调整 Pilot 宽度"
+          aria-label={t("调整 Pilot 宽度")}
           onPointerDown={startResize}
         />
       )}
@@ -1530,9 +1534,7 @@ function ChatPanelView({
         data-onboarding-target="pilot"
       >
         {onboardingFocusActive ? (
-          <div className={styles.srOnly} role="status" aria-live="polite">
-            Pilot 输入框已就绪
-          </div>
+          <div className={styles.srOnly} role="status" aria-live="polite">{t("Pilot 输入框已就绪")}</div>
         ) : null}
         <header className={styles.header}>
           {inlinePage && onExitPage ? (
@@ -1540,28 +1542,28 @@ function ChatPanelView({
               type="button"
               className={styles.pageExit}
               data-testid="pilot-exit-immersive"
-              aria-label="退出沉浸模式，返回原页面"
-              title="退出沉浸模式，返回原页面"
+              aria-label={t("退出沉浸模式，返回原页面")}
+              title={t("退出沉浸模式，返回原页面")}
               onClick={onExitPage}
             >
               <ArrowLeftOutlined aria-hidden="true" />
-              <span>返回原页面</span>
+              <span>{t("返回原页面")}</span>
             </button>
           ) : null}
           <div className={styles.avatar} aria-hidden="true">
             <RobotOutlined />
           </div>
           <div style={{ minWidth: 0 }}>
-            <div className={`${styles.headTitle} op-gradient-text`}>OfferPilot 领航员</div>
-            <div className={styles.headSub}>基于投递、日程、复盘与 Offer 实时作答</div>
+            <div className={`${styles.headTitle} op-gradient-text`}>{t("OfferPilot 领航员")}</div>
+            <div className={styles.headSub}>{t("基于投递、日程、复盘与 Offer 实时作答")}</div>
           </div>
-          <span className={styles.modeBadge}>{isNego ? '谈薪教练' : '通用助手'}</span>
+          <span className={styles.modeBadge}>{isNego ? t("谈薪教练") : t("通用助手")}</span>
           {docked && (
             <button
               type="button"
               className={styles.dockedNewChat}
-              aria-label="新建对话"
-              title="新建对话"
+              aria-label={t("新建对话")}
+              title={t("新建对话")}
               onClick={startNewChat}
               style={{ ...iconBtnStyle, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
@@ -1572,8 +1574,8 @@ function ChatPanelView({
             <button
               type="button"
               className={styles.dockedExpand}
-              aria-label="打开 Pilot tab"
-              title="打开 Pilot tab"
+              aria-label={t("打开 Pilot tab")}
+              title={t("打开 Pilot tab")}
               onClick={onExpand}
               style={{ ...iconBtnStyle, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
@@ -1583,7 +1585,7 @@ function ChatPanelView({
           <button
             type="button"
             className={styles.panelToggle}
-            aria-label="上下文面板"
+            aria-label={t("上下文面板")}
             onClick={() => setPanelOpen((v) => !v)}
             style={iconBtnStyle}
           >
@@ -1592,7 +1594,7 @@ function ChatPanelView({
           {((!docked && !inlinePage) || offerId !== undefined) && (
             <button
               type="button"
-              aria-label={docked ? '退出 Offer 上下文' : '关闭'}
+              aria-label={docked ? t("退出 Offer 上下文") : t("关闭")}
               onClick={onClose}
               style={{ ...iconBtnStyle, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
@@ -1624,12 +1626,12 @@ function ChatPanelView({
               {showEmpty ? (
                 <div className={styles.empty}>
                   <div className={styles.emptyTitle}>
-                    {isNego ? '开始谈薪辅导' : '你好，我是 OfferPilot 领航员'}
+                    {isNego ? t("开始谈薪辅导") : t("你好，我是 OfferPilot 领航员")}
                   </div>
                   <div className={styles.emptyHint}>
                     {isNego
-                      ? '我会结合这份 Offer 与你的复盘，帮你评估、准备话术、模拟谈判。'
-                      : '我能查询投递、日程、复盘与知识库，并在写入前向你确认。'}
+                      ? t("我会结合这份 Offer 与你的复盘，帮你评估、准备话术、模拟谈判。")
+                      : t("我能查询投递、日程、复盘与知识库，并在写入前向你确认。")}
                   </div>
                   <div className={styles.emptyPrompts}>
                     {capabilities.map((cap) => (
@@ -1667,7 +1669,7 @@ function ChatPanelView({
               <PendingStartRecovery busy={loading} conversationId={convID} onOpen={controller.selectConversation} />
 
               {activeRequestChips.length > 0 ? (
-                <div className={styles.requestContextRow} aria-label="本次请求上下文">
+                <div className={styles.requestContextRow} aria-label={t("本次请求上下文")}>
                   {activeRequestChips.map((chip) => (
                     <div key={chip.key} className={styles.requestContextChip}>
                       <span className={styles.requestContextChipText}>
@@ -1677,8 +1679,8 @@ function ChatPanelView({
                       <button
                         type="button"
                         className={styles.requestContextClear}
-                        aria-label={`移除${chip.label}`}
-                        title={`移除${chip.label}`}
+                        aria-label={t("移除{label}", { label: chip.label })}
+                        title={t("移除{label}", { label: chip.label })}
                         onClick={() => removeRequestContextChip(chip.key)}
                         disabled={loading}
                       >
@@ -1691,14 +1693,14 @@ function ChatPanelView({
 
               {contextLabel ? (
                 <div className={styles.contextBadge}>
-                  <span>当前上下文</span>
+                  <span>{t("当前上下文")}</span>
                   <b>{contextLabel}</b>
                   {canClearContext ? (
                     <button
                       type="button"
                       className={styles.contextClear}
-                      aria-label="移除当前上下文"
-                      title="移除当前上下文"
+                      aria-label={t("移除当前上下文")}
+                      title={t("移除当前上下文")}
                       onClick={clearActiveContext}
                       disabled={loading}
                     >
@@ -1718,19 +1720,19 @@ function ChatPanelView({
               <div className={styles.pendingDock}>
                 {currentPendingActions?.length === 0 ? (
                   <div className={styles.confirmRecovery} role="status">
-                    <span>操作状态需要重新核对，请刷新后再确认。</span>
-                    <button type="button" disabled={loading || controller.presentationRefreshing} onClick={controller.refreshPresentation}>刷新状态</button>
+                    <span>{t("操作状态需要重新核对，请刷新后再确认。")}</span>
+                    <button type="button" disabled={loading || controller.presentationRefreshing} onClick={controller.refreshPresentation}>{t("刷新状态")}</button>
                   </div>
                 ) : null}
                 {loading && !hasStreamingAssistantContent ? <ThinkingIndicator label={loadingLabel} /> : null}
                 {confirmError ? (
                   <div className={styles.confirmRecovery} role="alert">
                     <span>
-                      {confirmError}
+                      {displayPilotUiMessage(confirmError)}
                       <small>
                         {lastConfirmationInputRef.current?.approved === false
-                          ? '重试会继续提交拒绝；也可以在下方审核卡片修改反馈。'
-                          : '重试会保留本次编辑；如需放弃，请使用下方审核卡片。'}
+                          ? t("重试会继续提交拒绝；也可以在下方审核卡片修改反馈。")
+                          : t("重试会保留本次编辑；如需放弃，请使用下方审核卡片。")}
                       </small>
                     </span>
                     <button
@@ -1740,19 +1742,17 @@ function ChatPanelView({
                       disabled={loading}
                     >
                       {loading
-                        ? '处理中…'
+                        ? t("处理中…")
                         : lastConfirmationInputRef.current?.approved === false
-                          ? '重试拒绝'
-                          : '重试执行'}
+                          ? t("重试拒绝")
+                          : t("重试执行")}
                     </button>
                   </div>
                 ) : null}
                 {confirmPhase === 'saving' && !loading ? (
                   <div className={styles.confirmRecovery} role="status">
-                    <span>确认操作仍在处理中，请刷新状态后再继续。</span>
-                    <button type="button" onClick={refreshConfirmationStatus}>
-                      刷新状态
-                    </button>
+                    <span>{t("确认操作仍在处理中，请刷新状态后再继续。")}</span>
+                    <button type="button" onClick={refreshConfirmationStatus}>{t("刷新状态")}</button>
                   </div>
                 ) : null}
                 <ProposalCard
@@ -1773,11 +1773,11 @@ function ChatPanelView({
                 <Button
                   danger
                   icon={<StopOutlined />}
-                  aria-label="停止当前回复"
+                  aria-label={t("停止当前回复")}
                   disabled={!controller.executionControl.canStop || controller.executionControl.stopping}
                   onClick={() => stopActiveRequest()}
                 >
-                  {controller.executionControl.stopping ? '正在停止…' : controller.executionControl.retryingStop ? '重试停止' : '停止当前回复'}
+                  {controller.executionControl.stopping ? t("正在停止…") : controller.executionControl.retryingStop ? t("重试停止") : t("停止当前回复")}
                 </Button>
               </div>
             )}
@@ -1785,51 +1785,41 @@ function ChatPanelView({
             {controller.executionControl.stopMessage && <p role="status">{controller.executionControl.stopMessage}</p>}
             {controller.executionControl.execution?.protocol === 'pilot-runtime-v1'
               && controller.executionControl.execution.state === 'running'
-              && <p role="status">关闭窗口后任务会继续；需要终止时，请点击停止。</p>}
+              && <p role="status">{t("关闭窗口后任务会继续；需要终止时，请点击停止。")}</p>}
             {controller.backgroundExecution && (
-              <Button onClick={() => void selectConversation(controller.backgroundExecution!.conversation_id, { refresh: true }).catch(() => toast.error('加载对话失败，请重试。'))}>
-                返回正在执行的对话
-              </Button>
+              <Button onClick={() => void selectConversation(controller.backgroundExecution!.conversation_id, { refresh: true }).catch(() => toast.error(liveText(() => t("加载对话失败，请重试。"))))}>{t("返回正在执行的对话")}</Button>
             )}
 
             {!controller.presentationSnapshot && (confirmPhase !== 'idle' || lastUndo) && (
               <div className={styles.writeStatus}>
                 <span>
                   {confirmPhase === 'saving'
-                    ? '正在保存'
+                    ? t("正在保存")
                     : confirmPhase === 'error'
-                      ? confirmError || '保存失败'
+                      ? (confirmError ? displayPilotUiMessage(confirmError) : t("保存失败"))
                       : confirmPhase === 'success'
-                        ? '保存成功'
-                        : '最近一次 AI 写入可撤销'}
+                        ? t("保存成功")
+                        : t("最近一次 AI 写入可撤销")}
                 </span>
                 {lastUndo ? (
-                  <button type="button" onClick={handleUndoLastWrite} disabled={loading}>
-                    撤销最近一次 AI 写入
-                  </button>
+                  <button type="button" onClick={handleUndoLastWrite} disabled={loading}>{t("撤销最近一次 AI 写入")}</button>
                 ) : null}
               </div>
             )}
 
             {!hasKey && (
               <div className={styles.inlineKeyNotice}>
-                <span>尚未配置 API key，配置后即可使用 Pilot 对话和工具调用。</span>
+                <span>{t("尚未配置 API key，配置后即可使用 Pilot 对话和工具调用。")}</span>
                 {onOpenSettings && (
-                  <button type="button" onClick={onOpenSettings}>
-                    打开设置
-                  </button>
+                  <button type="button" onClick={onOpenSettings}>{t("打开设置")}</button>
                 )}
               </div>
             )}
             {lastError && lastFailedText ? (
               <div className={styles.retryNotice}>
-                <span>{lastError}</span>
-                <button type="button" onClick={retryLastMessage} disabled={composerDisabled}>
-                  重新发送
-                </button>
-                <button type="button" onClick={clearLastFailure}>
-                  关闭提示
-                </button>
+                <span>{displayPilotUiMessage(lastError)}</span>
+                <button type="button" onClick={retryLastMessage} disabled={composerDisabled}>{t("重新发送")}</button>
+                <button type="button" onClick={clearLastFailure}>{t("关闭提示")}</button>
               </div>
             ) : null}
             <ContextAttachmentRail
@@ -1838,7 +1828,7 @@ function ChatPanelView({
               onRemove={removeAttachment}
               onNativeDrop={addAttachment}
             />
-            {attachmentNotice ? <div className={styles.attachmentNotice} role="status">{attachmentNotice}</div> : null}
+            {attachmentNotice ? <div className={styles.attachmentNotice} role="status">{t(attachmentNotice)}</div> : null}
               {onOpenVoiceCoachingGrowth ? (
                 <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 40 }}>
                   <VoiceCoachingPilotEntry onOpen={onOpenVoiceCoachingGrowth} />

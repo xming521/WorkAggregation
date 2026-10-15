@@ -9,6 +9,7 @@ import {
 } from './AssistantSurfaceProvider';
 import HaruChatWindow from './HaruChatWindow';
 import { getPilotExecution } from '@/services/chat';
+import { setLocale } from '@/i18n';
 import { getPilotPresentation } from '@/features/actionPresentation/service';
 vi.mock('@/features/actionPresentation/service', () => ({ getPilotPresentation: vi.fn().mockRejectedValue(new Error('legacy server')) }));
 vi.mock('@/services/chat', async (importOriginal) => ({
@@ -110,6 +111,17 @@ function SharedDraftHarness() {
   return <HaruChatWindow returnFocusRef={{ current: null }} />;
 }
 
+function LoadingHarness() {
+  const controller = usePilotConversationController();
+  const surface = useAssistantSurface();
+  useEffect(() => {
+    controller.setLoading(true);
+    controller.setLoadingLabel('正在处理：用户原始任务名');
+    surface.openHaru();
+  }, []);
+  return <HaruChatWindow returnFocusRef={{ current: null }} />;
+}
+
 describe('HaruChatWindow', () => {
   it('blocks keyboard submission when only a remote execution is running', async () => {
     vi.mocked(getPilotExecution).mockResolvedValue({ turn_id: 'haru-stop', conversation_id: 7, execution_generation: 1, state: 'running' });
@@ -132,6 +144,7 @@ describe('HaruChatWindow', () => {
   afterEach(() => {
     act(() => root?.unmount());
     host?.remove();
+    setLocale('zh-CN');
   });
 
   it('keeps a visible read-only recovery entry without Pending or Undo and recovers the display', async () => {
@@ -303,4 +316,50 @@ describe('HaruChatWindow', () => {
     expect(host!.querySelector<HTMLTextAreaElement>('#haru-composer')?.value).toBe('先讨论目标，再演练开场');
     expect(host!.querySelector('[role="dialog"]')).not.toBeNull();
   });
+
+  it('switches the open window language without remounting or losing the composer draft', async () => {
+    await act(async () => root?.render(
+      <AssistantSurfaceProvider><SharedDraftHarness /></AssistantSurfaceProvider>,
+    ));
+    const composer = host!.querySelector<HTMLTextAreaElement>('#haru-composer');
+    expect(composer?.value).toBe('先讨论目标，再演练开场');
+    act(() => setLocale('en-US'));
+    expect(host!.querySelector('[aria-label="Haru compact chat"]')).not.toBeNull();
+    expect(host!.querySelector('#haru-composer')).toBe(composer);
+    expect(composer?.value).toBe('先讨论目标，再演练开场');
+    expect(composer?.placeholder).toBe('Ask Haru…');
+    act(() => setLocale('zh-CN'));
+    expect(composer?.placeholder).toBe('问 Haru…');
+    expect(composer?.value).toBe('先讨论目标，再演练开场');
+  });
+
+  it('keeps existing conversation and entity content unchanged while translating its controls', async () => {
+    await act(async () => root?.render(
+      <AssistantSurfaceProvider><ContextHarness /></AssistantSurfaceProvider>,
+    ));
+    act(() => setLocale('en-US'));
+    expect(host!.textContent).toContain('保留这条消息');
+    expect(host!.textContent).toContain('腾讯 · 后端开发工程师');
+    expect(host!.textContent).toContain('美团 · 后端开发工程师');
+    expect(host!.textContent).toContain('Switch to current page');
+    expect(host!.textContent).toContain('Keep original context');
+    expect(host!.querySelector('[aria-label="Current context"] b')?.getAttribute('title'))
+      .toBe('腾讯 · 后端开发工程师');
+    act(() => setLocale('zh-CN'));
+    expect(host!.querySelector('[aria-label="当前上下文"] b')?.getAttribute('title'))
+      .toBe('腾讯 · 后端开发工程师');
+  });
+
+
+  it('translates an active loading prefix while preserving the original task summary', async () => {
+    await act(async () => root?.render(
+      <AssistantSurfaceProvider><LoadingHarness /></AssistantSurfaceProvider>,
+    ));
+    expect(host!.textContent).toContain('正在处理：用户原始任务名');
+    act(() => setLocale('en-US'));
+    expect(host!.textContent).toContain('Working on: 用户原始任务名');
+    act(() => setLocale('zh-CN'));
+    expect(host!.textContent).toContain('正在处理：用户原始任务名');
+  });
+
 });

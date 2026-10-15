@@ -223,7 +223,7 @@ vi.mock('@/components/ChatPanel', async () => {
           })}
         >pending</button>
         {controller.pending ? (
-          <div role="group" aria-label="AI 修改提议">
+          <div role="group" data-pilot-proposal aria-label="AI 修改提议">
             <button type="button" data-testid="pending-action">confirm</button>
           </div>
         ) : null}

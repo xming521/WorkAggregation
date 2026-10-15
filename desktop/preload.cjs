@@ -49,3 +49,17 @@ if (role === 'owner') {
     replyPrepareInstall: (id, snapshot) => ipcRenderer.send(updates + 'prepare-reply', { id, snapshot }),
   }));
 }
+
+// Locale is a finite preference, never a generic settings/filesystem channel.
+// Haru can read and subscribe; only the trusted owner can persist a change.
+const localeChannel = 'offerpilot:locale:';
+contextBridge.exposeInMainWorld('offerpilotLocale', Object.freeze({
+  getLocale: () => ipcRenderer.invoke(localeChannel + 'get'),
+  onLocale: listener => {
+    if (typeof listener !== 'function') return () => {};
+    const handler = (_event, value) => listener(value);
+    ipcRenderer.on(localeChannel + 'changed', handler);
+    return () => ipcRenderer.removeListener(localeChannel + 'changed', handler);
+  },
+  ...(role === 'owner' ? { setLocale: value => ipcRenderer.invoke(localeChannel + 'set', value) } : {}),
+}));

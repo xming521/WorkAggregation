@@ -14,7 +14,7 @@
 
 安装时锁定窗口交互，flush Electron storage，然后关闭后端 stdin 并等待真实正常退出。仅 code=0 且无终止信号可备份。不得把超时 resolve 当成功；不为升级强杀写入者。Python watchdog 的非零退出也是失败。
 
-离线复制 `%APPDATA%\OfferPilot Desktop\data` 的完整工作区和 `desktop-port.json`、`haru-window.json` 到同级 `OfferPilot Desktop-update-backups` 的唯一子目录。配置可能含敏感数据，始终本地、不上传、不打印内容；备份不扩大文件权限：Windows 在空备份目录先移除继承授权，仅授予当前用户访问，权限设置失败则在复制前中止；POSIX 限制目录和文件权限。拒绝链接/junction/非普通文件，最后才写完成标记。不完整目录不是可恢复备份。无自动删除旧备份。
+离线复制 `%APPDATA%\OfferPilot Desktop\data` 的完整工作区和 `desktop-port.json`、`haru-window.json`、`desktop-locale.json` 到同级 `OfferPilot Desktop-update-backups` 的唯一子目录。配置可能含敏感数据，始终本地、不上传、不打印内容；备份不扩大文件权限：Windows 在空备份目录先移除继承授权，仅授予当前用户访问，权限设置失败则在复制前中止；POSIX 限制目录和文件权限。拒绝链接/junction/非普通文件，最后才写完成标记。不完整目录不是可恢复备份。无自动删除旧备份。
 
 Electron 持久 partition 保留原路径且 flush，不把活跃 LevelDB 的普通复制当一致性快照。安装后端、网页静态资源与数据目录分离；保持 appId、产品名、per-user 安装范围、数据路径和端口。
 

@@ -1418,14 +1418,13 @@ function importTargetsSource(
   moduleName: string,
   targetPath: string,
 ): boolean {
+  const importer = importerPath.replace(/\\/g, '/');
+  const specifier = moduleName.replace(/\\/g, '/');
   let resolved: string;
-  if (moduleName.startsWith('@/')) {
-    resolved = `web/src/${moduleName.slice(2)}`;
-  } else if (moduleName.startsWith('.')) {
-    resolved = posix.join(
-      posix.dirname(importerPath.replace(/\\/g, '/')),
-      moduleName.replace(/\\/g, '/'),
-    );
+  if (specifier.startsWith('@/')) {
+    resolved = `web/src/${specifier.slice(2)}`;
+  } else if (specifier.startsWith('.')) {
+    resolved = posix.join(posix.dirname(importer), specifier);
   } else {
     return false;
   }

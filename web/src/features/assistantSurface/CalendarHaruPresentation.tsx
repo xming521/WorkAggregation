@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Dropdown } from 'antd';
 import { CheckOutlined, EllipsisOutlined, MessageOutlined } from '@ant-design/icons';
@@ -22,6 +23,7 @@ const ACTIVITY_LABELS: Record<PilotMascotActivity, string> = {
   success: '处理完成', error: '需要查看',
 };
 export default function CalendarHaruPresentation({ activity, panelOpen, onToggle, triggerRef, onAnchorRectChange, animationLevel = 'minimal' }: Props) {
+  useLocale();
   const pageVisible = useMascotVisibility();
   const [mode, setMode] = useState(readHaruPresentation);
   const [viewport, setViewport] = useState(() => ({ width: typeof window === 'undefined' ? 1440 : window.innerWidth, height: typeof window === 'undefined' ? 900 : window.innerHeight }));
@@ -32,7 +34,7 @@ export default function CalendarHaruPresentation({ activity, panelOpen, onToggle
   const controller = useRef<PilotMascotRuntimeController>();
   const latestActivity = useRef(activity); latestActivity.current = activity;
   const effective = effectiveHaruPresentation(mode, viewport.width, viewport.height);
-  const status = ACTIVITY_LABELS[activity];
+  const status = t(ACTIVITY_LABELS[activity]);
   useEffect(() => {
     const resize = () => { setViewport({ width: window.innerWidth, height: window.innerHeight }); setMenuOwner(null); };
     window.addEventListener('resize', resize);
@@ -68,16 +70,16 @@ export default function CalendarHaruPresentation({ activity, panelOpen, onToggle
     const observer = new ResizeObserver(report); observer.observe(triggerRef.current); return () => observer.disconnect();
   }, [effective, viewport, onAnchorRectChange, triggerRef]);
   const choose = (value: HaruPresentationMode) => { setMode(value); writeHaruPresentation(value); setMenuOwner(null); triggerRef.current?.focus({ preventScroll: true }); };
-  const items = (['compact', 'character'] as const).map((value) => ({ key: value, role: 'menuitemradio', 'aria-checked': mode === value, icon: mode === value ? <CheckOutlined /> : <span className={styles.blankCheck} />, label: value === 'compact' ? '小窗展示' : '人物展示', onClick: () => choose(value) }));
+  const items = (['compact', 'character'] as const).map((value) => ({ key: value, role: 'menuitemradio', 'aria-checked': mode === value, icon: mode === value ? <CheckOutlined /> : <span className={styles.blankCheck} />, label: t(value === 'compact' ? '小窗展示' : '人物展示'), onClick: () => choose(value) }));
   return (
     <div className={styles.presentation} data-haru-mode={effective} data-haru-preference={mode} data-haru-status={activity}>
-      <Dropdown trigger={['contextMenu']} open={menuOwner === 'context'} onOpenChange={(open) => setMenuOwner((owner) => open ? 'context' : owner === 'context' ? null : owner)} autoFocus autoAdjustOverflow menu={{ items, 'aria-label': 'Haru 展示' }}>
-        <button ref={triggerRef} className={styles.launcher} aria-label={`Haru · ${status} · ${panelOpen ? '收起' : '打开'}对话`} aria-expanded={panelOpen} aria-controls="haru-chat-window" onClick={onToggle} onKeyDown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); setMenuOwner('context'); } }}>
+      <Dropdown trigger={['contextMenu']} open={menuOwner === 'context'} onOpenChange={(open) => setMenuOwner((owner) => open ? 'context' : owner === 'context' ? null : owner)} autoFocus autoAdjustOverflow menu={{ items, 'aria-label': t('Haru 展示') }}>
+        <button ref={triggerRef} className={styles.launcher} aria-label={t('Haru · {status} · {action}', { status, action: t(panelOpen ? '收起对话' : '打开对话') })} aria-expanded={panelOpen} aria-controls="haru-chat-window" onClick={onToggle} onKeyDown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); setMenuOwner('context'); } }}>
           <span className={styles.portrait} aria-hidden="true"><span className={styles.modelFrame}><canvas ref={canvas} /></span>{failed && <span className={styles.fallback}><MessageOutlined /></span>}</span>
-          <span className={styles.caption}><span className={styles.dot} />Haru{status !== '随时待命' && <small>{status}</small>}</span>
+          <span className={styles.caption}><span className={styles.dot} />Haru{activity !== 'idle' && <small>{status}</small>}</span>
         </button>
       </Dropdown>
-      <Dropdown trigger={['click']} open={menuOwner === 'more'} onOpenChange={(open) => setMenuOwner((owner) => open ? 'more' : owner === 'more' ? null : owner)} autoFocus menu={{ items, 'aria-label': 'Haru 展示' }} autoAdjustOverflow><button className={styles.more} aria-label="Haru 展示方式"><EllipsisOutlined /></button></Dropdown>
+      <Dropdown trigger={['click']} open={menuOwner === 'more'} onOpenChange={(open) => setMenuOwner((owner) => open ? 'more' : owner === 'more' ? null : owner)} autoFocus menu={{ items, 'aria-label': t('Haru 展示') }} autoAdjustOverflow><button className={styles.more} aria-label={t("Haru 展示方式")}><EllipsisOutlined /></button></Dropdown>
     </div>
   );
 }
