@@ -5,6 +5,18 @@
 
 ## 当前记录
 
+## 邮件状态读取组合不同数据库快照（2026-10-16）
+
+**现象：** PR #36 的旧 Windows 全量分片中，邮件预算回归读到 used=99 而预期 100。日志未记录完整 run 状态，不能唯一还原该次失败；独立事件屏障复现确认可返回 completed 与旧预算 99，而持久数据库已是 100。
+
+**根因：** master 既有 status 依次查询 connection 与最新 run，SQLite legacy 模式不会为 SELECT 自动开启真实读事务，worker 可在两次查询之间提交。预算准入、attempt 与 used 增量仍在原 BEGIN IMMEDIATE 写事务内，未发现预算丢更新或突破上限的证据。
+
+**修复：** status 用短 deferred BEGIN 与 finally rollback 固定读快照，先物化普通 dict，再退出事务调用 folders/catalog。保留原测试等待、预算断言、全局 journal 与超时；新增允许旧 running 快照但拒绝 completed+旧预算的确定性回归，以及默认 journal 下外部回调写入和异常释放检查。
+
+**验证边界：** WAL 仅用于临时测试数据库让屏障内 writer 能提交；产品默认 DELETE journal 的短共享读锁仍可能短暂推迟 writer commit，不宣称完全无阻塞。
+
+**教训：** 轮询终态与关联计数必须来自同一数据库快照；一次重跑通过不能排除竞态，也不能用增加 sleep 或削弱断言代替一致性修复。
+
 ## 离线启动防护测试未记录 Windows venv launcher（2026-10-16）
 
 **现象：** PR #36 的 Windows cleanup 回归为 44 通过、1 失败，唯一 early guard 记录的 ppid 与 pytest PID 不同。
