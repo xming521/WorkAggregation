@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { message } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AddApplicationForm from './AddApplicationForm';
 import { checkApplicationDuplicates, createApplicationWithJd, getApplicationCreationScope } from '@/services/applications';
@@ -18,6 +19,7 @@ const request: ApplicationCreationInput = {
 };
 const result = { ...request, id: 7, jd_version_id: null } as unknown as ApplicationCreationResult;
 let root: Root;
+let host: HTMLDivElement;
 let client: QueryClient;
 const created = vi.fn();
 const closed = vi.fn();
@@ -49,17 +51,28 @@ async function select(id: string, label: string) {
   await act(async () => option.click()); await flush();
 }
 beforeEach(() => {
-  vi.resetAllMocks(); localStorage.clear(); document.body.replaceChildren();
+  vi.resetAllMocks(); localStorage.clear();
   vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => nativeComputedStyle(element));
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   Object.defineProperty(window, 'matchMedia', { configurable: true, value: () => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() }) });
   vi.mocked(getApplicationCreationScope).mockResolvedValue('workspace-a');
   vi.mocked(checkApplicationDuplicates).mockResolvedValue({ items: [], has_more: false });
   vi.mocked(createApplicationWithJd).mockResolvedValue(result);
-  root = createRoot(document.body.appendChild(document.createElement('div')));
+  host = document.body.appendChild(document.createElement('div'));
+  root = createRoot(host);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
-afterEach(() => { act(() => root.unmount()); client.clear(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  // Static messages own a separate React root and portal into document.body.
+  // Let that owner remove its notices before removing only this test's host.
+  // Clearing body directly leaves its delayed expiry holding detached nodes.
+  try {
+    await act(async () => { message.destroy(); root.unmount(); });
+    expect(document.querySelector('.ant-message')).toBeNull();
+  } finally {
+    host.remove(); client.clear(); vi.restoreAllMocks();
+  }
+});
 
 describe('single Application intake', () => {
   it.each(['cancel', 'external'])('reoffers a bypassed unknown submission after %s close and reopen', async (method) => {
@@ -125,7 +138,7 @@ describe('single Application intake', () => {
     await render(); input('company_name', '公司 A'); input('position_name', '工程师'); await click('核对并检查重复'); await click('确认保存');
     const original = vi.mocked(createApplicationWithJd).mock.calls[0][0];
     expect(document.body.textContent).toContain('创建结果未知');
-    act(() => root.unmount()); root = createRoot(document.body.appendChild(document.createElement('div')));
+    act(() => root.unmount()); root = createRoot(host);
     await render(); expect(document.body.textContent).toContain('有一条待恢复提交');
     expect(document.getElementById('company_name')).toBeNull();
     await click('查询／恢复结果');
@@ -177,5 +190,20 @@ describe('single Application intake', () => {
     await render(); await click('查询／恢复结果');
     expect(createApplicationWithJd).toHaveBeenCalledWith(request);
     expect(loadPendingCreations('workspace-a')).toHaveLength(1);
+  });
+  it('destroys real static message portals and their expiry timers before the next intake', async () => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => { void message.success('Owned intake cleanup notice', 60); });
+      expect(document.querySelector('.ant-message')?.textContent).toContain('Owned intake cleanup notice');
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      await act(async () => { message.destroy(); });
+      expect(document.querySelector('.ant-message')).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+      await act(async () => { await vi.runAllTimersAsync(); });
+      expect(document.querySelector('.ant-message')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
