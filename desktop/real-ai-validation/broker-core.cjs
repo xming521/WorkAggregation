@@ -2,18 +2,18 @@
 
 const { RECOVERY, validateCarryForward, carryForwardEvidence } = require('./carry-forward-policy.cjs');
 
-// Peak CNY prices verified 2026-10-15 at 06:19 UTC. Integer micro-yuan only; no token estimates.
+// Peak CNY prices verified 2026-10-16 at 00:01 UTC. Integer micro-yuan only; no token estimates.
 // https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
 // https://api-docs.deepseek.com/quick_start/pricing/
 // Both pages: deepseek-flash = DeepSeek-V4.1-Flash. Chinese peak CNY/1M = 0.04/2/8.
 // English prices are USD; CNY accounting uses the Chinese tariff without conversion.
-// 1M context / 384K output; model metadata confirms 1048576 / 393216 tokens.
-// https://api-docs.deepseek.com/zh-cn/api/list-models/
+// 1M context / 384K output; model metadata rechecked 00:03 UTC confirms 1048576 / 393216 tokens.
+// https://api-docs.deepseek.com/api/list-models/
 // https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/
 // Rate/model changes require renewed review before an authorized live run.
 // This same-day expiry is a local review limit, not a provider price guarantee.
-const PRICE_REVIEW = Object.freeze({ priceCheckedAt: '2026-10-15',
-  validUntilUtc: '2026-10-15T23:59:59.999Z', priceBasis: 'PEAK_CNY' });
+const PRICE_REVIEW = Object.freeze({ priceCheckedAt: '2026-10-16',
+  validUntilUtc: '2026-10-16T23:59:59.999Z', priceBasis: 'PEAK_CNY' });
 const POLICY = Object.freeze({ model: 'deepseek-flash', contextTokens: 1048576,
   budgetMicroCny: 10000000, reserveMicroCny: 3000000, maxRequests: 8,
   runMs: 600000, requestBytes: 524288, responseBytes: 8388608, eventBytes: 262144 });

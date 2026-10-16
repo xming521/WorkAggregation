@@ -514,8 +514,8 @@ function fullLedger() {
       prompt_cache_miss_tokens: 20, total_tokens: 23 });
   }
   book.close();
-  return { ...book.snapshot(), journalFailed: false, provenance: { priceCheckedAt: '2026-10-15',
-    validUntilUtc: '2026-10-15T23:59:59.999Z', priceBasis: 'PEAK_CNY',
+  return { ...book.snapshot(), journalFailed: false, provenance: { priceCheckedAt: '2026-10-16',
+    validUntilUtc: '2026-10-16T23:59:59.999Z', priceBasis: 'PEAK_CNY',
     sessionId: 'offerpilot-fixed-exe-real-ai-20261008', mode: 'FIXED_EXE_UI_BUDGET_BROKER',
     productCommit: PIN.commit, buildRunId: String(PIN.runId),
     artifactId: String(PIN.artifactId), installerSha256: PIN.installerSha256, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40), runId: '1', runAttempt: 1 } };

@@ -156,9 +156,9 @@ test('MOCK price clock is broker-only and no broker API can override transport, 
   const before = Date.now(); await new Promise((resolve) => setTimeout(resolve, 30));
   assert.ok(Date.now() >= before + 20); assert.equal(Date.now, actualDateNow);
   assert.equal(broker.snapshot().mock.clockScope, 'BROKER_VM_ONLY');
-  assert.equal(broker.snapshot().mock.clockEpochUtc, '2026-10-15T12:00:00.000Z');
-  assert.equal(broker.snapshot().provenance.priceCheckedAt, '2026-10-15');
-  assert.equal(broker.snapshot().provenance.validUntilUtc, '2026-10-15T23:59:59.999Z');
+  assert.equal(broker.snapshot().mock.clockEpochUtc, '2026-10-16T12:00:00.000Z');
+  assert.equal(broker.snapshot().provenance.priceCheckedAt, '2026-10-16');
+  assert.equal(broker.snapshot().provenance.validUntilUtc, '2026-10-16T23:59:59.999Z');
   assert.throws(() => broker.prepareCase('unknown-case'), /MOCK_NETWORK_DENIED/);
   assert.throws(() => broker.armCase('connection'), /MOCK_NETWORK_DENIED/);
   await assert.rejects(createOfflineBroker({}), /MOCK_NETWORK_DENIED/, 'only one process-global fake owner');
@@ -246,7 +246,7 @@ test('recovery MOCK carries a synthetic prefix and sends only one new Pilot with
 test('network-locked MOCK adapter never enables synthetic history in the actual LIVE broker', async t => {
   const { broker, ledgerPath } = await fixture(t, { recovery: true });
   const { createBroker } = require('../broker.cjs');
-  t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 15, 12));
+  t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 16, 12));
   await assert.rejects(createBroker({ providerKey: 'FAKE_ONLY_PROVIDER_KEY', ledgerPath: `${ledgerPath}-live`,
     sessionId: RECOVERY.sessionId, runId: '123', runAttempt: 1, helperCommit: 'a'.repeat(40), requestCommit: 'b'.repeat(40),
     carryForward: createMockCarryForward(), mode: 'mock' }), /LEDGER/);

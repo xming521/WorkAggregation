@@ -44,7 +44,7 @@ function answer(call, body = fakeResponse) {
   call.incoming.end(Buffer.from(JSON.stringify(body)));
 }
 async function fixture(t, options = {}) {
-  t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 15, 12));
+  t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 16, 12));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offerpilot-fake-broker-'));
   const ledgerPath = path.join(dir, 'session-ledger.json');
   const args = { providerKey: 'FAKE_ONLY_PROVIDER_KEY', ledgerPath, sessionId: 'test-session', runId: '123', runAttempt: 1,
@@ -274,7 +274,7 @@ test('final CLOSE persistence failure rejects close and cannot be reported as a 
 
 test('price review rejects both the prior and following UTC dates before any reserve or HTTPS', async (t) => {
   const { broker, args } = await fixture(t); const calls = fakeUpstream(t, answer);
-  for (const day of [8, 9, 10, 11, 14, 16]) {
+  for (const day of [8, 9, 10, 11, 14, 15, 17]) {
     t.mock.method(Date, 'now', () => Date.UTC(2026, 9, day));
     const rejectedPath = `${args.ledgerPath}-rejected-${day}`;
     await assert.rejects(createBroker({ ...args, ledgerPath: rejectedPath }), /EXPIRED/);
@@ -286,14 +286,14 @@ test('price review rejects both the prior and following UTC dates before any res
 });
 test('price window must cover the entire allowed request deadline', async (t) => {
   const { broker } = await fixture(t); const calls = fakeUpstream(t, answer);
-  t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 15, 23, 59, 50));
+  t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 16, 23, 59, 50));
   const result = await send(broker, ready(broker));
   assert.equal(JSON.parse(result.text).error.code, 'EXPIRED'); assert.equal(calls.length, 0);
 });
 for (const afterBoundaryMs of [0, 1]) {
   test(`price window admission at last complete request timeout plus ${afterBoundaryMs} ms`, async (t) => {
     const { broker } = await fixture(t); const calls = fakeUpstream(t, answer);
-    t.mock.method(Date, 'now', () => Date.parse('2026-10-15T23:59:59.999Z') - 15000 + afterBoundaryMs);
+    t.mock.method(Date, 'now', () => Date.parse('2026-10-16T23:59:59.999Z') - 15000 + afterBoundaryMs);
     const result = await send(broker, ready(broker));
     assert.equal(result.status, afterBoundaryMs === 0 ? 200 : 403);
     assert.equal(calls.length, afterBoundaryMs === 0 ? 1 : 0);
@@ -329,7 +329,7 @@ test('broker forced close cannot manufacture evidence that the product cancelled
 test('RESERVE fsync crossing the UTC tariff window retains reservation and sends nothing', async (t) => {
   const { broker } = await fixture(t); const calls = fakeUpstream(t, answer); const sync = fs.fsyncSync;
   t.mock.method(fs, 'fsyncSync', (...args) => {
-    sync(...args); t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 16));
+    sync(...args); t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 17));
   });
   const result = await send(broker, ready(broker));
   assert.equal(JSON.parse(result.text).error.code, 'EXPIRED'); assert.equal(calls.length, 0);
@@ -516,7 +516,7 @@ for (const [advance, reason] of [[60001, 'TIMEOUT'], [120001, 'DEADLINE']]) {
 test('recovery cannot extend expired tariffs or reset cumulative cost when new reservation is blocked', async t => {
   const { broker } = await fixture(t, { carryForward: inherited(), sessionId: RECOVERY.sessionId });
   const calls = fakeUpstream(t, answer);
-  t.mock.method(Date, 'now', () => Date.parse('2026-10-15T23:59:59.999Z') - 60000 + 1);
+  t.mock.method(Date, 'now', () => Date.parse('2026-10-16T23:59:59.999Z') - 60000 + 1);
   const result = await send(broker, ready(broker, 'pilot-stream'));
   assert.equal(JSON.parse(result.text).error.code, 'EXPIRED');
   const summary = broker.snapshot();
@@ -528,7 +528,7 @@ test('recovery OPEN fsync crossing tariff expiry fails before listener creation'
   const { args, broker } = await fixture(t); await broker.close();
   const sync = fs.fsyncSync; let bound = 0;
   t.mock.method(http, 'createServer', () => { bound++; throw new Error('MUST_NOT_LISTEN'); });
-  t.mock.method(fs, 'fsyncSync', (...args) => { sync(...args); t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 16)); });
+  t.mock.method(fs, 'fsyncSync', (...args) => { sync(...args); t.mock.method(Date, 'now', () => Date.UTC(2026, 9, 17)); });
   await assert.rejects(createBroker({ ...args, ledgerPath: `${args.ledgerPath}-expired-open`,
     carryForward: inherited(), sessionId: RECOVERY.sessionId }), /EXPIRED/);
   assert.equal(bound, 0);
