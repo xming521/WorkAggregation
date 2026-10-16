@@ -416,7 +416,8 @@ def test_previous_count_balanced_manifest_cannot_use_duration_policy(tmp_path):
 
 def test_frozen_history_provenance_and_all_6773_nodes_keep_exact_coverage():
     history = gate.load_duration_history()
-    assert history["source"] == {
+    assert {key: value for key, value in history["source"]["baseline"].items()
+            if key != "history_sha256"} == {
         "run_id": 38500952016, "artifact_id": 11881026619,
         "artifact_sha256": "7c84e85cf0b7106a5d0a452ea50ca79a49295bb6a2cb601f68d80d1627222826",
         "commit": "9c245314e570f1d6de034e4d52deb46979874416",
@@ -425,15 +426,48 @@ def test_frozen_history_provenance_and_all_6773_nodes_keep_exact_coverage():
         "lock_sha256": "456ac277ffbb355ca96fc68b54d05b104f42fd96b5a0b258decab35ff30456f8",
         "platform": "Windows", "python": "3.12.10",
     }
-    assert len(history["duration_ms"]) == 6760
+    assert history["source"]["baseline"]["history_sha256"] == (
+        "f1be4a8e1d53de9aab21b8a9a3fa23276f4326c56788a4350e23d772c1132cbe"
+    )
+    refresh = history["source"]["refresh"]
+    assert refresh["policy"] == "max-old-and-complete-passed-total-phases-v1"
+    assert refresh["run_id"] == 38922100985 and refresh["run_attempt"] == 1
+    assert refresh["commit"] == "9c1a5909f3a1cc3790a85bf02dde7072f9cccd3a"
+    assert refresh["tree"] == "bd1c54e887c4dcc6fe1f7ccc2eb4005032b6153b"
+    assert refresh["lock_sha256"] == history["source"]["baseline"]["lock_sha256"]
+    assert (refresh["platform"], refresh["python"]) == ("Windows", "3.12.10")
+    assert refresh["manifest_nodes"] == 7127
+    assert refresh["manifest_artifact_id"] == 12054832212
+    assert refresh["manifest_artifact_sha256"] == (
+        "6975c982338ee9342339bcfe18272dad5c8e382ca258598118cd1178418149ee"
+    )
+    sources = refresh["result_artifacts"]
+    assert [(source["shard"], source["artifact_id"], source["complete_passed_nodes"])
+            for source in sources] == [
+        (0, 12055067112, 80), (1, 12055592757, 56), (2, 12055148733, 45),
+        (3, 12056261114, 39), (4, 12059455916, 734),
+    ]
+    updates = history["source"]["node_updates"]
+    assert (refresh["added_nodes"], refresh["raised_nodes"]) == (241, 145)
+    assert len(updates) == 386
+    assert sum(update["previous_ms"] is None for update in updates.values()) == 241
+    for node, update in updates.items():
+        assert update["artifact_id"] in {source["artifact_id"] for source in sources}
+        previous = update["previous_ms"]
+        assert previous is None or (type(previous) is int and previous >= 1)
+        assert type(update["observed_ms"]) is int and update["observed_ms"] >= 1
+        assert previous is None or update["observed_ms"] > previous
+        assert history["duration_ms"][node] == max(previous or 0, update["observed_ms"])
+    # Retain the original 6,773-node baseline and add only complete passed observations.
+    assert len(history["duration_ms"]) == 6760 + 241
     assert len(history["historical_skips"]) == 13
     assert history["fallback_ms"] == 257834 == max(history["duration_ms"].values())
     nodes = sorted(history["duration_ms"] | history["historical_skips"])
-    assert len(nodes) == 6773
+    assert len(nodes) == 6773 + 241
     shards = gate.partition(nodes, 12)
     assert shards == gate.partition(nodes[::-1], 12)
     assert sorted(sum(shards, [])) == nodes
-    assert len(set(sum(shards, []))) == 6773
+    assert len(set(sum(shards, []))) == 6773 + 241
     for filename in {node.split("::", 1)[0] for node in nodes} - gate.NODE_SPLIT_FILES:
         assert sum(any(node.split("::", 1)[0] == filename for node in shard)
                    for shard in shards) == 1
@@ -442,6 +476,31 @@ def test_frozen_history_provenance_and_all_6773_nodes_keep_exact_coverage():
     gate.validate_manifest(manifest)
     repeated = {**manifest, "shards": gate.partition(nodes[::-1], 12)}
     assert gate.digest(manifest) == gate.digest(repeated)
+
+    collection = refresh["collection"]
+    known = set(nodes)
+    extra = collection["not_in_history"]
+    absent = collection["history_not_collected"]
+    assert len(extra) == len(set(extra)) and not set(extra) & known
+    assert len(absent) == len(set(absent)) and set(absent) <= known
+    actual = sorted((known - set(absent)) | set(extra))
+    assert len(actual) == 7127
+    assert gate.digest(actual) == collection["nodes_sha256"] == (
+        "ea0873e835206e2cf6af845a139e78bdf4cd0a337e45d2998c4cc9b4d4d90d25"
+    )
+    predicted = gate.partition(actual, 12)
+    assert predicted == gate.partition(actual[::-1], 12)
+    assert sorted(sum(predicted, [])) == actual
+    assert len(set(sum(predicted, []))) == 7127
+    for filename in {node.split("::", 1)[0] for node in actual} - gate.NODE_SPLIT_FILES:
+        assert sum(any(node.split("::", 1)[0] == filename for node in shard)
+                   for shard in predicted) == 1
+    costs = gate.estimated_costs(actual, history)
+    loads = [sum(costs[node] for node in shard) for shard in predicted]
+    assert list(map(len, predicted)) == refresh["prediction"]["node_counts"]
+    assert loads == refresh["prediction"]["phase_ms"]
+    assert max(loads) == 5_316_970 and max(loads) - min(loads) == 258
+    assert refresh["prediction"]["scope"] == "scheduling-only; not completed execution evidence"
 
 
 def test_unknown_and_historically_skipped_nodes_use_conservative_frozen_cost(monkeypatch):

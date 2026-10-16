@@ -24,7 +24,7 @@ MANIFEST_VERSION = 4
 PARTITION_STRATEGY = "duration-lpt-v1"
 DURATION_HISTORY_PATH = Path(__file__).with_name("durations-v1.json")
 # SHA256 of the checked-in history with checkout CRLF normalized to LF.
-DURATION_HISTORY_SHA256 = "f1be4a8e1d53de9aab21b8a9a3fa23276f4326c56788a4350e23d772c1132cbe"
+DURATION_HISTORY_SHA256 = "ced3340e064ca8a5fffb1621d2b4a07593f9dd1095c2595d02873c78ff62fe77"
 
 
 def validate_split_fixture(item, name, definition, scope):

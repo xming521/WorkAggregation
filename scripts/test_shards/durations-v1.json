@@ -1,15 +1,2154 @@
 {
   "version": 1,
   "source": {
-    "run_id": 38500952016,
-    "artifact_id": 11881026619,
-    "artifact_sha256": "7c84e85cf0b7106a5d0a452ea50ca79a49295bb6a2cb601f68d80d1627222826",
-    "commit": "9c245314e570f1d6de034e4d52deb46979874416",
-    "manifest_sha256": "4718beecb6018522d28719526e61778a1f2a1aa68326c4880f3aca0e89f8349d",
-    "nodes_sha256": "8fec4f9f84fdaa5ec102cdab343b8efd97ab3fcff58409e03fb6fd8f6aadc01d",
-    "lock_sha256": "456ac277ffbb355ca96fc68b54d05b104f42fd96b5a0b258decab35ff30456f8",
-    "platform": "Windows",
-    "python": "3.12.10"
+    "baseline": {
+      "run_id": 38500952016,
+      "artifact_id": 11881026619,
+      "artifact_sha256": "7c84e85cf0b7106a5d0a452ea50ca79a49295bb6a2cb601f68d80d1627222826",
+      "commit": "9c245314e570f1d6de034e4d52deb46979874416",
+      "manifest_sha256": "4718beecb6018522d28719526e61778a1f2a1aa68326c4880f3aca0e89f8349d",
+      "nodes_sha256": "8fec4f9f84fdaa5ec102cdab343b8efd97ab3fcff58409e03fb6fd8f6aadc01d",
+      "lock_sha256": "456ac277ffbb355ca96fc68b54d05b104f42fd96b5a0b258decab35ff30456f8",
+      "platform": "Windows",
+      "python": "3.12.10",
+      "history_sha256": "f1be4a8e1d53de9aab21b8a9a3fa23276f4326c56788a4350e23d772c1132cbe"
+    },
+    "refresh": {
+      "policy": "max-old-and-complete-passed-total-phases-v1",
+      "run_id": 38922100985,
+      "run_attempt": 1,
+      "commit": "9c1a5909f3a1cc3790a85bf02dde7072f9cccd3a",
+      "tree": "bd1c54e887c4dcc6fe1f7ccc2eb4005032b6153b",
+      "lock_sha256": "456ac277ffbb355ca96fc68b54d05b104f42fd96b5a0b258decab35ff30456f8",
+      "platform": "Windows",
+      "python": "3.12.10",
+      "manifest_sha256": "47e87327286a247aff2663a264966e9f52023a3d3a78b1ce84a2015fdb42c5b7",
+      "manifest_nodes": 7127,
+      "manifest_artifact_id": 12054832212,
+      "manifest_artifact_sha256": "6975c982338ee9342339bcfe18272dad5c8e382ca258598118cd1178418149ee",
+      "result_artifacts": [
+        {
+          "artifact_id": 12055067112,
+          "artifact_sha256": "3bb512cd3e00d2f30e904bd1f460ab1c5a8c554a2583ee409124d60c1c2d3db1",
+          "result_sha256": "f7420882509cee2632fa21bbe1ea74199bdf49e5a91fe9cad9408f22ed7c080c",
+          "shard": 0,
+          "complete_passed_nodes": 80
+        },
+        {
+          "artifact_id": 12055592757,
+          "artifact_sha256": "e0b3f7f849dc7fdaa4bc239de9f314a0c7dd6e301073150e76e7c9b9fc83ece6",
+          "result_sha256": "4ae187c3f18b2d592609db9a3015d065a5584ca6ca6fe610297cb6502e6a9824",
+          "shard": 1,
+          "complete_passed_nodes": 56
+        },
+        {
+          "artifact_id": 12055148733,
+          "artifact_sha256": "fa4df006593f342baab8f53d3b62abf7d83101597648497c5dc7f56072e666ef",
+          "result_sha256": "dd8a60fd15a7b1d10195a5e74fa78d5b4949af2aa7e1765e6606634e9ff3b4c5",
+          "shard": 2,
+          "complete_passed_nodes": 45
+        },
+        {
+          "artifact_id": 12056261114,
+          "artifact_sha256": "194c09279581b31ed245e8a586580e741969cfa9646b40474c8568ab303763ec",
+          "result_sha256": "983ebbf7b3c20944a08009d1eaa796e2f5e700b9ac083f7566a8c23f452bc57d",
+          "shard": 3,
+          "complete_passed_nodes": 39
+        },
+        {
+          "artifact_id": 12059455916,
+          "artifact_sha256": "65a6b61920d5ba6a998878db3f86683669b610d54cd70a5687a078ba0a62110e",
+          "result_sha256": "5bdcb51f46bf9344a7671a7314dec378c2ac9d1fcf0171dcd4e1fd0fbcf477ea",
+          "shard": 4,
+          "complete_passed_nodes": 734
+        }
+      ],
+      "added_nodes": 241,
+      "raised_nodes": 145,
+      "collection": {
+        "nodes_sha256": "ea0873e835206e2cf6af845a139e78bdf4cd0a337e45d2998c4cc9b4d4d90d25",
+        "not_in_history": [
+          "tests/test_complete_pytest_shards.py::test_equal_cost_file_and_shard_ties_are_stable",
+          "tests/test_complete_pytest_shards.py::test_frozen_history_digest_rejects_edits_but_allows_checkout_crlf",
+          "tests/test_complete_pytest_shards.py::test_frozen_history_provenance_and_all_6773_nodes_keep_exact_coverage",
+          "tests/test_complete_pytest_shards.py::test_invalid_frozen_duration_cost_cannot_silently_fall_back[-1]",
+          "tests/test_complete_pytest_shards.py::test_invalid_frozen_duration_cost_cannot_silently_fall_back[0]",
+          "tests/test_complete_pytest_shards.py::test_invalid_frozen_duration_cost_cannot_silently_fall_back[1.5]",
+          "tests/test_complete_pytest_shards.py::test_invalid_frozen_duration_cost_cannot_silently_fall_back[10]",
+          "tests/test_complete_pytest_shards.py::test_invalid_frozen_duration_cost_cannot_silently_fall_back[True]",
+          "tests/test_complete_pytest_shards.py::test_invalid_frozen_duration_cost_cannot_silently_fall_back[nan]",
+          "tests/test_complete_pytest_shards.py::test_manifest_duration_policy_is_bound_and_cannot_be_overridden[fallback_ms-0]",
+          "tests/test_complete_pytest_shards.py::test_manifest_duration_policy_is_bound_and_cannot_be_overridden[fallback_strategy-global-max-only]",
+          "tests/test_complete_pytest_shards.py::test_manifest_duration_policy_is_bound_and_cannot_be_overridden[history_sha256-0000000000000000000000000000000000000000000000000000000000000000]",
+          "tests/test_complete_pytest_shards.py::test_manifest_duration_policy_is_bound_and_cannot_be_overridden[history_version-2]",
+          "tests/test_complete_pytest_shards.py::test_manifest_duration_policy_is_bound_and_cannot_be_overridden[strategy-count-v3]",
+          "tests/test_complete_pytest_shards.py::test_manifest_without_policy_or_with_a_different_assignment_fails_closed",
+          "tests/test_complete_pytest_shards.py::test_measured_cost_balances_slow_files_instead_of_equal_node_counts",
+          "tests/test_complete_pytest_shards.py::test_missing_cost_uses_file_passed_max_then_global_max[tests/test_all_skipped.py-True-1000]",
+          "tests/test_complete_pytest_shards.py::test_missing_cost_uses_file_passed_max_then_global_max[tests/test_known.py-False-20]",
+          "tests/test_complete_pytest_shards.py::test_missing_cost_uses_file_passed_max_then_global_max[tests/test_known.py-True-20]",
+          "tests/test_complete_pytest_shards.py::test_missing_cost_uses_file_passed_max_then_global_max[tests/test_new.py-False-1000]",
+          "tests/test_complete_pytest_shards.py::test_previous_count_balanced_manifest_cannot_use_duration_policy",
+          "tests/test_complete_pytest_shards.py::test_unknown_and_historically_skipped_nodes_use_conservative_frozen_cost",
+          "tests/test_complete_pytest_shards.py::test_workflow_preserves_120_minute_shard_budget",
+          "tests/test_desktop.py::test_desktop_preserves_mail_routes_and_keeps_real_setup_disabled",
+          "tests/test_desktop_integration_ci.py::test_mail_native_lock_job_keeps_the_startup_guard_and_locked_dependencies",
+          "tests/test_desktop_integration_ci.py::test_mail_upgrade_and_socketpair_guards_run_in_early_windows_job",
+          "tests/test_desktop_integration_ci.py::test_nsis_smoke_is_owned_disposable_and_failure_closed",
+          "tests/test_desktop_integration_ci.py::test_one_time_workflows_are_inert_historical_fixtures",
+          "tests/test_desktop_integration_ci.py::test_package_only_escape_hatch_is_bound_to_old_push_branch",
+          "tests/test_desktop_integration_ci.py::test_prs_use_full_read_only_merge_candidate_validation_without_duplicate_candidate_push",
+          "tests/test_desktop_integration_ci.py::test_useful_helper_regressions_are_required_without_live_entrypoints[--config desktop/real-ai-validation/test-ui/vitest.config.mjs]",
+          "tests/test_desktop_integration_ci.py::test_useful_helper_regressions_are_required_without_live_entrypoints[desktop/browser-cleanup-diagnostic/test-routing.mjs]",
+          "tests/test_desktop_integration_ci.py::test_useful_helper_regressions_are_required_without_live_entrypoints[desktop/haru-ui-preview/fixture-api.test.cjs]",
+          "tests/test_desktop_integration_ci.py::test_useful_helper_regressions_are_required_without_live_entrypoints[desktop/haru-ui-preview/visual.test.mjs]",
+          "tests/test_desktop_integration_ci.py::test_useful_helper_regressions_are_required_without_live_entrypoints[npm.cmd test --prefix desktop/installed-ui]",
+          "tests/test_desktop_integration_ci.py::test_useful_helper_regressions_are_required_without_live_entrypoints[npm.cmd test --prefix desktop/real-ai-validation]",
+          "tests/test_desktop_integration_ci.py::test_useful_helper_regressions_are_required_without_live_entrypoints[pytest -q desktop/browser-cleanup-diagnostic/test_diagnostic.py]",
+          "tests/test_desktop_job_mail_integration.py::test_desktop_transport_preserves_mail_confirmation_and_replay",
+          "tests/test_desktop_job_mail_integration.py::test_mail_enabled_master_survives_repeated_desktop_initialization",
+          "tests/test_job_mail_diagnostics.py::test_connection_failure_records_connect_without_provider_text",
+          "tests/test_job_mail_diagnostics.py::test_corrupt_legacy_folder_count_cannot_expand_diagnostic_storage",
+          "tests/test_job_mail_diagnostics.py::test_dates_generation_and_limit_are_bounded_observations",
+          "tests/test_job_mail_diagnostics.py::test_diagnostic_numeric_bounds_preserve_zero_and_unknown",
+          "tests/test_job_mail_diagnostics.py::test_failures_only_keep_fixed_stage_code_and_observed_counts[body-body-message_fetch_failed]",
+          "tests/test_job_mail_diagnostics.py::test_failures_only_keep_fixed_stage_code_and_observed_counts[date-metadata-mail_read_failed]",
+          "tests/test_job_mail_diagnostics.py::test_failures_only_keep_fixed_stage_code_and_observed_counts[fetch-metadata-message_metadata_failed]",
+          "tests/test_job_mail_diagnostics.py::test_failures_only_keep_fixed_stage_code_and_observed_counts[search-search-folder_search_failed]",
+          "tests/test_job_mail_diagnostics.py::test_failures_only_keep_fixed_stage_code_and_observed_counts[select-select-mail_read_failed]",
+          "tests/test_job_mail_diagnostics.py::test_manual_and_actual_tick_persist_identical_read_contract[False]",
+          "tests/test_job_mail_diagnostics.py::test_manual_and_actual_tick_persist_identical_read_contract[True]",
+          "tests/test_job_mail_diagnostics.py::test_parse_failure_does_not_leak_fetched_body",
+          "tests/test_job_mail_diagnostics.py::test_search_zero_and_already_read_are_distinct_observations",
+          "tests/test_job_mail_diagnostics.py::test_untrusted_batch_diagnostics_do_not_change_success",
+          "tests/test_job_mail_diagnostics.py::test_untrusted_diagnostic_fields_cannot_serialize_text",
+          "tests/test_job_mail_diagnostics.py::test_zero_candidates_distinguish_processing_and_failure[budget_deferred]",
+          "tests/test_job_mail_diagnostics.py::test_zero_candidates_distinguish_processing_and_failure[duplicates]",
+          "tests/test_job_mail_diagnostics.py::test_zero_candidates_distinguish_processing_and_failure[failed]",
+          "tests/test_job_mail_diagnostics.py::test_zero_candidates_distinguish_processing_and_failure[not_job_related]",
+          "tests/test_job_mail_fixture.py::test_browser_fixture_counters_precede_spa_fallback",
+          "tests/test_job_mail_master_upgrade.py::test_missing_baseline_or_seed_failure_fails_instead_of_skipping[archive]",
+          "tests/test_job_mail_master_upgrade.py::test_missing_baseline_or_seed_failure_fails_instead_of_skipping[seed]",
+          "tests/test_job_mail_master_upgrade.py::test_pinned_master_upgrade_preserves_business_receipts_and_safe_defaults",
+          "tests/test_job_mail_process_lock.py::test_native_lock_excludes_independent_process_and_release_allows_reopen",
+          "tests/test_job_mail_process_lock.py::test_posix_symlink_lock_path_fails_closed",
+          "tests/test_job_mail_process_lock.py::test_process_crash_releases_native_lock_without_deleting_file",
+          "tests/test_job_mail_process_lock.py::test_unsupported_or_failed_native_lock_is_closed_without_soft_fallback",
+          "tests/test_job_mail_scheduler.py::test_automatic_success_resets_consecutive_failure_streak",
+          "tests/test_job_mail_scheduler.py::test_cancelling_automatic_run_preserves_future_schedule",
+          "tests/test_job_mail_scheduler.py::test_disabling_automatic_keeps_current_run_and_allows_manual",
+          "tests/test_job_mail_scheduler.py::test_due_tick_recovers_expired_foreign_worker_lease",
+          "tests/test_job_mail_scheduler.py::test_due_tick_waits_for_expired_local_worker_before_recovery",
+          "tests/test_job_mail_scheduler.py::test_manual_request_and_due_tick_admit_one_worker",
+          "tests/test_job_mail_scheduler.py::test_overdue_tick_does_not_replay_missed_intervals",
+          "tests/test_job_mail_scheduler.py::test_three_automatic_failures_require_explicit_resume[RuntimeError-sync_failed]",
+          "tests/test_job_mail_scheduler.py::test_three_automatic_failures_require_explicit_resume[TransportUnavailable-folder_read_failed]",
+          "tests/test_job_mail_scheduler.py::test_tick_waits_until_due_then_runs_one_automatic_pipeline",
+          "tests/test_job_mail_scheduler_fixture.py::test_production_app_never_exposes_scheduler_fixture",
+          "tests/test_job_mail_scheduler_fixture.py::test_scheduler_fixture_controls_and_external_network_fence",
+          "tests/test_job_mail_sync.py::test_budget_shared_and_cursor_does_not_skip_deferred",
+          "tests/test_job_mail_sync.py::test_cancelled_but_live_worker_does_not_spawn_another",
+          "tests/test_job_mail_sync.py::test_cancelled_extraction_payload_has_bounded_retention",
+          "tests/test_job_mail_sync.py::test_connect_defaults_manual_no_reads_and_new_folders_not_included",
+          "tests/test_job_mail_sync.py::test_empty_date_filtered_batch_advances_metadata_cursor",
+          "tests/test_job_mail_sync.py::test_expired_lease_recovers_on_manual_click_only",
+          "tests/test_job_mail_sync.py::test_manual_and_automatic_share_throttle_and_dedup",
+          "tests/test_job_mail_sync.py::test_manual_paste_does_not_inherit_model_or_transmit_content",
+          "tests/test_job_mail_sync.py::test_provider_work_does_not_lock_cancel_or_publish_late",
+          "tests/test_job_mail_sync.py::test_remote_and_model_default_fail_closed",
+          "tests/test_job_mail_sync.py::test_run_cutoff_does_not_expand_when_mail_arrives_in_later_folder",
+          "tests/test_job_mail_sync.py::test_scope_change_disconnect_fences_running_result",
+          "tests/test_job_mail_sync.py::test_status_keeps_budget_and_run_in_one_read_snapshot",
+          "tests/test_job_mail_sync.py::test_status_releases_read_snapshot_before_external_catalog[catalog]",
+          "tests/test_job_mail_sync.py::test_status_releases_read_snapshot_before_external_catalog[folders]",
+          "tests/test_job_mail_sync.py::test_status_rolls_back_read_snapshot_when_projection_raises",
+          "tests/test_job_mail_sync.py::test_three_failures_pause_automatic",
+          "tests/test_job_mail_sync.py::test_turn_off_auto_does_not_cancel_current_manual_run",
+          "tests/test_job_mail_sync.py::test_uidvalidity_reset_rescans_bounded_and_dedups",
+          "tests/test_job_mail_sync.py::test_unknown_provider_failure_preserves_source_and_budget",
+          "tests/test_job_mail_transport.py::test_fixed_host_tls_readonly_peek_and_date_filter_before_body",
+          "tests/test_job_mail_transport.py::test_fixed_run_cutoff_does_not_fetch_newer_mail_body",
+          "tests/test_job_mail_transport.py::test_invalid_list_is_rejected[() NIL \"&bad-\"]",
+          "tests/test_job_mail_transport.py::test_invalid_list_is_rejected[() NIL \"bad\\rname\"]",
+          "tests/test_job_mail_transport.py::test_invalid_list_is_rejected[() NIL \"unfinished]",
+          "tests/test_job_mail_transport.py::test_invalid_list_is_rejected[garbage]",
+          "tests/test_job_mail_transport.py::test_invalid_list_is_rejected[row3]",
+          "tests/test_job_mail_transport.py::test_list_parses_literals_noselect_special_use_nil_and_escaped_quotes",
+          "tests/test_job_mail_transport.py::test_modified_utf7_roundtrip_and_readonly_quoted_wire_folder[Candidates & Hiring/\"Team\"]",
+          "tests/test_job_mail_transport.py::test_modified_utf7_roundtrip_and_readonly_quoted_wire_folder[\\u6536\\u4ef6\\u7bb1]",
+          "tests/test_job_mail_transport.py::test_modified_utf7_roundtrip_and_readonly_quoted_wire_folder[\\u9879\\u76ee\\U0001f600]",
+          "tests/test_job_mail_transport.py::test_provider_error_sanitized_and_logged_out",
+          "tests/test_job_mail_transport.py::test_stdlib_login_never_retains_plaintext_in_diagnostic_ring",
+          "tests/test_job_mail_transport.py::test_vault_control_characters_never_reach_login",
+          "tests/test_job_mail_transport.py::test_vault_plaintext_backend_rejected"
+        ],
+        "history_not_collected": []
+      },
+      "prediction": {
+        "node_counts": [
+          124,
+          454,
+          316,
+          329,
+          611,
+          763,
+          653,
+          785,
+          792,
+          678,
+          829,
+          793
+        ],
+        "phase_ms": [
+          5316713,
+          5316713,
+          5316713,
+          5316713,
+          5316713,
+          5316970,
+          5316713,
+          5316713,
+          5316713,
+          5316713,
+          5316712,
+          5316713
+        ],
+        "scope": "scheduling-only; not completed execution evidence"
+      }
+    },
+    "node_updates": {
+      "tests/test_agent_run_keyring.py::test_unavailable_windows_probe_cannot_reclaim_an_existing_lock": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_confirmed_memory.py::test_confirmation_cas_withdraw_and_reconfirm": {
+        "artifact_id": 12059455916,
+        "previous_ms": 4147,
+        "observed_ms": 5770
+      },
+      "tests/test_confirmed_memory.py::test_delete_erases_all_text_and_tombstone_rejects_old_create": {
+        "artifact_id": 12059455916,
+        "previous_ms": 3957,
+        "observed_ms": 5595
+      },
+      "tests/test_confirmed_memory.py::test_mutation_id_cannot_be_reused_for_other_content": {
+        "artifact_id": 12059455916,
+        "previous_ms": 3982,
+        "observed_ms": 5529
+      },
+      "tests/test_confirmed_memory.py::test_repeated_withdraw_does_not_consume_confirmed_version_capacity": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5995,
+        "observed_ms": 8071
+      },
+      "tests/test_conversation_summary.py::test_source_change_and_withdrawal_invalidate_before_injection[withdraw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6430,
+        "observed_ms": 7265
+      },
+      "tests/test_interview_practice_cases.py::test_attempt_context_is_explicit_on_fresh_schema": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5028,
+        "observed_ms": 6942
+      },
+      "tests/test_interview_practice_cases.py::test_case_archive_does_not_delete_frozen_history": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5042,
+        "observed_ms": 7033
+      },
+      "tests/test_interview_practice_cases.py::test_case_freezes_user_confirmed_input_and_replays_by_key": {
+        "artifact_id": 12059455916,
+        "previous_ms": 4973,
+        "observed_ms": 7478
+      },
+      "tests/test_interview_practice_cases.py::test_case_rejects_blank_or_overlong_position_and_jd": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5077,
+        "observed_ms": 6965
+      },
+      "tests/test_interview_practice_cases.py::test_case_same_key_with_changed_input_is_a_conflict": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5127,
+        "observed_ms": 6833
+      },
+      "tests/test_interview_practice_cases.py::test_quick_practice_attempt_namespace_includes_case_context": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5351,
+        "observed_ms": 7140
+      },
+      "tests/test_interview_practice_cases.py::test_quick_practice_attempt_uses_case_context_without_application_or_event": {
+        "artifact_id": 12059455916,
+        "previous_ms": 4964,
+        "observed_ms": 7139
+      },
+      "tests/test_job_mail_api.py::test_api_import_preview_confirm_recovery_never_uses_chat_autoapprove": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11477
+      },
+      "tests/test_job_mail_api.py::test_mail_origin_fence_blocks_cross_site_reads_and_writes_only_for_mail": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 10928
+      },
+      "tests/test_job_mail_api.py::test_mail_origin_fence_does_not_trust_forwarded_headers_or_override_auth": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11030
+      },
+      "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[get-/api/job-mail/receipts/unknown-None]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11909
+      },
+      "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[get-/api/job-mail/status-None]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11035
+      },
+      "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[get-/api/job-mail/suggestions-None]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 10915
+      },
+      "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[post-/api/job-mail/connection-body5]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11103
+      },
+      "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[post-/api/job-mail/imports-body3]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11238
+      },
+      "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[post-/api/job-mail/suggestions/unknown/confirm-body4]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11106
+      },
+      "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[put-/api/job-mail/settings-body6]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11194
+      },
+      "tests/test_job_mail_api.py::test_mail_validation_rejects_tool_instructions_and_implicit_approval": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11148
+      },
+      "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[1441]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11132
+      },
+      "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[15.5]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11096
+      },
+      "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[15]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 12066
+      },
+      "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[4]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11842
+      },
+      "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[True]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11136
+      },
+      "tests/test_job_mail_api.py::test_suggestion_pagination_reports_real_pending_counts": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 10980
+      },
+      "tests/test_job_mail_api.py::test_transport_authentication_never_bypasses_mail_origin_guard[False]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 11649
+      },
+      "tests/test_job_mail_api.py::test_transport_authentication_never_bypasses_mail_origin_guard[True]": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 10897
+      },
+      "tests/test_job_mail_api.py::test_unavailable_credentials_connection_fails_closed_without_echoing_input": {
+        "artifact_id": 12059455916,
+        "previous_ms": null,
+        "observed_ms": 12228
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Assessment from 2026-10-20T10:00:00Z to 2026-10-22T10:00:00Z]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Complete assessment before 2026-10-20T10:00:00Z, duration 60 minutes.]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Complete assessment no later than 2026-10-20T10:00:00Z, duration 60 minutes.]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview canceled. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview cancellation. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview cancelled. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview postponed. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Please complete the assessment by 2026-10-20T10:00:00Z, duration 60 minutes.]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[\\u9762\\u8bd5\\u5ef6\\u671f\\u3002\\u539f\\u65f6\\u95f42026-10-20T10:00:00Z\\uff0c\\u65f6\\u957f60\\u5206\\u949f\\u3002]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[\\u9762\\u8bd5\\u64a4\\u9500\\u3002\\u539f\\u65f6\\u95f42026-10-20T10:00:00Z\\uff0c\\u65f6\\u957f60\\u5206\\u949f\\u3002]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[0]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 11
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[10]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[11]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[12]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[13]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[14]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[15]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[16]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[17]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[18]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[19]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[1]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[20]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[21]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[22]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[23]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[24]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[25]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[26]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[27]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[28]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[29]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[2]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[30]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[31]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[32]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[33]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[34]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[35]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[36]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[37]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[38]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[39]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[3]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[40]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[41]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[42]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[43]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[44]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[45]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[46]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[47]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[48]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[49]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[4]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[5]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[6]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[7]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[8]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[9]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_fingerprint_not_message_id_alone": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 5
+      },
+      "tests/test_job_mail_extraction.py::test_location_supplement_is_patch_without_implied_type_or_time_change": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_manual_notices_without_explicit_time_are_not_marked_fixed[\\u606d\\u559c\\u6536\\u5230Offer\\u5f55\\u7528\\u901a\\u77e5]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_extraction.py::test_manual_notices_without_explicit_time_are_not_marked_fixed[\\u9762\\u8bd5\\u53d6\\u6d88\\uff0c\\u8bf7\\u52ff\\u53c2\\u52a0]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_extraction.py::test_manual_notices_without_explicit_time_are_not_marked_fixed[\\u9762\\u8bd5\\u65f6\\u95f4\\u53e6\\u884c\\u901a\\u77e5]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_extraction.py::test_meeting_link_supplement_does_not_create_second_event": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_model_cannot_override_deterministic_cancellation_guard": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 5
+      },
+      "tests/test_job_mail_extraction.py::test_model_default_denied_before_callback": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_model_evidence_offsets_validated": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 8
+      },
+      "tests/test_job_mail_extraction.py::test_model_schema_rejects_tool_calls_and_fake_confirmation": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 12
+      },
+      "tests/test_job_mail_extraction.py::test_no_guessed_duration_or_relative_time": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_real_network_default_is_closed": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_extraction.py::test_safe_html_never_loads_images_or_scripts": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_extraction.py::test_truncated_notice_requires_manual_review": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 10
+      },
+      "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u6536\\u5230\\u5f55\\u7528\\u901a\\u77e5 offer-unknown]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u6d4b\\u8bc4\\u8bf7\\u572810\\u670815\\u65e5\\u524d\\u5b8c\\u6210-deadline]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u7b14\\u8bd515\\u81f317\\u65e5\\u4efb\\u9009\\u65f6\\u95f4-window]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u9762\\u8bd5\\u5df2\\u53d6\\u6d88-unknown]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u9762\\u8bd5\\u6539\\u671f\\u81f3\\u660e\\u5929-unknown]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u9762\\u8bd5\\u65f6\\u95f4\\u53e6\\u884c\\u901a\\u77e5-unknown]": {
+        "artifact_id": 12055067112,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_review.py::test_concurrent_duplicate_confirm_creates_exactly_one_event_and_receipt": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10484
+      },
+      "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[delete]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 19534
+      },
+      "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[notes]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9322
+      },
+      "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[parent]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9015
+      },
+      "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[schedule]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9574
+      },
+      "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[soft_delete]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 8954
+      },
+      "tests/test_job_mail_review.py::test_concurrent_two_operations_for_same_suggestion_do_not_duplicate": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9850
+      },
+      "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[1]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[False]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[None]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[true]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_connection_scope_revocation_blocks_old_preview[scope_id]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10121
+      },
+      "tests/test_job_mail_review.py::test_connection_scope_revocation_blocks_old_preview[scope_version]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 17352
+      },
+      "tests/test_job_mail_review.py::test_connection_scope_revocation_blocks_old_preview[status]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 13053
+      },
+      "tests/test_job_mail_review.py::test_cross_application_target_is_rejected": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9364
+      },
+      "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[1792483200000]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[1792483200_0]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[1792483200_1]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[2026-10-20]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[tomorrow]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_job_mail_review.py::test_expired_preview_and_cleared_evidence_cannot_confirm": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10302
+      },
+      "tests/test_job_mail_review.py::test_explicit_reminder_edit_wins_over_empty_proposal_on_time_change[2026-10-21T09:30:00Z]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9471
+      },
+      "tests/test_job_mail_review.py::test_explicit_reminder_edit_wins_over_empty_proposal_on_time_change[None]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9338
+      },
+      "tests/test_job_mail_review.py::test_ignore_is_durable_and_duplicate_ingest_does_not_resurrect": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10302
+      },
+      "tests/test_job_mail_review.py::test_invalid_evidence_and_injected_actions_are_rejected_without_partial_storage": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9793
+      },
+      "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields0]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9933
+      },
+      "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields1]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10312
+      },
+      "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields2]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10656
+      },
+      "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields3]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10412
+      },
+      "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields4]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9925
+      },
+      "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields5]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10150
+      },
+      "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields6]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10246
+      },
+      "tests/test_job_mail_review.py::test_old_suggestion_cannot_be_applied[status]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 16850
+      },
+      "tests/test_job_mail_review.py::test_old_suggestion_cannot_be_applied[superseded_by]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 11428
+      },
+      "tests/test_job_mail_review.py::test_old_suggestion_cannot_be_applied[version]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 11027
+      },
+      "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed0]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9281
+      },
+      "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed1]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9433
+      },
+      "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed2]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 8983
+      },
+      "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed3]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9173
+      },
+      "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed4]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9205
+      },
+      "tests/test_job_mail_review.py::test_preview_has_zero_business_writes_and_confirm_is_atomic_and_recoverable": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9270
+      },
+      "tests/test_job_mail_review.py::test_reauthorization_requires_actual_reread_and_never_resurrects_processed": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9872
+      },
+      "tests/test_job_mail_review.py::test_receipt_and_business_rows_survive_database_restart": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10397
+      },
+      "tests/test_job_mail_review.py::test_receipt_failure_rolls_back_event_and_suggestion": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9870
+      },
+      "tests/test_job_mail_review.py::test_receipt_key_reuse_with_different_fields_is_rejected": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9349
+      },
+      "tests/test_job_mail_review.py::test_same_time_with_different_offset_does_not_clear_reminder": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9406
+      },
+      "tests/test_job_mail_review.py::test_settings_scope_preserves_retained_sources_but_requires_fresh_preview": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9869
+      },
+      "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[deadline-create_event]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10020
+      },
+      "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[fixed-cancel_event]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 11033
+      },
+      "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[fixed-create_offer]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10952
+      },
+      "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[fixed-manual_only]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10330
+      },
+      "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[unknown-create_event]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10228
+      },
+      "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[window-create_event]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 10260
+      },
+      "tests/test_job_mail_review.py::test_update_preserves_omitted_fields_and_same_id_and_discloses_old_reminder[reminder_placeholder0]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9329
+      },
+      "tests/test_job_mail_review.py::test_update_preserves_omitted_fields_and_same_id_and_discloses_old_reminder[reminder_placeholder1]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9375
+      },
+      "tests/test_job_mail_review.py::test_update_preserves_omitted_fields_and_same_id_and_discloses_old_reminder[reminder_placeholder2]": {
+        "artifact_id": 12055592757,
+        "previous_ms": null,
+        "observed_ms": 9422
+      },
+      "tests/test_job_mail_secure_setup.py::test_cancel_between_committed_scope_fence_and_read_cannot_use_rebuilt_transport": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 17642
+      },
+      "tests/test_job_mail_secure_setup.py::test_cancel_expiry_and_replacement_clear_temporary_secrets": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6814
+      },
+      "tests/test_job_mail_secure_setup.py::test_chunked_body_limited_before_json_and_auth_guard_does_not_read_bytes": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 3
+      },
+      "tests/test_job_mail_secure_setup.py::test_cli_explicit_enable_disables_proxy_headers[127.0.0.1]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6993
+      },
+      "tests/test_job_mail_secure_setup.py::test_cli_explicit_enable_disables_proxy_headers[::1]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 19141
+      },
+      "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[0.0.0.0]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 78
+      },
+      "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[::]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 16
+      },
+      "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[example.invalid]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 14
+      },
+      "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[localhost]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 14
+      },
+      "tests/test_job_mail_secure_setup.py::test_database_commit_ack_failure_does_not_delete_a_committed_credential": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 8119
+      },
+      "tests/test_job_mail_secure_setup.py::test_disabled_app_never_admits_setup_body_or_env_override": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 14531
+      },
+      "tests/test_job_mail_secure_setup.py::test_disconnect_during_first_body_closes_session_and_never_reads_next_or_publishes[False]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 8123
+      },
+      "tests/test_job_mail_secure_setup.py::test_disconnect_during_first_body_closes_session_and_never_reads_next_or_publishes[True]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7859
+      },
+      "tests/test_job_mail_secure_setup.py::test_disconnect_failure_stops_auto_keeps_reference_and_retries": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7313
+      },
+      "tests/test_job_mail_secure_setup.py::test_disconnect_waits_for_inflight_vault_write_before_declaring_deleted": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7347
+      },
+      "tests/test_job_mail_secure_setup.py::test_earlier_observer_locks_down_when_another_runtime_saves_real_mail": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7715
+      },
+      "tests/test_job_mail_secure_setup.py::test_enabled_app_rejects_dns_rebinding_even_when_origin_matches_host[status-get]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 15435
+      },
+      "tests/test_job_mail_secure_setup.py::test_enabled_app_rejects_dns_rebinding_even_when_origin_matches_host[suggestions-get]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 14722
+      },
+      "tests/test_job_mail_secure_setup.py::test_enabled_app_rejects_dns_rebinding_even_when_origin_matches_host[sync-post]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 17011
+      },
+      "tests/test_job_mail_secure_setup.py::test_enabled_restart_does_not_replay_manual_sync_or_vault_writes": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6995
+      },
+      "tests/test_job_mail_secure_setup.py::test_existing_0033_database_gets_credential_intent_table_without_data_reset": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 12313
+      },
+      "tests/test_job_mail_secure_setup.py::test_historical_real_mail_keeps_local_host_guard_after_disabled_restart": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 15087
+      },
+      "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers0]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6864
+      },
+      "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers1]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 8597
+      },
+      "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers2]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 12209
+      },
+      "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers3]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7090
+      },
+      "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers4]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7110
+      },
+      "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers5]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7152
+      },
+      "tests/test_job_mail_secure_setup.py::test_recovery_is_local_and_default_disabled_even_with_saved_automatic": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7100
+      },
+      "tests/test_job_mail_secure_setup.py::test_remote_client_and_host_are_rejected": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6796
+      },
+      "tests/test_job_mail_secure_setup.py::test_replaying_cancelled_run_does_not_cancel_new_transport": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6995
+      },
+      "tests/test_job_mail_secure_setup.py::test_save_failure_keeps_durable_cleanup_reference_and_manual_retry": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7209
+      },
+      "tests/test_job_mail_secure_setup.py::test_second_runtime_cannot_recover_or_control_first_owners_connection": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 11457
+      },
+      "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\n]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7267
+      },
+      "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\r]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7312
+      },
+      "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\x00]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7437
+      },
+      "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\x7f]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7465
+      },
+      "tests/test_job_mail_secure_setup.py::test_selection_is_bound_to_discovery_catalog[selection0]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7006
+      },
+      "tests/test_job_mail_secure_setup.py::test_selection_is_bound_to_discovery_catalog[selection1]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6898
+      },
+      "tests/test_job_mail_secure_setup.py::test_selection_is_bound_to_discovery_catalog[selection2]": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 6568
+      },
+      "tests/test_job_mail_secure_setup.py::test_settings_cannot_commit_after_shutdown_yields_runtime_ownership": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 9333
+      },
+      "tests/test_job_mail_secure_setup.py::test_shutdown_keeps_owner_lock_until_late_vault_write_is_compensated": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7630
+      },
+      "tests/test_job_mail_secure_setup.py::test_test_request_transfers_secret_and_cancel_drops_live_session_copy": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 8232
+      },
+      "tests/test_job_mail_secure_setup.py::test_three_steps_require_consent_and_cookie_and_never_fetch_body": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7285
+      },
+      "tests/test_job_mail_secure_setup.py::test_vault_lost_at_save_clears_secret_immediately": {
+        "artifact_id": 12055148733,
+        "previous_ms": null,
+        "observed_ms": 7060
+      },
+      "tests/test_mock_interview_migrations.py::test_0016_creates_new_tables_and_is_idempotent": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6202,
+        "observed_ms": 8708
+      },
+      "tests/test_mock_interview_migrations.py::test_0016_drops_mock_rows_and_messages_but_preserves_normal_chat": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5888,
+        "observed_ms": 8231
+      },
+      "tests/test_mock_interview_migrations.py::test_0016_handles_legacy_named_indexes_before_dropping_mock_table": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5653,
+        "observed_ms": 8041
+      },
+      "tests/test_mock_interview_migrations.py::test_0016_preserves_formal_interview_notes_but_creates_no_legacy_mock_data": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5799,
+        "observed_ms": 8167
+      },
+      "tests/test_mock_interview_migrations.py::test_0023_rebuilds_legacy_attempt_and_voice_rows_without_losing_history": {
+        "artifact_id": 12059455916,
+        "previous_ms": 4959,
+        "observed_ms": 7026
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-127.0.0.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-198.51.100.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-::1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-localhost]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-127.0.0.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-198.51.100.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-::1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-localhost]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-127.0.0.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-198.51.100.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-::1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-localhost]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-127.0.0.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-198.51.100.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-::1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-localhost]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-127.0.0.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-198.51.100.1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-::1]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-localhost]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_caught_network_denial_still_fails_the_guard": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_copied_stdlib_code_with_different_globals_is_denied": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[litellm.acompletion]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[litellm.completion]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[offerpilot.job_mail.transport.OSVault]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[offerpilot.job_mail.transport.QQIMAPTransport]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_missing_or_replaced_stdlib_identity_fails_closed[<lambda>]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_missing_or_replaced_stdlib_identity_fails_closed[None]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_same_named_function_cannot_claim_socketpair_exception": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[client]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[closed_listener]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[datagram_client]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[destination]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[not_listening]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[same_socket]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[wildcard_listener]": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 1
+      },
+      "tests/test_offline_socketpair_guard.py::test_socketpair_preserves_preexisting_connect_guard": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 2
+      },
+      "tests/test_offline_socketpair_guard.py::test_stdlib_fallback_socketpair_remains_usable": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 2
+      },
+      "tests/test_offline_socketpair_guard.py::test_testclient_starts_with_real_fallback_socketpair": {
+        "artifact_id": 12056261114,
+        "previous_ms": null,
+        "observed_ms": 6
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[-1-_delete_v2_unconfirmed_stage]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5465,
+        "observed_ms": 6972
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[-1-_mark_v2_provider_unknown]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5590,
+        "observed_ms": 7497
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[0-_delete_v2_unconfirmed_stage]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5365,
+        "observed_ms": 6910
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[0-_mark_v2_provider_unknown]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5426,
+        "observed_ms": 6938
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[1-_delete_v2_unconfirmed_stage]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5394,
+        "observed_ms": 7557
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[1-_mark_v2_provider_unknown]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5379,
+        "observed_ms": 8117
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-0-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5365,
+        "observed_ms": 7230
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-0-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5415,
+        "observed_ms": 7435
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-123456-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5256,
+        "observed_ms": 6909
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-123456-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5259,
+        "observed_ms": 7084
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-0-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5452,
+        "observed_ms": 7303
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-0-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5570,
+        "observed_ms": 7259
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-123456-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5846,
+        "observed_ms": 7110
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-123456-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5427,
+        "observed_ms": 6763
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-0-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5195,
+        "observed_ms": 6734
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-0-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5588,
+        "observed_ms": 7091
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-123456-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5502,
+        "observed_ms": 7068
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-123456-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5901,
+        "observed_ms": 6977
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_checks_expiry_after_acquiring_sqlite_write_lock": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5362,
+        "observed_ms": 7319
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_stop_during_expiry_read_does_not_report_lost_owner": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5600,
+        "observed_ms": 7513
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-0-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5768,
+        "observed_ms": 6839
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-0-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5637,
+        "observed_ms": 7023
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-123456-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5929,
+        "observed_ms": 9578
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-123456-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5699,
+        "observed_ms": 10993
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-0-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5876,
+        "observed_ms": 7050
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-0-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5874,
+        "observed_ms": 6817
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-123456-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5693,
+        "observed_ms": 6976
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-123456-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6166,
+        "observed_ms": 7010
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-0-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5489,
+        "observed_ms": 6969
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-0-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5810,
+        "observed_ms": 6860
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-123456-orm]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5905,
+        "observed_ms": 6804
+      },
+      "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-123456-raw]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5652,
+        "observed_ms": 7105
+      },
+      "tests/test_review_to_readiness_baseline.py::test_interview_preparation_v1_request_and_snapshot_match_pinned_builder": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7081,
+        "observed_ms": 7329
+      },
+      "tests/tool_authority/test_pending_claim.py::test_cancellation_revokes_claim_and_rolls_back_every_write": {
+        "artifact_id": 12059455916,
+        "previous_ms": 9463,
+        "observed_ms": 9601
+      },
+      "tests/tool_authority/test_pending_claim.py::test_cas_loser_revokes_claim_and_does_not_leave_operation": {
+        "artifact_id": 12059455916,
+        "previous_ms": 10127,
+        "observed_ms": 10413
+      },
+      "tests/tool_authority/test_pending_claim.py::test_coordinator_closed_short_circuit_revokes_claim": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7475,
+        "observed_ms": 9987
+      },
+      "tests/tool_authority/test_pending_claim.py::test_direct_typed_pending_route_rejects_without_creating_orphan": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7960,
+        "observed_ms": 9709
+      },
+      "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[continuation]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 8816,
+        "observed_ms": 10890
+      },
+      "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[replace]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7519,
+        "observed_ms": 10189
+      },
+      "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[set]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7726,
+        "observed_ms": 10287
+      },
+      "tests/tool_authority/test_pending_claim.py::test_initial_typed_pending_rejects_revoked_origin_segment_route": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7822,
+        "observed_ms": 9791
+      },
+      "tests/tool_authority/test_pending_claim.py::test_missing_operation_repository_revokes_claim_before_return": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7449,
+        "observed_ms": 9269
+      },
+      "tests/tool_authority/test_pending_claim.py::test_operation_pending_without_exact_route_handle_fails_closed_for_typed_and_legacy": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6116,
+        "observed_ms": 7154
+      },
+      "tests/tool_authority/test_pending_claim.py::test_post_commit_cancellation_keeps_atom_and_consumes_claim": {
+        "artifact_id": 12059455916,
+        "previous_ms": 9871,
+        "observed_ms": 10154
+      },
+      "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[continuation]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5125,
+        "observed_ms": 8140
+      },
+      "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[initial]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5460,
+        "observed_ms": 7343
+      },
+      "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[replace]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5234,
+        "observed_ms": 7372
+      },
+      "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[operation]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 9216,
+        "observed_ms": 9823
+      },
+      "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[tool-call]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 9720,
+        "observed_ms": 9981
+      },
+      "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[tool-name]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 10271,
+        "observed_ms": 11015
+      },
+      "tests/tool_authority/test_pending_claim.py::test_typed_replacement_cas_loser_reports_failure_and_revokes_claim[replace]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 9792,
+        "observed_ms": 10478
+      },
+      "tests/tool_authority/test_reject_privacy.py::test_deleted_owning_conversation_cannot_be_rebound_for_reject": {
+        "artifact_id": 12059455916,
+        "previous_ms": 8665,
+        "observed_ms": 9630
+      },
+      "tests/tool_authority/test_reject_privacy.py::test_plain_omitted_token_reject_never_decodes_pending_args[malformed]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 8287,
+        "observed_ms": 9558
+      },
+      "tests/tool_authority/test_reject_privacy.py::test_plain_omitted_token_reject_never_decodes_pending_args[oversized]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 8226,
+        "observed_ms": 9524
+      },
+      "tests/tool_authority/test_reject_privacy.py::test_supplied_token_is_checked_by_canonical_fingerprint_only": {
+        "artifact_id": 12059455916,
+        "previous_ms": 8455,
+        "observed_ms": 9598
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_application_scope_standalone_add_note_keeps_null_parent_but_requires_active_scope": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5428,
+        "observed_ms": 7721
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[-1]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5968,
+        "observed_ms": 7553
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[0]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5621,
+        "observed_ms": 7574
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[1.5]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5470,
+        "observed_ms": 7672
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[1]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5288,
+        "observed_ms": 7652
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[9223372036854775808]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5626,
+        "observed_ms": 7825
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[True]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5264,
+        "observed_ms": 7711
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_exact_nine_ports_require_a_factory_registered_caller_session_binding": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5211,
+        "observed_ms": 7853
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_creates_reject_cross_scope_and_soft_deleted_parent_without_insert": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5216,
+        "observed_ms": 7886
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_mutations_are_guarded_and_event_delete_owns_note_unbind": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5471,
+        "observed_ms": 7822
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_mutations_recheck_parent_after_prepare_style_reparent_and_delete": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5344,
+        "observed_ms": 7792
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[applications-update_application_status_scoped-second_id-None-None]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5454,
+        "observed_ms": 7728
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[events-delete_application_event_scoped-second_event_id-ApplicationEvent-None]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5129,
+        "observed_ms": 7901
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[events-update_application_event_scoped-second_event_id-ApplicationEvent-notes]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5290,
+        "observed_ms": 9604
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[notes-delete_note_scoped-second_note_id-InterviewNote-None]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5384,
+        "observed_ms": 7661
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[notes-update_note_scoped-second_note_id-InterviewNote-company]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5335,
+        "observed_ms": 7684
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[offers-save_offer_assessment_scoped-second_offer_id-Offer-assessment]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5329,
+        "observed_ms": 7705
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[offers-update_offer_scoped-second_offer_id-Offer-notes]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5443,
+        "observed_ms": 7645
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_application_status_does_not_relabel_unrelated_integrity_error": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5240,
+        "observed_ms": 7717
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_application_status_preserves_closed_and_first_timestamp_predicates": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5485,
+        "observed_ms": 7875
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_cross_scope_changes_no_note_revision": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5498,
+        "observed_ms": 8000
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_revisions_bound_note_once_and_keeps_outer_transaction": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5526,
+        "observed_ms": 7514
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_trigger_abort_rolls_back_owner_primitive_only": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5588,
+        "observed_ms": 7887
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_event_offset_create_update_and_rollback[application]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5548,
+        "observed_ms": 7789
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_event_offset_create_update_and_rollback[workspace]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5245,
+        "observed_ms": 7634
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_consecutive_updates_each_increment_revision_in_bound_session": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5621,
+        "observed_ms": 7598
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_does_not_relabel_business_value_toobig": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5704,
+        "observed_ms": 7650
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_does_not_relabel_trigger_toobig": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5507,
+        "observed_ms": 7685
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[Exception-2067-SQLITE_CONSTRAINT_UNIQUE]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5415,
+        "observed_ms": 7500
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-1299-SQLITE_CONSTRAINT_UNIQUE]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5678,
+        "observed_ms": 8051
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-2067-SQLITE_CONSTRAINT_NOTNULL]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5680,
+        "observed_ms": 7573
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-2067-SQLITE_CONSTRAINT_UNIQUE]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5671,
+        "observed_ms": 7982
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_trigger_unique_from_another_table": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5661,
+        "observed_ms": 7637
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_update_classifies_duplicate_without_integrity_error": {
+        "artifact_id": 12059455916,
+        "previous_ms": 7001,
+        "observed_ms": 7791
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_update_prioritizes_immutable_application_over_valid_event": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5411,
+        "observed_ms": 7580
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_allows_empty_company": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5585,
+        "observed_ms": 7442
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_does_not_relabel_unrelated_integrity_error[insert]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5371,
+        "observed_ms": 7374
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_does_not_relabel_unrelated_integrity_error[update]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5710,
+        "observed_ms": 7617
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_real_unrelated_not_null_error[insert]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5354,
+        "observed_ms": 7760
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_real_unrelated_not_null_error[update]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5477,
+        "observed_ms": 7471
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_stable_binding_domain_failures": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5643,
+        "observed_ms": 7842
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_rejects_non_string_company_before_sql[insert]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5668,
+        "observed_ms": 8061
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_rejects_non_string_company_before_sql[update]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5578,
+        "observed_ms": 7335
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_soft_deleted_current_parent_denies_every_scoped_write_without_side_effect": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5769,
+        "observed_ms": 7677
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_unrestricted_creates_preserve_soft_deleted_parent_baseline": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5677,
+        "observed_ms": 7722
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_unrestricted_ports_preserve_detached_offer_and_note_mutation_semantics": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5467,
+        "observed_ms": 7864
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_workspace_note_update_classifies_after_guarded_mutation_under_write_lock": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5772,
+        "observed_ms": 8602
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_workspace_note_update_domain_failure_does_not_fire_update_trigger": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5696,
+        "observed_ms": 7812
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_zero_or_multiple_restricted_binding_identities_fail_before_sql[allowed_identities0]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5356,
+        "observed_ms": 7710
+      },
+      "tests/tool_authority/test_scoped_writes.py::test_zero_or_multiple_restricted_binding_identities_fail_before_sql[allowed_identities1]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5295,
+        "observed_ms": 7688
+      },
+      "tests/tool_metadata/test_production_bundle.py::test_production_component_factory_has_one_application_composition_caller": {
+        "artifact_id": 12059455916,
+        "previous_ms": 2375,
+        "observed_ms": 2942
+      },
+      "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:jd_analysis_not_found]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5782,
+        "observed_ms": 6978
+      },
+      "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:missing_required_id]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5960,
+        "observed_ms": 7220
+      },
+      "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:success]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5460,
+        "observed_ms": 7352
+      },
+      "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[list_jd_analyses:success]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 5625,
+        "observed_ms": 7192
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:deleted_resume]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6846,
+        "observed_ms": 7425
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:missing_required_id]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6453,
+        "observed_ms": 7556
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:resume_not_found]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6672,
+        "observed_ms": 7366
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:success]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6881,
+        "observed_ms": 7465
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:missing_required_id]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6551,
+        "observed_ms": 7561
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:resume_not_found]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6666,
+        "observed_ms": 7527
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:success]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6663,
+        "observed_ms": 8667
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resumes:success]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6615,
+        "observed_ms": 7921
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:missing_required_id]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6591,
+        "observed_ms": 8350
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:negative_highlight_index]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6716,
+        "observed_ms": 7502
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:negative_item_index]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6863,
+        "observed_ms": 7258
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:out_of_range_highlight_index]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6738,
+        "observed_ms": 7138
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:out_of_range_item_index]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6418,
+        "observed_ms": 7389
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:resume_not_found]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6834,
+        "observed_ms": 7231
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:success]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6769,
+        "observed_ms": 7846
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:missing_required_id]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6575,
+        "observed_ms": 7325
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:resume_not_found]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6617,
+        "observed_ms": 7304
+      },
+      "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:success]": {
+        "artifact_id": 12059455916,
+        "previous_ms": 6431,
+        "observed_ms": 7432
+      }
+    },
+    "nodes_sha256": "8a763f3f823da1ba6c5893f4e169444ac0a58dc5a99a5bbe4f2aba5730cf3532"
   },
   "unit": "ceil_total_phase_milliseconds",
   "fallback_ms": 257834,
@@ -1193,6 +3332,7 @@
     "tests/test_agent_run_keyring.py::test_posix_key_file_is_owner_only": 25,
     "tests/test_agent_run_keyring.py::test_stale_creation_lock_with_confirmed_dead_owner_is_reclaimed": 33,
     "tests/test_agent_run_keyring.py::test_stale_lock_without_valid_owner_metadata_is_not_deleted": 5,
+    "tests/test_agent_run_keyring.py::test_unavailable_windows_probe_cannot_reclaim_an_existing_lock": 3,
     "tests/test_agent_run_keyring.py::test_windows_key_inherits_data_directory_acl_without_posix_chmod": 22,
     "tests/test_agent_run_migrations.py::test_database_rejects_malformed_model_call_uuid[AgentContextSnapshot]": 10075,
     "tests/test_agent_run_migrations.py::test_database_rejects_malformed_model_call_uuid[AgentEvent]": 8516,
@@ -2013,10 +4153,10 @@
     "tests/test_confirmed_ai_preparation_access.py::test_provider_return_rechecks_creation_proof[True]": 110,
     "tests/test_confirmed_ai_preparation_access.py::test_ready_replay_rechecks_source_but_history_remains_readable[False]": 97,
     "tests/test_confirmed_ai_preparation_access.py::test_ready_replay_rechecks_source_but_history_remains_readable[True]": 102,
-    "tests/test_confirmed_memory.py::test_confirmation_cas_withdraw_and_reconfirm": 4147,
-    "tests/test_confirmed_memory.py::test_delete_erases_all_text_and_tombstone_rejects_old_create": 3957,
-    "tests/test_confirmed_memory.py::test_mutation_id_cannot_be_reused_for_other_content": 3982,
-    "tests/test_confirmed_memory.py::test_repeated_withdraw_does_not_consume_confirmed_version_capacity": 5995,
+    "tests/test_confirmed_memory.py::test_confirmation_cas_withdraw_and_reconfirm": 5770,
+    "tests/test_confirmed_memory.py::test_delete_erases_all_text_and_tombstone_rejects_old_create": 5595,
+    "tests/test_confirmed_memory.py::test_mutation_id_cannot_be_reused_for_other_content": 5529,
+    "tests/test_confirmed_memory.py::test_repeated_withdraw_does_not_consume_confirmed_version_capacity": 8071,
     "tests/test_confirmed_memory.py::test_unconfirmed_and_scope_spoofing_rejected[changes0]": 1,
     "tests/test_confirmed_memory.py::test_unconfirmed_and_scope_spoofing_rejected[changes1]": 1,
     "tests/test_confirmed_memory.py::test_unconfirmed_and_scope_spoofing_rejected[changes2]": 1,
@@ -2173,7 +4313,7 @@
     "tests/test_conversation_summary.py::test_source_change_and_withdrawal_invalidate_before_injection[delete]": 11775,
     "tests/test_conversation_summary.py::test_source_change_and_withdrawal_invalidate_before_injection[edit]": 14431,
     "tests/test_conversation_summary.py::test_source_change_and_withdrawal_invalidate_before_injection[tamper]": 7915,
-    "tests/test_conversation_summary.py::test_source_change_and_withdrawal_invalidate_before_injection[withdraw]": 6430,
+    "tests/test_conversation_summary.py::test_source_change_and_withdrawal_invalidate_before_injection[withdraw]": 7265,
     "tests/test_core_task_surface_assets.py::test_core_task_assets_are_fixed_read_only_envelopes": 32,
     "tests/test_core_task_surface_assets.py::test_entrypoint_asset_uses_closed_categories_and_task_identity": 1,
     "tests/test_core_task_surface_assets.py::test_interview_asset_matches_the_immutable_baseline_serializer_keys": 141,
@@ -2448,13 +4588,13 @@
     "tests/test_interview_practice_case_api.py::test_quick_practice_finish_persists_normal_feedback_contract": 10503,
     "tests/test_interview_practice_case_api.py::test_quick_practice_finish_uses_last_confirmed_answer": 10754,
     "tests/test_interview_practice_case_api.py::test_quick_practice_turns_expose_frozen_source_and_follow_up_evidence": 11208,
-    "tests/test_interview_practice_cases.py::test_attempt_context_is_explicit_on_fresh_schema": 5028,
-    "tests/test_interview_practice_cases.py::test_case_archive_does_not_delete_frozen_history": 5042,
-    "tests/test_interview_practice_cases.py::test_case_freezes_user_confirmed_input_and_replays_by_key": 4973,
-    "tests/test_interview_practice_cases.py::test_case_rejects_blank_or_overlong_position_and_jd": 5077,
-    "tests/test_interview_practice_cases.py::test_case_same_key_with_changed_input_is_a_conflict": 5127,
-    "tests/test_interview_practice_cases.py::test_quick_practice_attempt_namespace_includes_case_context": 5351,
-    "tests/test_interview_practice_cases.py::test_quick_practice_attempt_uses_case_context_without_application_or_event": 4964,
+    "tests/test_interview_practice_cases.py::test_attempt_context_is_explicit_on_fresh_schema": 6942,
+    "tests/test_interview_practice_cases.py::test_case_archive_does_not_delete_frozen_history": 7033,
+    "tests/test_interview_practice_cases.py::test_case_freezes_user_confirmed_input_and_replays_by_key": 7478,
+    "tests/test_interview_practice_cases.py::test_case_rejects_blank_or_overlong_position_and_jd": 6965,
+    "tests/test_interview_practice_cases.py::test_case_same_key_with_changed_input_is_a_conflict": 6833,
+    "tests/test_interview_practice_cases.py::test_quick_practice_attempt_namespace_includes_case_context": 7140,
+    "tests/test_interview_practice_cases.py::test_quick_practice_attempt_uses_case_context_without_application_or_event": 7139,
     "tests/test_interview_preparation_ai.py::test_diagnostic_distinguishes_direct_safe_empty_from_contract_failure": 1,
     "tests/test_interview_preparation_ai.py::test_diagnostic_preserves_both_contract_failure_categories_without_raw_output": 1,
     "tests/test_interview_preparation_ai.py::test_diagnostic_records_repair_categories_and_provider_request_id_hash": 1,
@@ -2898,6 +5038,207 @@
     "tests/test_jd_resume_ai_api.py::test_resume_match_rejects_url_even_when_text_is_present": 14804,
     "tests/test_jd_resume_ai_api.py::test_resume_match_rejects_url_without_external_request": 14244,
     "tests/test_jd_resume_ai_api.py::test_resume_match_validates_resume_text_and_jd": 13651,
+    "tests/test_job_mail_api.py::test_api_import_preview_confirm_recovery_never_uses_chat_autoapprove": 11477,
+    "tests/test_job_mail_api.py::test_mail_origin_fence_blocks_cross_site_reads_and_writes_only_for_mail": 10928,
+    "tests/test_job_mail_api.py::test_mail_origin_fence_does_not_trust_forwarded_headers_or_override_auth": 11030,
+    "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[get-/api/job-mail/receipts/unknown-None]": 11909,
+    "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[get-/api/job-mail/status-None]": 11035,
+    "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[get-/api/job-mail/suggestions-None]": 10915,
+    "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[post-/api/job-mail/connection-body5]": 11103,
+    "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[post-/api/job-mail/imports-body3]": 11238,
+    "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[post-/api/job-mail/suggestions/unknown/confirm-body4]": 11106,
+    "tests/test_job_mail_api.py::test_mail_routes_share_existing_auth_before_read_or_validation[put-/api/job-mail/settings-body6]": 11194,
+    "tests/test_job_mail_api.py::test_mail_validation_rejects_tool_instructions_and_implicit_approval": 11148,
+    "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[1441]": 11132,
+    "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[15.5]": 11096,
+    "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[15]": 12066,
+    "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[4]": 11842,
+    "tests/test_job_mail_api.py::test_settings_reject_invalid_interval_without_connection_or_side_effects[True]": 11136,
+    "tests/test_job_mail_api.py::test_suggestion_pagination_reports_real_pending_counts": 10980,
+    "tests/test_job_mail_api.py::test_transport_authentication_never_bypasses_mail_origin_guard[False]": 11649,
+    "tests/test_job_mail_api.py::test_transport_authentication_never_bypasses_mail_origin_guard[True]": 10897,
+    "tests/test_job_mail_api.py::test_unavailable_credentials_connection_fails_closed_without_echoing_input": 12228,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Assessment from 2026-10-20T10:00:00Z to 2026-10-22T10:00:00Z]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Complete assessment before 2026-10-20T10:00:00Z, duration 60 minutes.]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Complete assessment no later than 2026-10-20T10:00:00Z, duration 60 minutes.]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview canceled. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview cancellation. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview cancelled. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Interview postponed. Scheduled 2026-10-20T10:00:00Z, duration 60 minutes.]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[Please complete the assessment by 2026-10-20T10:00:00Z, duration 60 minutes.]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[\\u9762\\u8bd5\\u5ef6\\u671f\\u3002\\u539f\\u65f6\\u95f42026-10-20T10:00:00Z\\uff0c\\u65f6\\u957f60\\u5206\\u949f\\u3002]": 3,
+    "tests/test_job_mail_extraction.py::test_dangerous_notice_categories_always_manual[\\u9762\\u8bd5\\u64a4\\u9500\\u3002\\u539f\\u65f6\\u95f42026-10-20T10:00:00Z\\uff0c\\u65f6\\u957f60\\u5206\\u949f\\u3002]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[0]": 11,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[10]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[11]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[12]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[13]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[14]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[15]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[16]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[17]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[18]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[19]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[1]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[20]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[21]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[22]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[23]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[24]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[25]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[26]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[27]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[28]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[29]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[2]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[30]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[31]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[32]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[33]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[34]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[35]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[36]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[37]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[38]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[39]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[3]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[40]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[41]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[42]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[43]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[44]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[45]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[46]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[47]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[48]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[49]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[4]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[5]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[6]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[7]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[8]": 3,
+    "tests/test_job_mail_extraction.py::test_fifty_synthetic_invites_keep_exact_evidence[9]": 3,
+    "tests/test_job_mail_extraction.py::test_fingerprint_not_message_id_alone": 5,
+    "tests/test_job_mail_extraction.py::test_location_supplement_is_patch_without_implied_type_or_time_change": 3,
+    "tests/test_job_mail_extraction.py::test_manual_notices_without_explicit_time_are_not_marked_fixed[\\u606d\\u559c\\u6536\\u5230Offer\\u5f55\\u7528\\u901a\\u77e5]": 1,
+    "tests/test_job_mail_extraction.py::test_manual_notices_without_explicit_time_are_not_marked_fixed[\\u9762\\u8bd5\\u53d6\\u6d88\\uff0c\\u8bf7\\u52ff\\u53c2\\u52a0]": 1,
+    "tests/test_job_mail_extraction.py::test_manual_notices_without_explicit_time_are_not_marked_fixed[\\u9762\\u8bd5\\u65f6\\u95f4\\u53e6\\u884c\\u901a\\u77e5]": 1,
+    "tests/test_job_mail_extraction.py::test_meeting_link_supplement_does_not_create_second_event": 3,
+    "tests/test_job_mail_extraction.py::test_model_cannot_override_deterministic_cancellation_guard": 5,
+    "tests/test_job_mail_extraction.py::test_model_default_denied_before_callback": 3,
+    "tests/test_job_mail_extraction.py::test_model_evidence_offsets_validated": 8,
+    "tests/test_job_mail_extraction.py::test_model_schema_rejects_tool_calls_and_fake_confirmation": 12,
+    "tests/test_job_mail_extraction.py::test_no_guessed_duration_or_relative_time": 3,
+    "tests/test_job_mail_extraction.py::test_real_network_default_is_closed": 1,
+    "tests/test_job_mail_extraction.py::test_safe_html_never_loads_images_or_scripts": 1,
+    "tests/test_job_mail_extraction.py::test_truncated_notice_requires_manual_review": 10,
+    "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u6536\\u5230\\u5f55\\u7528\\u901a\\u77e5 offer-unknown]": 3,
+    "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u6d4b\\u8bc4\\u8bf7\\u572810\\u670815\\u65e5\\u524d\\u5b8c\\u6210-deadline]": 3,
+    "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u7b14\\u8bd515\\u81f317\\u65e5\\u4efb\\u9009\\u65f6\\u95f4-window]": 3,
+    "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u9762\\u8bd5\\u5df2\\u53d6\\u6d88-unknown]": 3,
+    "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u9762\\u8bd5\\u6539\\u671f\\u81f3\\u660e\\u5929-unknown]": 3,
+    "tests/test_job_mail_extraction.py::test_unsupported_notices_cannot_apply[\\u9762\\u8bd5\\u65f6\\u95f4\\u53e6\\u884c\\u901a\\u77e5-unknown]": 3,
+    "tests/test_job_mail_review.py::test_concurrent_duplicate_confirm_creates_exactly_one_event_and_receipt": 10484,
+    "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[delete]": 19534,
+    "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[notes]": 9322,
+    "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[parent]": 9015,
+    "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[schedule]": 9574,
+    "tests/test_job_mail_review.py::test_concurrent_manual_edits_or_deletion_reject_without_overwrite[soft_delete]": 8954,
+    "tests/test_job_mail_review.py::test_concurrent_two_operations_for_same_suggestion_do_not_duplicate": 9850,
+    "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[1]": 1,
+    "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[False]": 1,
+    "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[None]": 1,
+    "tests/test_job_mail_review.py::test_confirmation_must_be_explicit_strict_boolean[true]": 1,
+    "tests/test_job_mail_review.py::test_connection_scope_revocation_blocks_old_preview[scope_id]": 10121,
+    "tests/test_job_mail_review.py::test_connection_scope_revocation_blocks_old_preview[scope_version]": 17352,
+    "tests/test_job_mail_review.py::test_connection_scope_revocation_blocks_old_preview[status]": 13053,
+    "tests/test_job_mail_review.py::test_cross_application_target_is_rejected": 9364,
+    "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[1792483200000]": 1,
+    "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[1792483200_0]": 1,
+    "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[1792483200_1]": 1,
+    "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[2026-10-20]": 1,
+    "tests/test_job_mail_review.py::test_epoch_values_and_relative_dates_cannot_be_used_as_complete_times[tomorrow]": 1,
+    "tests/test_job_mail_review.py::test_expired_preview_and_cleared_evidence_cannot_confirm": 10302,
+    "tests/test_job_mail_review.py::test_explicit_reminder_edit_wins_over_empty_proposal_on_time_change[2026-10-21T09:30:00Z]": 9471,
+    "tests/test_job_mail_review.py::test_explicit_reminder_edit_wins_over_empty_proposal_on_time_change[None]": 9338,
+    "tests/test_job_mail_review.py::test_ignore_is_durable_and_duplicate_ingest_does_not_resurrect": 10302,
+    "tests/test_job_mail_review.py::test_invalid_evidence_and_injected_actions_are_rejected_without_partial_storage": 9793,
+    "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields0]": 9933,
+    "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields1]": 10312,
+    "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields2]": 10656,
+    "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields3]": 10412,
+    "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields4]": 9925,
+    "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields5]": 10150,
+    "tests/test_job_mail_review.py::test_missing_or_ambiguous_time_never_fabricates_business_record[fields6]": 10246,
+    "tests/test_job_mail_review.py::test_old_suggestion_cannot_be_applied[status]": 16850,
+    "tests/test_job_mail_review.py::test_old_suggestion_cannot_be_applied[superseded_by]": 11428,
+    "tests/test_job_mail_review.py::test_old_suggestion_cannot_be_applied[version]": 11027,
+    "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed0]": 9281,
+    "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed1]": 9433,
+    "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed2]": 8983,
+    "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed3]": 9173,
+    "tests/test_job_mail_review.py::test_preview_binds_every_actual_field_and_target[changed4]": 9205,
+    "tests/test_job_mail_review.py::test_preview_has_zero_business_writes_and_confirm_is_atomic_and_recoverable": 9270,
+    "tests/test_job_mail_review.py::test_reauthorization_requires_actual_reread_and_never_resurrects_processed": 9872,
+    "tests/test_job_mail_review.py::test_receipt_and_business_rows_survive_database_restart": 10397,
+    "tests/test_job_mail_review.py::test_receipt_failure_rolls_back_event_and_suggestion": 9870,
+    "tests/test_job_mail_review.py::test_receipt_key_reuse_with_different_fields_is_rejected": 9349,
+    "tests/test_job_mail_review.py::test_same_time_with_different_offset_does_not_clear_reminder": 9406,
+    "tests/test_job_mail_review.py::test_settings_scope_preserves_retained_sources_but_requires_fresh_preview": 9869,
+    "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[deadline-create_event]": 10020,
+    "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[fixed-cancel_event]": 11033,
+    "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[fixed-create_offer]": 10952,
+    "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[fixed-manual_only]": 10330,
+    "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[unknown-create_event]": 10228,
+    "tests/test_job_mail_review.py::test_unsupported_suggestions_cannot_be_promoted_by_user_edits[window-create_event]": 10260,
+    "tests/test_job_mail_review.py::test_update_preserves_omitted_fields_and_same_id_and_discloses_old_reminder[reminder_placeholder0]": 9329,
+    "tests/test_job_mail_review.py::test_update_preserves_omitted_fields_and_same_id_and_discloses_old_reminder[reminder_placeholder1]": 9375,
+    "tests/test_job_mail_review.py::test_update_preserves_omitted_fields_and_same_id_and_discloses_old_reminder[reminder_placeholder2]": 9422,
+    "tests/test_job_mail_secure_setup.py::test_cancel_between_committed_scope_fence_and_read_cannot_use_rebuilt_transport": 17642,
+    "tests/test_job_mail_secure_setup.py::test_cancel_expiry_and_replacement_clear_temporary_secrets": 6814,
+    "tests/test_job_mail_secure_setup.py::test_chunked_body_limited_before_json_and_auth_guard_does_not_read_bytes": 3,
+    "tests/test_job_mail_secure_setup.py::test_cli_explicit_enable_disables_proxy_headers[127.0.0.1]": 6993,
+    "tests/test_job_mail_secure_setup.py::test_cli_explicit_enable_disables_proxy_headers[::1]": 19141,
+    "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[0.0.0.0]": 78,
+    "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[::]": 16,
+    "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[example.invalid]": 14,
+    "tests/test_job_mail_secure_setup.py::test_cli_rejects_nonliteral_loopback_when_enabled[localhost]": 14,
+    "tests/test_job_mail_secure_setup.py::test_database_commit_ack_failure_does_not_delete_a_committed_credential": 8119,
+    "tests/test_job_mail_secure_setup.py::test_disabled_app_never_admits_setup_body_or_env_override": 14531,
+    "tests/test_job_mail_secure_setup.py::test_disconnect_during_first_body_closes_session_and_never_reads_next_or_publishes[False]": 8123,
+    "tests/test_job_mail_secure_setup.py::test_disconnect_during_first_body_closes_session_and_never_reads_next_or_publishes[True]": 7859,
+    "tests/test_job_mail_secure_setup.py::test_disconnect_failure_stops_auto_keeps_reference_and_retries": 7313,
+    "tests/test_job_mail_secure_setup.py::test_disconnect_waits_for_inflight_vault_write_before_declaring_deleted": 7347,
+    "tests/test_job_mail_secure_setup.py::test_earlier_observer_locks_down_when_another_runtime_saves_real_mail": 7715,
+    "tests/test_job_mail_secure_setup.py::test_enabled_app_rejects_dns_rebinding_even_when_origin_matches_host[status-get]": 15435,
+    "tests/test_job_mail_secure_setup.py::test_enabled_app_rejects_dns_rebinding_even_when_origin_matches_host[suggestions-get]": 14722,
+    "tests/test_job_mail_secure_setup.py::test_enabled_app_rejects_dns_rebinding_even_when_origin_matches_host[sync-post]": 17011,
+    "tests/test_job_mail_secure_setup.py::test_enabled_restart_does_not_replay_manual_sync_or_vault_writes": 6995,
+    "tests/test_job_mail_secure_setup.py::test_existing_0033_database_gets_credential_intent_table_without_data_reset": 12313,
+    "tests/test_job_mail_secure_setup.py::test_historical_real_mail_keeps_local_host_guard_after_disabled_restart": 15087,
+    "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers0]": 6864,
+    "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers1]": 8597,
+    "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers2]": 12209,
+    "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers3]": 7090,
+    "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers4]": 7110,
+    "tests/test_job_mail_secure_setup.py::test_local_browser_guard_precedes_secret_input[headers5]": 7152,
+    "tests/test_job_mail_secure_setup.py::test_recovery_is_local_and_default_disabled_even_with_saved_automatic": 7100,
+    "tests/test_job_mail_secure_setup.py::test_remote_client_and_host_are_rejected": 6796,
+    "tests/test_job_mail_secure_setup.py::test_replaying_cancelled_run_does_not_cancel_new_transport": 6995,
+    "tests/test_job_mail_secure_setup.py::test_save_failure_keeps_durable_cleanup_reference_and_manual_retry": 7209,
+    "tests/test_job_mail_secure_setup.py::test_second_runtime_cannot_recover_or_control_first_owners_connection": 11457,
+    "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\n]": 7267,
+    "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\r]": 7312,
+    "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\x00]": 7437,
+    "tests/test_job_mail_secure_setup.py::test_secret_control_characters_never_reach_transport[\\x7f]": 7465,
+    "tests/test_job_mail_secure_setup.py::test_selection_is_bound_to_discovery_catalog[selection0]": 7006,
+    "tests/test_job_mail_secure_setup.py::test_selection_is_bound_to_discovery_catalog[selection1]": 6898,
+    "tests/test_job_mail_secure_setup.py::test_selection_is_bound_to_discovery_catalog[selection2]": 6568,
+    "tests/test_job_mail_secure_setup.py::test_settings_cannot_commit_after_shutdown_yields_runtime_ownership": 9333,
+    "tests/test_job_mail_secure_setup.py::test_shutdown_keeps_owner_lock_until_late_vault_write_is_compensated": 7630,
+    "tests/test_job_mail_secure_setup.py::test_test_request_transfers_secret_and_cancel_drops_live_session_copy": 8232,
+    "tests/test_job_mail_secure_setup.py::test_three_steps_require_consent_and_cookie_and_never_fetch_body": 7285,
+    "tests/test_job_mail_secure_setup.py::test_vault_lost_at_save_clears_secret_immediately": 7060,
     "tests/test_journal_active_work_budget_gate.py::test_append_event_bound_has_no_deadline_protocol": 106,
     "tests/test_journal_active_work_budget_gate.py::test_approved_clock_constructor_argument_is_accepted": 1,
     "tests/test_journal_active_work_budget_gate.py::test_approved_constructor_clock_initialization_is_accepted": 1,
@@ -3994,11 +6335,11 @@
     "tests/test_mock_interview_diagnostics.py::test_contract_failure_diagnostic_never_contains_model_input_or_raw_output": 1,
     "tests/test_mock_interview_diagnostics.py::test_format_repair_uses_same_snapshot_and_at_most_one_retry": 1,
     "tests/test_mock_interview_diagnostics.py::test_provider_error_is_not_retried_as_format_repair": 1,
-    "tests/test_mock_interview_migrations.py::test_0016_creates_new_tables_and_is_idempotent": 6202,
-    "tests/test_mock_interview_migrations.py::test_0016_drops_mock_rows_and_messages_but_preserves_normal_chat": 5888,
-    "tests/test_mock_interview_migrations.py::test_0016_handles_legacy_named_indexes_before_dropping_mock_table": 5653,
-    "tests/test_mock_interview_migrations.py::test_0016_preserves_formal_interview_notes_but_creates_no_legacy_mock_data": 5799,
-    "tests/test_mock_interview_migrations.py::test_0023_rebuilds_legacy_attempt_and_voice_rows_without_losing_history": 4959,
+    "tests/test_mock_interview_migrations.py::test_0016_creates_new_tables_and_is_idempotent": 8708,
+    "tests/test_mock_interview_migrations.py::test_0016_drops_mock_rows_and_messages_but_preserves_normal_chat": 8231,
+    "tests/test_mock_interview_migrations.py::test_0016_handles_legacy_named_indexes_before_dropping_mock_table": 8041,
+    "tests/test_mock_interview_migrations.py::test_0016_preserves_formal_interview_notes_but_creates_no_legacy_mock_data": 8167,
+    "tests/test_mock_interview_migrations.py::test_0023_rebuilds_legacy_attempt_and_voice_rows_without_losing_history": 7026,
     "tests/test_mock_interview_repository.py::test_answer_updates_transcript_not_source_fingerprint": 8542,
     "tests/test_mock_interview_repository.py::test_completed_question_replay_does_not_reclaim_provider_lease": 8285,
     "tests/test_mock_interview_repository.py::test_concurrent_first_start_creates_one_attempt_and_one_provider_owner": 9387,
@@ -4158,41 +6499,80 @@
     "tests/test_offline_network_guard.py::test_guard_rejects_address_aliases_before_any_primitive[localhost.example]": 1,
     "tests/test_offline_network_guard.py::test_guard_rejects_address_aliases_before_any_primitive[provider.example]": 1,
     "tests/test_offline_network_guard.py::test_guard_rejects_nonloopback_dns_result_for_localhost": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-127.0.0.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-198.51.100.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-::1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect-localhost]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-127.0.0.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-198.51.100.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-::1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[connect_ex-localhost]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-127.0.0.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-198.51.100.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-::1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[create_connection-localhost]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-127.0.0.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-198.51.100.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-::1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[getaddrinfo-localhost]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-127.0.0.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-198.51.100.1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-::1]": 1,
+    "tests/test_offline_socketpair_guard.py::test_arbitrary_loopback_and_external_network_are_denied[sendto-localhost]": 1,
+    "tests/test_offline_socketpair_guard.py::test_caught_network_denial_still_fails_the_guard": 1,
+    "tests/test_offline_socketpair_guard.py::test_copied_stdlib_code_with_different_globals_is_denied": 1,
+    "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[litellm.acompletion]": 1,
+    "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[litellm.completion]": 1,
+    "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[offerpilot.job_mail.transport.OSVault]": 1,
+    "tests/test_offline_socketpair_guard.py::test_credentials_mail_transport_and_models_remain_denied[offerpilot.job_mail.transport.QQIMAPTransport]": 1,
+    "tests/test_offline_socketpair_guard.py::test_missing_or_replaced_stdlib_identity_fails_closed[<lambda>]": 1,
+    "tests/test_offline_socketpair_guard.py::test_missing_or_replaced_stdlib_identity_fails_closed[None]": 1,
+    "tests/test_offline_socketpair_guard.py::test_same_named_function_cannot_claim_socketpair_exception": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[client]": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[closed_listener]": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[datagram_client]": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[destination]": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[not_listening]": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[same_socket]": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_exception_requires_its_exact_live_pair[wildcard_listener]": 1,
+    "tests/test_offline_socketpair_guard.py::test_socketpair_preserves_preexisting_connect_guard": 2,
+    "tests/test_offline_socketpair_guard.py::test_stdlib_fallback_socketpair_remains_usable": 2,
+    "tests/test_offline_socketpair_guard.py::test_testclient_starts_with_real_fallback_socketpair": 6,
     "tests/test_onboarding_api.py::test_onboarding_derives_real_workspace_steps": 14621,
     "tests/test_onboarding_api.py::test_onboarding_force_open_is_persisted": 16638,
     "tests/test_onboarding_api.py::test_onboarding_rejects_non_boolean_force_open": 10110,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[-1-_delete_v2_unconfirmed_stage]": 5465,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[-1-_mark_v2_provider_unknown]": 5590,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[0-_delete_v2_unconfirmed_stage]": 5365,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[0-_mark_v2_provider_unknown]": 5426,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[1-_delete_v2_unconfirmed_stage]": 5394,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[1-_mark_v2_provider_unknown]": 5379,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-0-orm]": 5365,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-0-raw]": 5415,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-123456-orm]": 5256,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-123456-raw]": 5259,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-0-orm]": 5452,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-0-raw]": 5570,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-123456-orm]": 5846,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-123456-raw]": 5427,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-0-orm]": 5195,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-0-raw]": 5588,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-123456-orm]": 5502,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-123456-raw]": 5901,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_checks_expiry_after_acquiring_sqlite_write_lock": 5362,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_stop_during_expiry_read_does_not_report_lost_owner": 5600,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-0-orm]": 5768,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-0-raw]": 5637,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-123456-orm]": 5929,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-123456-raw]": 5699,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-0-orm]": 5876,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-0-raw]": 5874,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-123456-orm]": 5693,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-123456-raw]": 6166,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-0-orm]": 5489,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-0-raw]": 5810,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-123456-orm]": 5905,
-    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-123456-raw]": 5652,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[-1-_delete_v2_unconfirmed_stage]": 6972,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[-1-_mark_v2_provider_unknown]": 7497,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[0-_delete_v2_unconfirmed_stage]": 6910,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[0-_mark_v2_provider_unknown]": 6938,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[1-_delete_v2_unconfirmed_stage]": 7557,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_error_cleanup_strict_legacy_expiry_boundary[1-_mark_v2_provider_unknown]": 8117,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-0-orm]": 7230,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-0-raw]": 7435,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-123456-orm]": 6909,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[-1-123456-raw]": 7084,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-0-orm]": 7303,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-0-raw]": 7259,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-123456-orm]": 7110,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[0-123456-raw]": 6763,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-0-orm]": 6734,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-0-raw]": 7091,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-123456-orm]": 7068,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_finalize_strict_expiry_boundary[1-123456-raw]": 6977,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_checks_expiry_after_acquiring_sqlite_write_lock": 7319,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_stop_during_expiry_read_does_not_report_lost_owner": 7513,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-0-orm]": 6839,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-0-raw]": 7023,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-123456-orm]": 9578,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[-1-123456-raw]": 10993,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-0-orm]": 7050,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-0-raw]": 6817,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-123456-orm]": 6976,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[0-123456-raw]": 7010,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-0-orm]": 6969,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-0-raw]": 6860,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-123456-orm]": 6804,
+    "tests/test_opportunity_fit_lease_boundaries.py::test_heartbeat_strict_expiry_boundary[1-123456-raw]": 7105,
     "tests/test_opportunity_fit_reviews_ai.py::test_deep_review_rejects_uncited_gap": 1,
     "tests/test_opportunity_fit_reviews_ai.py::test_deep_review_uses_one_repair_retry": 1,
     "tests/test_opportunity_fit_reviews_ai.py::test_derived_summary_does_not_claim_candidate_evidence_from_jd_only": 1,
@@ -4629,7 +7009,7 @@
     "tests/test_review_readiness_repository.py::test_signal_and_terminal_roll_back_together_on_post_executor_failure": 9722,
     "tests/test_review_to_readiness_baseline.py::test_all_review_readiness_fixture_bytes_are_pinned": 2,
     "tests/test_review_to_readiness_baseline.py::test_event_lifecycle_fixture_freezes_all_aliases_and_unknown_types": 1,
-    "tests/test_review_to_readiness_baseline.py::test_interview_preparation_v1_request_and_snapshot_match_pinned_builder": 7081,
+    "tests/test_review_to_readiness_baseline.py::test_interview_preparation_v1_request_and_snapshot_match_pinned_builder": 7329,
     "tests/test_review_to_readiness_baseline.py::test_production_does_not_import_or_read_review_only_fixtures": 3417,
     "tests/test_review_to_readiness_baseline.py::test_review_to_readiness_baseline_is_closed_unique_and_pinned": 1,
     "tests/test_review_to_readiness_migration_0029.py::test_0029_fresh_schema_has_exact_columns_defaults_models_and_marker": 5642,
@@ -5358,32 +7738,32 @@
     "tests/tool_authority/test_migration_0028.py::test_upgrade_freezes_every_authority_identity_column[tool_name-create_application]": 7,
     "tests/tool_authority/test_migration_0028.py::test_upgrade_normalizes_only_empty_modes_and_keeps_legacy_rows_usable": 9,
     "tests/tool_authority/test_migration_0028.py::test_upgrade_status_and_authority_guards_are_fail_closed": 11,
-    "tests/tool_authority/test_pending_claim.py::test_cancellation_revokes_claim_and_rolls_back_every_write": 9463,
-    "tests/tool_authority/test_pending_claim.py::test_cas_loser_revokes_claim_and_does_not_leave_operation": 10127,
-    "tests/tool_authority/test_pending_claim.py::test_coordinator_closed_short_circuit_revokes_claim": 7475,
+    "tests/tool_authority/test_pending_claim.py::test_cancellation_revokes_claim_and_rolls_back_every_write": 9601,
+    "tests/tool_authority/test_pending_claim.py::test_cas_loser_revokes_claim_and_does_not_leave_operation": 10413,
+    "tests/tool_authority/test_pending_claim.py::test_coordinator_closed_short_circuit_revokes_claim": 9987,
     "tests/tool_authority/test_pending_claim.py::test_cross_conversation_claim_is_revoked_before_any_write": 10932,
-    "tests/tool_authority/test_pending_claim.py::test_direct_typed_pending_route_rejects_without_creating_orphan": 7960,
-    "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[continuation]": 8816,
-    "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[replace]": 7519,
-    "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[set]": 7726,
-    "tests/tool_authority/test_pending_claim.py::test_initial_typed_pending_rejects_revoked_origin_segment_route": 7822,
+    "tests/tool_authority/test_pending_claim.py::test_direct_typed_pending_route_rejects_without_creating_orphan": 9709,
+    "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[continuation]": 10890,
+    "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[replace]": 10189,
+    "tests/tool_authority/test_pending_claim.py::test_every_typed_pending_route_consumes_the_exact_claim_handle[set]": 10287,
+    "tests/tool_authority/test_pending_claim.py::test_initial_typed_pending_rejects_revoked_origin_segment_route": 9791,
     "tests/tool_authority/test_pending_claim.py::test_initial_typed_pending_route_commits_scope_hmac_atomically": 11172,
     "tests/tool_authority/test_pending_claim.py::test_missing_generation_revokes_claim_and_prevents_reuse": 12502,
-    "tests/tool_authority/test_pending_claim.py::test_missing_operation_repository_revokes_claim_before_return": 7449,
-    "tests/tool_authority/test_pending_claim.py::test_operation_pending_without_exact_route_handle_fails_closed_for_typed_and_legacy": 6116,
-    "tests/tool_authority/test_pending_claim.py::test_post_commit_cancellation_keeps_atom_and_consumes_claim": 9871,
+    "tests/tool_authority/test_pending_claim.py::test_missing_operation_repository_revokes_claim_before_return": 9269,
+    "tests/tool_authority/test_pending_claim.py::test_operation_pending_without_exact_route_handle_fails_closed_for_typed_and_legacy": 7154,
+    "tests/tool_authority/test_pending_claim.py::test_post_commit_cancellation_keeps_atom_and_consumes_claim": 10154,
     "tests/tool_authority/test_pending_claim.py::test_scope_revision_change_revokes_claim_and_rolls_back": 10899,
     "tests/tool_authority/test_pending_claim.py::test_second_valid_claim_cannot_overwrite_first_pending_or_orphan_its_operation": 12161,
-    "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[continuation]": 5125,
-    "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[initial]": 5460,
-    "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[replace]": 5234,
+    "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[continuation]": 8140,
+    "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[initial]": 7343,
+    "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[replace]": 7372,
     "tests/tool_authority/test_pending_claim.py::test_typed_name_without_operation_id_fails_closed_on_every_pending_route[set]": 7337,
     "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[args]": 14719,
-    "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[operation]": 9216,
-    "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[tool-call]": 9720,
-    "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[tool-name]": 10271,
+    "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[operation]": 9823,
+    "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[tool-call]": 9981,
+    "tests/tool_authority/test_pending_claim.py::test_typed_pending_identity_mismatch_revokes_before_any_durable_write[tool-name]": 11015,
     "tests/tool_authority/test_pending_claim.py::test_typed_replacement_cas_loser_reports_failure_and_revokes_claim[continuation]": 9597,
-    "tests/tool_authority/test_pending_claim.py::test_typed_replacement_cas_loser_reports_failure_and_revokes_claim[replace]": 9792,
+    "tests/tool_authority/test_pending_claim.py::test_typed_replacement_cas_loser_reports_failure_and_revokes_claim[replace]": 10478,
     "tests/tool_authority/test_pending_claim_reissue.py::test_active_pending_proposal_cannot_issue_from_a_cloned_pending": 5545,
     "tests/tool_authority/test_pending_claim_reissue.py::test_equivalent_proposal_cannot_cross_segment_authorities[active]": 41,
     "tests/tool_authority/test_pending_claim_reissue.py::test_equivalent_proposal_cannot_cross_segment_authorities[finalized]": 41,
@@ -5501,10 +7881,10 @@
     "tests/tool_authority/test_read_uow.py::test_cross_application_detached_and_missing_are_publicly_equivalent": 4995,
     "tests/tool_authority/test_read_uow.py::test_delete_event_executor_rechecks_reparented_target_in_final_scoped_sql": 5078,
     "tests/tool_authority/test_read_uow.py::test_reparent_after_resolver_rollback_before_final_sql_denies_without_body": 4902,
-    "tests/tool_authority/test_reject_privacy.py::test_deleted_owning_conversation_cannot_be_rebound_for_reject": 8665,
-    "tests/tool_authority/test_reject_privacy.py::test_plain_omitted_token_reject_never_decodes_pending_args[malformed]": 8287,
-    "tests/tool_authority/test_reject_privacy.py::test_plain_omitted_token_reject_never_decodes_pending_args[oversized]": 8226,
-    "tests/tool_authority/test_reject_privacy.py::test_supplied_token_is_checked_by_canonical_fingerprint_only": 8455,
+    "tests/tool_authority/test_reject_privacy.py::test_deleted_owning_conversation_cannot_be_rebound_for_reject": 9630,
+    "tests/tool_authority/test_reject_privacy.py::test_plain_omitted_token_reject_never_decodes_pending_args[malformed]": 9558,
+    "tests/tool_authority/test_reject_privacy.py::test_plain_omitted_token_reject_never_decodes_pending_args[oversized]": 9524,
+    "tests/tool_authority/test_reject_privacy.py::test_supplied_token_is_checked_by_canonical_fingerprint_only": 9598,
     "tests/tool_authority/test_replay_topology.py::test_chained_topology_rejects_post_issue_pending_identity_drift": 7099,
     "tests/tool_authority/test_replay_topology.py::test_closed_replay_renderer_matches_frozen_typed_confirmation_projection[add_note-args5]": 10,
     "tests/tool_authority/test_replay_topology.py::test_closed_replay_renderer_matches_frozen_typed_confirmation_projection[create_application-args0]": 12,
@@ -5627,57 +8007,57 @@
     "tests/tool_authority/test_scoped_reads.py::test_scoped_point_reads_deny_cross_application_without_body_read[offers-get_offer_scoped-second_offer]": 7321,
     "tests/tool_authority/test_scoped_reads.py::test_scoped_ports_require_caller_owned_session_and_registered_constraint": 8107,
     "tests/tool_authority/test_scoped_reads.py::test_unrestricted_scoped_ports_preserve_detached_baseline": 7418,
-    "tests/tool_authority/test_scoped_writes.py::test_application_scope_standalone_add_note_keeps_null_parent_but_requires_active_scope": 5428,
-    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[-1]": 5968,
-    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[0]": 5621,
-    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[1.5]": 5470,
-    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[1]": 5288,
-    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[9223372036854775808]": 5626,
-    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[True]": 5264,
-    "tests/tool_authority/test_scoped_writes.py::test_exact_nine_ports_require_a_factory_registered_caller_session_binding": 5211,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_creates_reject_cross_scope_and_soft_deleted_parent_without_insert": 5216,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_mutations_are_guarded_and_event_delete_owns_note_unbind": 5471,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_mutations_recheck_parent_after_prepare_style_reparent_and_delete": 5344,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[applications-update_application_status_scoped-second_id-None-None]": 5454,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[events-delete_application_event_scoped-second_event_id-ApplicationEvent-None]": 5129,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[events-update_application_event_scoped-second_event_id-ApplicationEvent-notes]": 5290,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[notes-delete_note_scoped-second_note_id-InterviewNote-None]": 5384,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[notes-update_note_scoped-second_note_id-InterviewNote-company]": 5335,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[offers-save_offer_assessment_scoped-second_offer_id-Offer-assessment]": 5329,
-    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[offers-update_offer_scoped-second_offer_id-Offer-notes]": 5443,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_application_status_does_not_relabel_unrelated_integrity_error": 5240,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_application_status_preserves_closed_and_first_timestamp_predicates": 5485,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_cross_scope_changes_no_note_revision": 5498,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_revisions_bound_note_once_and_keeps_outer_transaction": 5526,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_trigger_abort_rolls_back_owner_primitive_only": 5588,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_offset_create_update_and_rollback[application]": 5548,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_offset_create_update_and_rollback[workspace]": 5245,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_consecutive_updates_each_increment_revision_in_bound_session": 5621,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_does_not_relabel_business_value_toobig": 5704,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_does_not_relabel_trigger_toobig": 5507,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[Exception-2067-SQLITE_CONSTRAINT_UNIQUE]": 5415,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-1299-SQLITE_CONSTRAINT_UNIQUE]": 5678,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-2067-SQLITE_CONSTRAINT_NOTNULL]": 5680,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-2067-SQLITE_CONSTRAINT_UNIQUE]": 5671,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_trigger_unique_from_another_table": 5661,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_update_classifies_duplicate_without_integrity_error": 7001,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_update_prioritizes_immutable_application_over_valid_event": 5411,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_allows_empty_company": 5585,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_does_not_relabel_unrelated_integrity_error[insert]": 5371,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_does_not_relabel_unrelated_integrity_error[update]": 5710,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_real_unrelated_not_null_error[insert]": 5354,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_real_unrelated_not_null_error[update]": 5477,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_stable_binding_domain_failures": 5643,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_rejects_non_string_company_before_sql[insert]": 5668,
-    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_rejects_non_string_company_before_sql[update]": 5578,
+    "tests/tool_authority/test_scoped_writes.py::test_application_scope_standalone_add_note_keeps_null_parent_but_requires_active_scope": 7721,
+    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[-1]": 7553,
+    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[0]": 7574,
+    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[1.5]": 7672,
+    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[1]": 7652,
+    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[9223372036854775808]": 7825,
+    "tests/tool_authority/test_scoped_writes.py::test_every_target_and_application_binding_is_exact_positive_int64_before_sql[True]": 7711,
+    "tests/tool_authority/test_scoped_writes.py::test_exact_nine_ports_require_a_factory_registered_caller_session_binding": 7853,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_creates_reject_cross_scope_and_soft_deleted_parent_without_insert": 7886,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_mutations_are_guarded_and_event_delete_owns_note_unbind": 7822,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_mutations_recheck_parent_after_prepare_style_reparent_and_delete": 7792,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[applications-update_application_status_scoped-second_id-None-None]": 7728,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[events-delete_application_event_scoped-second_event_id-ApplicationEvent-None]": 7901,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[events-update_application_event_scoped-second_event_id-ApplicationEvent-notes]": 9604,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[notes-delete_note_scoped-second_note_id-InterviewNote-None]": 7661,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[notes-update_note_scoped-second_note_id-InterviewNote-company]": 7684,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[offers-save_offer_assessment_scoped-second_offer_id-Offer-assessment]": 7705,
+    "tests/tool_authority/test_scoped_writes.py::test_restricted_update_and_delete_fail_closed_for_cross_application_targets[offers-update_offer_scoped-second_offer_id-Offer-notes]": 7645,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_application_status_does_not_relabel_unrelated_integrity_error": 7717,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_application_status_preserves_closed_and_first_timestamp_predicates": 7875,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_cross_scope_changes_no_note_revision": 8000,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_revisions_bound_note_once_and_keeps_outer_transaction": 7514,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_delete_trigger_abort_rolls_back_owner_primitive_only": 7887,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_offset_create_update_and_rollback[application]": 7789,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_event_offset_create_update_and_rollback[workspace]": 7634,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_consecutive_updates_each_increment_revision_in_bound_session": 7598,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_does_not_relabel_business_value_toobig": 7650,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_does_not_relabel_trigger_toobig": 7685,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[Exception-2067-SQLITE_CONSTRAINT_UNIQUE]": 7500,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-1299-SQLITE_CONSTRAINT_UNIQUE]": 8051,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-2067-SQLITE_CONSTRAINT_NOTNULL]": 7573,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_integrity_errors_without_sqlite_matching[IntegrityError-2067-SQLITE_CONSTRAINT_UNIQUE]": 7982,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_create_preserves_trigger_unique_from_another_table": 7637,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_update_classifies_duplicate_without_integrity_error": 7791,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_update_prioritizes_immutable_application_over_valid_event": 7580,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_allows_empty_company": 7442,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_does_not_relabel_unrelated_integrity_error[insert]": 7374,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_does_not_relabel_unrelated_integrity_error[update]": 7617,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_real_unrelated_not_null_error[insert]": 7760,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_real_unrelated_not_null_error[update]": 7471,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_preserves_stable_binding_domain_failures": 7842,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_rejects_non_string_company_before_sql[insert]": 8061,
+    "tests/tool_authority/test_scoped_writes.py::test_scoped_note_write_rejects_non_string_company_before_sql[update]": 7335,
     "tests/tool_authority/test_scoped_writes.py::test_scoped_write_ports_have_no_unscoped_repository_or_orm_fallback": 16,
-    "tests/tool_authority/test_scoped_writes.py::test_soft_deleted_current_parent_denies_every_scoped_write_without_side_effect": 5769,
-    "tests/tool_authority/test_scoped_writes.py::test_unrestricted_creates_preserve_soft_deleted_parent_baseline": 5677,
-    "tests/tool_authority/test_scoped_writes.py::test_unrestricted_ports_preserve_detached_offer_and_note_mutation_semantics": 5467,
-    "tests/tool_authority/test_scoped_writes.py::test_workspace_note_update_classifies_after_guarded_mutation_under_write_lock": 5772,
-    "tests/tool_authority/test_scoped_writes.py::test_workspace_note_update_domain_failure_does_not_fire_update_trigger": 5696,
-    "tests/tool_authority/test_scoped_writes.py::test_zero_or_multiple_restricted_binding_identities_fail_before_sql[allowed_identities0]": 5356,
-    "tests/tool_authority/test_scoped_writes.py::test_zero_or_multiple_restricted_binding_identities_fail_before_sql[allowed_identities1]": 5295,
+    "tests/tool_authority/test_scoped_writes.py::test_soft_deleted_current_parent_denies_every_scoped_write_without_side_effect": 7677,
+    "tests/tool_authority/test_scoped_writes.py::test_unrestricted_creates_preserve_soft_deleted_parent_baseline": 7722,
+    "tests/tool_authority/test_scoped_writes.py::test_unrestricted_ports_preserve_detached_offer_and_note_mutation_semantics": 7864,
+    "tests/tool_authority/test_scoped_writes.py::test_workspace_note_update_classifies_after_guarded_mutation_under_write_lock": 8602,
+    "tests/tool_authority/test_scoped_writes.py::test_workspace_note_update_domain_failure_does_not_fire_update_trigger": 7812,
+    "tests/tool_authority/test_scoped_writes.py::test_zero_or_multiple_restricted_binding_identities_fail_before_sql[allowed_identities0]": 7710,
+    "tests/tool_authority/test_scoped_writes.py::test_zero_or_multiple_restricted_binding_identities_fail_before_sql[allowed_identities1]": 7688,
     "tests/tool_authority/test_serialization.py::test_dataclass_helpers_and_generic_json_checkpoint_reject_transient_values": 1,
     "tests/tool_authority/test_serialization.py::test_opaque_handles_have_no_value_serialization_or_raw_token_repr": 1,
     "tests/tool_authority/test_serialization.py::test_prepared_tool_call_carries_opaque_authority_handle_and_is_transient": 19,
@@ -6470,7 +8850,7 @@
     "tests/tool_metadata/test_production_bundle.py::test_initial_route_handles_bind_through_the_completed_operation_port": 9151,
     "tests/tool_metadata/test_production_bundle.py::test_late_component_failure_publishes_no_partial_graph": 99,
     "tests/tool_metadata/test_production_bundle.py::test_legacy_seal_failure_publishes_no_component": 99,
-    "tests/tool_metadata/test_production_bundle.py::test_production_component_factory_has_one_application_composition_caller": 2375,
+    "tests/tool_metadata/test_production_bundle.py::test_production_component_factory_has_one_application_composition_caller": 2942,
     "tests/tool_metadata/test_production_bundle.py::test_production_components_publish_one_complete_26_3_5_bundle_graph": 5322,
     "tests/tool_metadata/test_production_bundle.py::test_production_composition_has_no_unavailable_or_synthetic_legacy_verifier": 2,
     "tests/tool_metadata/test_production_bundle.py::test_production_legacy_verifier_backend_reads_locks_and_claims_real_rows": 10055,
@@ -6685,10 +9065,10 @@
     "tests/tool_pipeline/test_golden_assets.py::test_golden_asset_is_canonical_private_and_pinned[provider_manifest_30c944f.json]": 2,
     "tests/tool_pipeline/test_golden_assets.py::test_golden_asset_is_canonical_private_and_pinned[tool_outcomes_30c944f.json]": 3,
     "tests/tool_pipeline/test_golden_assets.py::test_golden_loader_has_no_writer_or_update_helper": 2,
-    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:jd_analysis_not_found]": 5782,
-    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:missing_required_id]": 5960,
-    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:success]": 5460,
-    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[list_jd_analyses:success]": 5625,
+    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:jd_analysis_not_found]": 6978,
+    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:missing_required_id]": 7220,
+    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[get_jd_analysis:success]": 7352,
+    "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_spec_matches_baseline_case[list_jd_analyses:success]": 7192,
     "tests/tool_pipeline/test_jd_analyses.py::test_jd_analysis_specs_preserve_provider_contracts": 2,
     "tests/tool_pipeline/test_journal.py::test_executor_exception_journal_sequence_matches_first_phase_golden": 21,
     "tests/tool_pipeline/test_journal.py::test_pipeline_journal_sequence_matches_first_phase_golden": 22,
@@ -6739,24 +9119,24 @@
     "tests/tool_pipeline/test_pipeline.py::test_read_terminal_stage_drift_fails_before_terminal_projection[True-tool.failed-exception_map-replacement1]": 9114,
     "tests/tool_pipeline/test_pipeline.py::test_resolver_exception_maps_safely_and_base_exception_propagates": 9722,
     "tests/tool_pipeline/test_pipeline.py::test_unknown_tool_has_catalog_lookup_only_and_no_proposal": 8002,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:deleted_resume]": 6846,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:missing_required_id]": 6453,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:resume_not_found]": 6672,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:success]": 6881,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:missing_required_id]": 6551,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:resume_not_found]": 6666,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:success]": 6663,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resumes:success]": 6615,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:missing_required_id]": 6591,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:negative_highlight_index]": 6716,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:negative_item_index]": 6863,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:out_of_range_highlight_index]": 6738,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:out_of_range_item_index]": 6418,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:resume_not_found]": 6834,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:success]": 6769,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:missing_required_id]": 6575,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:resume_not_found]": 6617,
-    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:success]": 6431,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:deleted_resume]": 7425,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:missing_required_id]": 7556,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:resume_not_found]": 7366,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[get_resume:success]": 7465,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:missing_required_id]": 7561,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:resume_not_found]": 7527,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resume_matches:success]": 8667,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[list_resumes:success]": 7921,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:missing_required_id]": 8350,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:negative_highlight_index]": 7502,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:negative_item_index]": 7258,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:out_of_range_highlight_index]": 7138,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:out_of_range_item_index]": 7389,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:resume_not_found]": 7231,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_rewrite_highlight:success]": 7846,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:missing_required_id]": 7325,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:resume_not_found]": 7304,
+    "tests/tool_pipeline/test_resumes.py::test_resume_spec_matches_baseline_case[resume_update_career_intent:success]": 7432,
     "tests/tool_pipeline/test_resumes.py::test_resume_specs_preserve_provider_contracts": 3,
     "tests/tool_pipeline/test_source_gates.py::test_agent_provider_and_api_have_no_dict_handler_protocol": 311,
     "tests/tool_pipeline/test_source_gates.py::test_agent_tests_use_typed_tool_factory_not_legacy_dict_protocol": 48,
