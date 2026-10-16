@@ -5,6 +5,16 @@
 
 ## 当前记录
 
+## 严格离线升级测试误拦 Windows 内部 socketpair（2026-10-16）
+
+**现象：** PR #36 旧 Windows 分片的两个桌面邮件组合测试在 TestClient 启动前失败，栈停在 asyncio Proactor 创建内部 socketpair 的 connect。集中扫描还发现 master 既有邮件升级测试使用相同的全禁 connect 方式。
+
+**根因：** Windows 的标准库 socketpair fallback 通过自有临时 loopback listener 配对；严格离线测试把它与任意业务网络连接一并拦截。Linux 强制真实标准库 fallback 可复现相同失败栈。
+
+**修复：** 仅测试 helper 识别捕获的标准库函数对象、直接调用 code/globals、自有 socket/listener 与精确临时目的地，再交给此前已安装的 connect 防护。不能证明身份时拒绝，任意 loopback、外网、凭据及模型入口继续禁止，并补 connect_ex/sendto 拒绝。两份升级测试和 helper 负例加入现有 Windows installer 聚焦门禁，完整分片覆盖保留。
+
+**教训：** 离线防护应区分可证明归属的运行时内部通信，不能为了跨平台兼容放行所有 localhost，也不能只靠 Linux 默认 socketpair 验证 Windows 路径。
+
 ## 邮件状态读取组合不同数据库快照（2026-10-16）
 
 **现象：** PR #36 的旧 Windows 全量分片中，邮件预算回归读到 used=99 而预期 100。日志未记录完整 run 状态，不能唯一还原该次失败；独立事件屏障复现确认可返回 completed 与旧预算 99，而持久数据库已是 100。

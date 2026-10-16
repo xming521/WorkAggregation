@@ -11,6 +11,7 @@ import io
 import json
 import os
 from pathlib import Path
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -20,6 +21,7 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
+from _offline_socketpair import socketpair_only_connect
 from offerpilot.api import create_app
 from offerpilot.config import Config, save_config
 from offerpilot.db import init_database
@@ -46,8 +48,10 @@ def _offline_mail_guard():
         raise AssertionError("Desktop mail integration must remain offline and credential-free")
 
     with ExitStack() as stack:
+        stack.enter_context(patch.object(socket.socket, "connect", socketpair_only_connect(forbidden)))
         for target in (
-            "socket.socket.connect", "socket.create_connection", "socket.getaddrinfo",
+            "socket.socket.connect_ex", "socket.socket.sendto",
+            "socket.create_connection", "socket.getaddrinfo",
             "offerpilot.job_mail.transport.OSVault.__init__",
             "offerpilot.job_mail.transport.QQIMAPTransport.__init__",
             "litellm.completion", "litellm.acompletion",
@@ -179,6 +183,8 @@ def _archive_and_seed_mail_master(tmp_path: Path, data_dir: Path) -> dict:
 import json, pathlib, runpy, sys
 source, test_file, data_dir, manifest, network_guard = sys.argv[1:]
 sys.path.insert(0, source)
+# The shared test guard is not product source; archived master remains first.
+sys.path.insert(1, str(pathlib.Path(test_file).parent))
 runpy.run_path(network_guard)
 import offerpilot.db
 assert pathlib.Path(offerpilot.db.__file__).resolve().is_relative_to(pathlib.Path(source))

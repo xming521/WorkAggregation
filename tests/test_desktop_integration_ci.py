@@ -78,6 +78,22 @@ def test_package_only_escape_hatch_is_bound_to_old_push_branch():
     assert "scripts/release-gate.ps1 -Install -PytestEvidence pytest-evidence" in WORKFLOW
 
 
+def test_mail_upgrade_and_socketpair_guards_run_in_early_windows_job():
+    focused = WORKFLOW.split("      - name: Required desktop, auth and static regression tests\n", 1)[1].split(
+        "      - name:", 1,
+    )[0]
+    command = next(line for line in focused.splitlines() if "uv run --frozen pytest" in line)
+    for test_file in (
+        "tests/test_desktop.py", "tests/test_auth_api.py", "tests/test_static_frontend.py",
+        "tests/test_desktop_job_mail_integration.py", "tests/test_job_mail_master_upgrade.py",
+        "tests/test_offline_socketpair_guard.py",
+    ):
+        assert test_file in command
+    assert "if ($LASTEXITCODE -ne 0)" in focused
+    for bypass in ("-p no:", "-o addopts", "-k ", "continue-on-error"):
+        assert bypass not in focused
+
+
 @pytest.mark.parametrize("command", [
     "npm.cmd test --prefix desktop/installed-ui",
     "npm.cmd test --prefix desktop/real-ai-validation",
