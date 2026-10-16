@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -88,6 +89,25 @@ def test_outer_timeout_only_kills_the_created_process_tree(
     assert result["returncode"] == 1
 
 
+def _assert_owned_guard_process(
+    record: dict, identity: dict, *, launcher_pid: int, parent_pid: int,
+    platform_name: str, in_venv: bool,
+) -> None:
+    assert type(launcher_pid) is int and launcher_pid > 0
+    assert type(parent_pid) is int and parent_pid > 0 and parent_pid != launcher_pid
+    for key in ("pid", "ppid"):
+        assert type(identity[key]) is int and identity[key] > 0
+        assert type(record[key]) is int and record[key] == identity[key]
+    assert identity["pid"] not in (parent_pid, identity["ppid"])
+    if identity["pid"] == launcher_pid:
+        assert identity["ppid"] == parent_pid
+    else:
+        # Windows venv python.exe may own one real interpreter child. The
+        # handle we actually spawned remains the only allowed intermediate PID.
+        assert platform_name == "win32" and in_venv is True
+        assert identity["ppid"] == launcher_pid
+
+
 @pytest.mark.parametrize("fault", (None, "guard-import", "record-directory"))
 def test_subprocess_offline_bootstrap_blocks_external_sockets_or_exits_closed(
     tmp_path: Path, fault: str | None,
@@ -99,10 +119,11 @@ def test_subprocess_offline_bootstrap_blocks_external_sockets_or_exits_closed(
         bootstrap.write_text(source.replace("import tests._offline_network_guard as guard", "raise RuntimeError('forced guard failure')"))
     elif fault == "record-directory":
         environment["STORY_GUARD_DIRECTORY"] = str(tmp_path / "missing-directory")
-    result = subprocess.run(
+    process = subprocess.Popen(
         [
             sys.executable, "-c",
-            "import socket\n"
+            "import json, os, socket\n"
+            "print(json.dumps({'pid': os.getpid(), 'ppid': os.getppid()}))\n"
             "try:\n"
             "    socket.getaddrinfo('provider.example', 443)\n"
             "except PermissionError:\n"
@@ -110,19 +131,134 @@ def test_subprocess_offline_bootstrap_blocks_external_sockets_or_exits_closed(
             "else:\n"
             "    raise SystemExit('offline guard was bypassed')\n",
         ],
-        cwd=tmp_path, env=environment, text=True, capture_output=True, timeout=20,
+        cwd=tmp_path, env=environment, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
+    communication_error: BaseException | None = None
+    try:
+        stdout, stderr = process.communicate(timeout=20)
+    except BaseException as error:
+        communication_error = error
+        raise
+    finally:
+        cleanup_error: BaseException | None = None
+        try:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+        except BaseException as error:
+            cleanup_error = error
+        finally:
+            for stream in (process.stdout, process.stderr):
+                try:
+                    stream.close()
+                except BaseException as error:
+                    if cleanup_error is None:
+                        cleanup_error = error
+        if cleanup_error is not None:
+            if communication_error is not None:
+                raise communication_error from cleanup_error
+            raise cleanup_error
     if fault is not None:
-        assert result.returncode == 86
-        assert "Diagnostic offline guard startup failed" in result.stderr
+        assert process.returncode == 86
+        assert "Diagnostic offline guard startup failed" in stderr
         assert list((tmp_path / "offline-guards").iterdir()) == []
     else:
-        assert result.returncode == 0, result.stderr
-        assert "external socket blocked before DNS" in result.stdout
+        assert process.returncode == 0, stderr
+        assert "external socket blocked before DNS" in stdout
         records = _MODULE.read_guard_records(tmp_path)
         assert len(records) == 1
         assert records[0]["early"] is True
-        assert records[0]["ppid"] == os.getpid()
+        _assert_owned_guard_process(
+            records[0], json.loads(stdout.splitlines()[0]),
+            launcher_pid=process.pid, parent_pid=os.getpid(),
+            platform_name=sys.platform, in_venv=sys.prefix != sys.base_prefix,
+        )
+
+
+@pytest.mark.parametrize("fault", ("kill", "wait"))
+def test_offline_bootstrap_cleanup_keeps_the_original_timeout_and_closes_pipes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str,
+) -> None:
+    original = subprocess.TimeoutExpired("owned diagnostic", 20)
+    cleanup = OSError("owned kill failed") if fault == "kill" else subprocess.TimeoutExpired(
+        "owned cleanup", 5,
+    )
+    calls = []
+
+    class Process:
+        stdout = StringIO()
+        stderr = StringIO()
+
+        def communicate(self, *, timeout: int):
+            calls.append(("communicate", timeout))
+            raise original
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            calls.append(("kill",))
+            if fault == "kill":
+                raise cleanup
+
+        def wait(self, *, timeout: int):
+            calls.append(("wait", timeout))
+            raise cleanup
+
+    process = Process()
+    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    with pytest.raises(subprocess.TimeoutExpired) as caught:
+        test_subprocess_offline_bootstrap_blocks_external_sockets_or_exits_closed(tmp_path, None)
+    assert caught.value is original
+    assert caught.value.__cause__ is cleanup
+    assert process.stdout.closed and process.stderr.closed
+    assert calls == [("communicate", 20), ("kill",)] + ([("wait", 5)] if fault == "wait" else [])
+
+
+@pytest.mark.parametrize("platform_name,in_venv,pid,ppid", (
+    ("linux", False, 200, 100),
+    ("win32", False, 200, 100),
+    ("win32", True, 200, 100),
+    ("win32", True, 201, 200),
+))
+def test_guard_process_identity_accepts_only_the_owned_direct_or_windows_venv_child(
+    platform_name: str, in_venv: bool, pid: int, ppid: int,
+) -> None:
+    identity = {"pid": pid, "ppid": ppid}
+    _assert_owned_guard_process(
+        dict(identity), identity, launcher_pid=200, parent_pid=100,
+        platform_name=platform_name, in_venv=in_venv,
+    )
+
+
+@pytest.mark.parametrize("fault", (
+    "not-windows", "not-venv", "unrelated-parent", "extra-launcher-hop",
+    "record-pid", "record-parent", "child-is-parent", "self-parent",
+    "launcher-is-parent", "invalid-pid", "direct-wrong-parent",
+))
+def test_guard_process_identity_rejects_unowned_or_inconsistent_processes(fault: str) -> None:
+    identity = {"pid": 201, "ppid": 200}
+    if fault in ("unrelated-parent", "extra-launcher-hop", "self-parent"):
+        identity["ppid"] = {"unrelated-parent": 999, "extra-launcher-hop": 202,
+                            "self-parent": 201}[fault]
+    elif fault == "child-is-parent":
+        identity["pid"] = 100
+    elif fault == "invalid-pid":
+        identity["pid"] = True
+    elif fault == "direct-wrong-parent":
+        identity = {"pid": 200, "ppid": 999}
+    record = dict(identity)
+    if fault == "record-pid":
+        record["pid"] = 202
+    elif fault == "record-parent":
+        record["ppid"] = 999
+    with pytest.raises(AssertionError):
+        _assert_owned_guard_process(
+            record, identity, launcher_pid=100 if fault == "launcher-is-parent" else 200,
+            parent_pid=100, platform_name="linux" if fault == "not-windows" else "win32",
+            in_venv=fault != "not-venv",
+        )
 
 
 def test_concurrent_python_startups_keep_one_complete_record_per_process(tmp_path: Path) -> None:

@@ -5,6 +5,30 @@
 
 ## 当前记录
 
+## 离线启动防护测试未记录 Windows venv launcher（2026-10-16）
+
+**现象：** PR #36 的 Windows cleanup 回归为 44 通过、1 失败，唯一 early guard 记录的 ppid 与 pytest PID 不同。
+
+**根因：** 旧测试使用 subprocess.run，未保留本次受控 launcher PID，只允许直接解释器，未覆盖 Windows venv 的一次转发。
+
+**修复：** 测试用 Popen 持有 launcher，子输出 pid/ppid 与 guard 记录一致；直启必须指向 pytest，仅 Windows 真实 venv 允许指向本次 launcher 的单跳。保留外网 fail-closed 断言和 20 秒期限，不修改产品防护。
+
+**验证边界：** Linux 参数化拒绝分支不能替代 Windows 真实进程验证，仍以更新候选 CI 为准。
+
+**教训：** 平台判定不能替代本次进程归属证据；不能接受任意父 PID 或任意后代。
+
+## 邮件 Windows 原生锁门禁漏装启动防护依赖（2026-10-16）
+
+**现象：** 集成候选 PR #36 的邮件合成验收通过后，Windows 原生锁 job 在收集前导入 httpx 失败，4 项锁测试尚未执行。
+
+**根因：** 该独立 job 原先仅安装 pytest；合入的 pyproject 通过 `-p tests._offline_network_guard` 提前加载离线网络防护，而 `--noconftest` 不会禁用该插件。防护同时需要 httpx、requests、starlette 和 aiohttp，不能只补第一个缺失库。
+
+**修复：** 复用邮件 workflow 原有 uv 0.8.22，通过 `uv sync --frozen` 安装完整锁定依赖，再以 `uv run --frozen pytest --noconftest` 执行原文件。保留启动防护、原 4 项测试及断言，不修改依赖锁或禁用插件；新增 active CI 配置回归。
+
+**验证边界：** Linux 本地检查不能替代 Windows 原生锁执行；Windows 预期执行 3 项并按原标记跳过 1 项 POSIX 专用用例。
+
+**教训：** 独立测试环境也受仓库启动插件约束；精简安装必须涵盖插件依赖，不能靠绕过安全防护使门禁变绿。
+
 ## 授权源码审计重复展开与跨审计缓存失效（2026-10-16）
 
 **现象：** 桌面集成候选的机械授权审计反复解析、展开相同依赖，不能在有界验证窗口内完成；同一个 sources Map 修改导出实现后，旧顶层缓存还会漏掉新出现的客户端确认调用。

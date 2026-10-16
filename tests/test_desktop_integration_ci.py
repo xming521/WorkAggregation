@@ -13,6 +13,24 @@ WORKFLOW = (ROOT / ".github/workflows/desktop-windows.yml").read_text(encoding="
 HISTORICAL = ROOT / ".github/validation/historical-workflows"
 
 
+def test_mail_native_lock_job_keeps_the_startup_guard_and_locked_dependencies():
+    mail = (ROOT / ".github/workflows/job-mail-assistant.yml").read_text(encoding="utf-8")
+    native = mail.split("  windows-native-lock:\n", 1)[1]
+    synthetic = mail.split("  windows-native-lock:\n", 1)[0]
+    # Match this workflow's existing uv pin, not the independent desktop pin.
+    setup_uv = "      - uses: astral-sh/setup-uv@v6\n        with:\n          version: '0.8.22'"
+    assert setup_uv in native and setup_uv in synthetic
+    assert "run: uv sync --frozen" in native
+    command = "uv run --frozen pytest --noconftest -q tests/test_job_mail_process_lock.py"
+    assert f"run: {command}\n" in native
+    assert native.index("uv sync --frozen") < native.index(command)
+    assert 'addopts = "-p tests._offline_network_guard"' in (
+        ROOT / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    for bypass in ("pip install pytest", "-p no:", "-o addopts", "PYTEST_ADDOPTS", "continue-on-error"):
+        assert bypass not in native
+
+
 def test_one_time_workflows_are_inert_historical_fixtures():
     names = {
         "desktop-installed-ui.yml", "desktop-layout-retry.yml", "desktop-real-ai.yml",
