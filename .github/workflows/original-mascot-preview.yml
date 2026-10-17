@@ -26,6 +26,15 @@ jobs:
           cache-dependency-path: |
             web/package-lock.json
             tools/original-mascot-validation/package-lock.json
+      - name: Ensure official system Chinese font coverage
+        run: |
+          if ! fc-list :lang=zh | grep -q .; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y fonts-noto-cjk
+          fi
+          mkdir -p tools/original-mascot-validation/evidence
+          fc-list :lang=zh > tools/original-mascot-validation/evidence/chinese-fonts.txt
+          test -s tools/original-mascot-validation/evidence/chinese-fonts.txt
       - name: Install locked frontend and isolated harness
         run: |
           npm ci --prefix web

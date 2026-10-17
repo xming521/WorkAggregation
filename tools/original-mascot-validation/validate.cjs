@@ -24,6 +24,23 @@ function changed(a, b) {
   for (let i = 0; i < a.data.length; i += 4) if ([0,1,2,3].some(c => Math.abs(a.data[i+c] - b.data[i+c]) > 5)) count++;
   return count;
 }
+async function measureIdle(page) {
+  const cdp = await context.newCDPSession(page); await cdp.send('Performance.enable');
+  const before = (await cdp.send('Performance.getMetrics')).metrics;
+  const beforeDraws = await page.evaluate(() => window.validationDrawMetrics());
+  const start = Date.now(); await sleep(4000);
+  const after = (await cdp.send('Performance.getMetrics')).metrics;
+  const afterDraws = await page.evaluate(() => window.validationDrawMetrics());
+  const elapsed = Date.now() - start;
+  const value = (list, name) => list.find(m => m.name === name)?.value;
+  await cdp.detach();
+  return { windowMs: elapsed, taskDurationSeconds: value(after, 'TaskDuration') - value(before, 'TaskDuration'),
+    jsHeapBefore: value(before, 'JSHeapUsedSize'), jsHeapAfter: value(after, 'JSHeapUsedSize'),
+    renderClearFrameCount: afterDraws.frames - beforeDraws.frames,
+    renderClearCadenceHz: (afterDraws.frames - beforeDraws.frames) * 1000 / elapsed,
+    drawing: afterDraws,
+    meaning: 'Rendering proxy, not presented screen FPS: unique requestAnimationFrame timestamps with real visible-canvas clear calls; static mode has zero canvas frames. CDP main-thread task duration and JS heap only, not OS CPU, GPU or whole-process memory.' };
+}
 async function shot(page, name) { await page.screenshot({ path: path.join(out, `${name}.png`) }); }
 async function animated(page) { await page.locator('canvas[data-mascot-renderer="rive"]').waitFor({ state: 'visible', timeout: 22000 }); }
 async function fallback(page) {
@@ -59,6 +76,7 @@ async function runCase(name, query, fn, options = {}) {
     assert.equal(response.headers()['content-security-policy'], contentSecurityPolicy);
     result.csp = contentSecurityPolicy;
     await page.waitForFunction(() => !!window.fixture);
+    assert.equal(await page.evaluate(() => document.fonts.check('16px "Noto Sans CJK SC"', '中文')), true, 'Chinese font unavailable');
     await fn(page, result);
     result.activeResources = await metrics(page);
     await cleanup(page, result);
@@ -96,6 +114,24 @@ async function runCase(name, query, fn, options = {}) {
   });
   await context.addInitScript(() => {
     const frames = new Set(), intervals = new Set(), contexts = new WeakMap(), graphicsContexts = new Map();
+    const drawFrames = new Map(); let currentFrameTime = -1;
+    const recordDraw = canvas => {
+      if (!canvas?.isConnected) return;
+      const record = drawFrames.get(canvas) || { frames: 0, lastTime: -2 };
+      if (record.lastTime !== currentFrameTime) { record.frames++; record.lastTime = currentFrameTime; }
+      drawFrames.set(canvas, record);
+    };
+    for (const [type, method] of [[CanvasRenderingContext2D, 'clearRect'], [WebGLRenderingContext, 'clear'], [WebGL2RenderingContext, 'clear']]) {
+      const original = type.prototype[method];
+      type.prototype[method] = function(...args) { recordDraw(this.canvas); return original.apply(this, args); };
+    }
+    window.validationDrawMetrics = () => {
+      const canvases = [...document.querySelectorAll('canvas')];
+      return { frames: canvases.reduce((sum, canvas) => sum + (drawFrames.get(canvas)?.frames || 0), 0),
+        dpr: devicePixelRatio, viewport: { width: innerWidth, height: innerHeight },
+        canvases: canvases.map(canvas => ({ width: canvas.width, height: canvas.height, cssWidth: canvas.clientWidth, cssHeight: canvas.clientHeight,
+          renderer: canvas.dataset.mascotRenderer || 'legacy', contextTypes: contexts.get(canvas) || [] })) };
+    };
     const getContext = HTMLCanvasElement.prototype.getContext;
     HTMLCanvasElement.prototype.getContext = function(kind, ...args) { const value = getContext.call(this, kind, ...args); if (value) { const types = contexts.get(this) || []; if (!types.includes(kind)) types.push(kind); contexts.set(this, types); if (/webgl/.test(kind)) graphicsContexts.set(value, { canvas: this, kind }); } return value; };
     if (typeof OffscreenCanvas !== 'undefined') {
@@ -114,7 +150,7 @@ async function runCase(name, query, fn, options = {}) {
     window.validationContextTypes = canvas => contexts.get(canvas) || [];
     const raf = window.requestAnimationFrame.bind(window), cancel = window.cancelAnimationFrame.bind(window);
     const interval = window.setInterval.bind(window), clear = window.clearInterval.bind(window);
-    window.requestAnimationFrame = callback => { let id = raf(time => { frames.delete(id); callback(time); }); frames.add(id); return id; };
+    window.requestAnimationFrame = callback => { let id = raf(time => { frames.delete(id); currentFrameTime = time; callback(time); }); frames.add(id); return id; };
     window.cancelAnimationFrame = id => { frames.delete(id); cancel(id); };
     window.setInterval = (callback, ms, ...args) => { const id = interval(callback, ms, ...args); intervals.add(id); return id; };
     window.clearInterval = id => { intervals.delete(id); clear(id); };
@@ -133,7 +169,7 @@ async function runCase(name, query, fn, options = {}) {
   await probe.close(); save();
   for (const theme of ['light', 'dark']) {
     await runCase(`desktop-${theme}`, `surface=desktop&theme=${theme}`, async (page, result) => {
-      await page.setViewportSize({ width: 420, height: 740 }); await animated(page);
+      await page.setViewportSize({ width: 260, height: 340 }); await animated(page);
       const canvas = page.locator('canvas[data-mascot-renderer="rive"]');
       const samples = [];
       for (let i = 0; i < 8; i++) {
@@ -145,15 +181,12 @@ async function runCase(name, query, fn, options = {}) {
       result.pixels = { visible: samples[0].visible, alphaRatio: samples[0].ratio, changedFromFirst: samples.slice(1).map(s => changed(samples[0].png, s.png)), blink: 'Whole-canvas timeline movement measured; blink semantics require visual review of approved timeline.' };
       assert.ok(samples.every(s => s.ratio > .01), 'Character has no visible canvas pixels');
       assert.ok(result.pixels.changedFromFirst.some(n => n > 10), 'Timeline does not visibly move');
-      const cdp = await context.newCDPSession(page); await cdp.send('Performance.enable');
-      const before = (await cdp.send('Performance.getMetrics')).metrics;
-      const start = Date.now(); await sleep(4000);
-      const after = (await cdp.send('Performance.getMetrics')).metrics;
-      const value = (list, name) => list.find(m => m.name === name)?.value;
-      result.idlePerformance = { windowMs: Date.now() - start, taskDurationSeconds: value(after, 'TaskDuration') - value(before, 'TaskDuration'), jsHeapBefore: value(before, 'JSHeapUsedSize'), jsHeapAfter: value(after, 'JSHeapUsedSize'), meaning: 'CDP main-thread task duration and heap; not OS CPU, GPU, or native executable performance' };
+      result.idlePerformance = await measureIdle(page);
+      assert.ok(result.idlePerformance.renderClearFrameCount > 0, 'Original runtime not rendering');
       await shot(page, `desktop-${theme}-collapsed`);
       result.collapsedResources = await metrics(page);
       await page.getByRole('button', { name: '展开 Haru 对话', exact: true }).click();
+      await page.setViewportSize({ width: 420, height: 740 });
       await page.getByRole('region', { name: 'Haru 对话' }).waitFor();
       assert.equal(await page.locator('canvas').count(), 0);
       await page.waitForFunction(() => { const image = document.querySelector('.desktop-haru-static-portrait'); return image?.complete && image.naturalWidth > 0; });
@@ -162,7 +195,8 @@ async function runCase(name, query, fn, options = {}) {
       assert.equal(result.expandedResources.intervals, 0);
       assert.equal(result.expandedResources.animationFrames, 0);
       await page.getByRole('button', { name: '打开 OfferPilot 主窗口', exact: true }).click();
-      await page.getByRole('button', { name: '收起 Haru 对话', exact: true }).click(); await animated(page);
+      await page.getByRole('button', { name: '收起 Haru 对话', exact: true }).click();
+      await page.setViewportSize({ width: 260, height: 340 }); await animated(page);
       result.actions = await page.evaluate(() => window.fixture.actions);
       assert.ok(['expand', 'collapse', 'show-main'].every(a => result.actions.includes(a)));
       await page.evaluate(() => window.fixture.visible(false)); await sleep(300);
@@ -175,6 +209,25 @@ async function runCase(name, query, fn, options = {}) {
       await trigger.click(); await page.locator('output[data-panel-open="true"]').waitFor({ state: 'attached' });
     });
   }
+  for (const mode of ['legacy', 'original-static']) await runCase(`desktop-native-size-${mode}`, `surface=desktop&character=${mode === 'legacy' ? 'legacy' : 'original-preview'}${mode === 'original-static' ? '&animation=off' : ''}`, async (page, result) => {
+    await page.setViewportSize({ width: 260, height: 340 });
+    if (mode === 'legacy') {
+      await page.waitForFunction(() => [...document.querySelectorAll('canvas')].some(c => window.validationContextTypes(c).some(kind => /webgl/.test(kind))), null, { timeout: 22000 });
+      await page.locator('.desktop-haru-portrait[data-runtime-state="ready"]').waitFor();
+      const canvas = page.locator('canvas');
+      const box = await canvas.boundingBox(); assert.ok(box);
+      const shown = PNG.sync.read(await page.screenshot({ clip: box, omitBackground: true }));
+      const visibility = await canvas.evaluate(c => { const previous = c.style.visibility; c.style.visibility = 'hidden'; return previous; });
+      const hidden = PNG.sync.read(await page.screenshot({ clip: box, omitBackground: true }));
+      await canvas.evaluate((c, previous) => { c.style.visibility = previous; }, visibility);
+      result.legacyCanvasContributionPixels = changed(shown, hidden);
+      assert.ok(result.legacyCanvasContributionPixels > 100, 'Legacy canvas contributes no visible character pixels');
+    } else await fallback(page);
+    result.idlePerformance = await measureIdle(page);
+    if (mode === 'original-static') assert.equal(result.idlePerformance.renderClearFrameCount, 0);
+    else assert.ok(result.idlePerformance.renderClearFrameCount > 0, 'Legacy runtime not rendering');
+    await shot(page, `desktop-native-size-${mode}`);
+  });
   for (const surface of ['desktop', 'pilot', 'calendar']) {
     await runCase(`${surface}-default-legacy`, `surface=${surface}&character=unset`, async (page, result) => {
       await page.waitForFunction(() => [...document.querySelectorAll('canvas')].some(c => window.validationContextTypes(c).some(kind => /webgl/.test(kind))), null, { timeout: 22000 });
