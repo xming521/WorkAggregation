@@ -125,13 +125,14 @@ def test_shard_timeout_adds_bounded_headroom_without_relaxing_gates():
     assert re.findall(r"^      max-parallel: (\d+)$", shards, re.M) == ["2"]
     matrix = re.findall(r"^        shard: \[([^\]]+)\]$", shards, re.M)
     assert len(matrix) == 1
-    assert [int(value.strip()) for value in matrix[0].split(",")] == list(range(12))
-    assert "gate.py collect --count 12 --manifest" in _job("pytest-manifest")
+    assert [int(value.strip()) for value in matrix[0].split(",")] == list(range(20))
+    assert "gate.py collect --count 20 --manifest" in _job("pytest-manifest")
+    assert "name: Complete pytest shard ${{ matrix.shard }} of 20" in shards
     assert "cancel-in-progress:" not in WORKFLOW
     assert "continue-on-error:" not in WORKFLOW
     assert 'if ($LASTEXITCODE -ne 0) { throw "Full pytest shard failed" }' in shards
     assert "if: ${{ always() }}\n        uses: actions/upload-artifact@v4" in shards
-    assert "1440 aggregate shard-minute ceiling" in WORKFLOW
+    assert "2400 aggregate shard-minute ceiling" in WORKFLOW
 
 
 @pytest.mark.parametrize("job", ["pytest-manifest", "pytest-shards", "full-regression"])

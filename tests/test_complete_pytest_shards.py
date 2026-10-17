@@ -502,6 +502,22 @@ def test_frozen_history_provenance_and_all_6773_nodes_keep_exact_coverage():
     assert max(loads) == 5_316_970 and max(loads) - min(loads) == 258
     assert refresh["prediction"]["scope"] == "scheduling-only; not completed execution evidence"
 
+    # The historical twelve-shard prediction above stays immutable. The current
+    # twenty-shard layout must preserve the same exact collection and fixtures.
+    current = gate.partition(actual, 20)
+    assert len(current) == 20 and all(current)
+    assert current == gate.partition(actual[::-1], 20)
+    assert sorted(sum(current, [])) == actual
+    assert len(set(sum(current, []))) == len(actual)
+    for filename in {node.split("::", 1)[0] for node in actual} - gate.NODE_SPLIT_FILES:
+        assert sum(any(node.split("::", 1)[0] == filename for node in shard)
+                   for shard in current) == 1
+    current_manifest = {**manifest, "nodes": actual, "shards": current}
+    gate.validate_manifest(current_manifest)
+    assert gate.digest(current_manifest) == gate.digest({
+        **current_manifest, "shards": gate.partition(actual[::-1], 20),
+    })
+
 
 def test_unknown_and_historically_skipped_nodes_use_conservative_frozen_cost(monkeypatch):
     costs = {"tests/test_a.py::test_known": 1, "tests/test_b.py::test_known": 1000}
@@ -600,4 +616,4 @@ def test_workflow_preserves_120_minute_shard_budget():
     shard_job = workflow.split("  pytest-shards:\n", 1)[1].split("  full-regression:\n", 1)[0]
     assert "timeout-minutes: 120" in shard_job
     assert "max-parallel: 2" in shard_job
-    assert "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]" in shard_job
+    assert "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]" in shard_job

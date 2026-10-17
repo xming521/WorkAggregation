@@ -219,7 +219,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Collection uses HEAD/index only, but fail before launching 12 shards
+          # Collection uses HEAD/index only, but fail before launching 20 shards
           # if the historical backend/frontend source gates cannot run.
           fetch-depth: 0
           persist-credentials: false
@@ -244,7 +244,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Frozen Python install failed" }
           npm.cmd ci --prefix web
           if ($LASTEXITCODE -ne 0) { throw "Frontend dependency install failed" }
-          uv run --frozen python scripts/test_shards/gate.py collect --count 12 --manifest pytest-evidence/manifest.json
+          uv run --frozen python scripts/test_shards/gate.py collect --count 20 --manifest pytest-evidence/manifest.json
           if ($LASTEXITCODE -ne 0) { throw "Complete pytest collection failed" }
       - uses: actions/upload-artifact@v4
         with:
@@ -253,13 +253,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Capacity estimate, not a measured guarantee: 89 minutes at 21% implies
-  # roughly 425 pytest runner-minutes, plus 12 dependency/collection startups
-  # and repeated fixture costs. Two shards at once; packaging can be a third
-  # runner. A shard has a 120-minute limit (1440 aggregate shard-minute ceiling).
-  # Old run 37728772813 shard 5: 536 passed, 65m09s elapsed. The prior
-  # 90-minute cap left limited margin for slower runners/partitions; 120
-  # adds bounded headroom, not a speedup or completion guarantee.
+  # Capacity planning, not a measured guarantee: run 38937939551 used
+  # 729.25 total job-minutes across 12 shards. Twenty shards add eight startups,
+  # roughly 16-27 minutes at observed overhead, plus repeated fixture costs.
+  # Twenty was chosen for planning-scenario margin; estimates are not guarantees.
+  # Two shards run at once; packaging can be a third runner. Each shard retains
+  # its 120-minute limit (2400 aggregate shard-minute ceiling).
   # Sharding reduces wall-clock/timeout pressure, not total resource consumption.
   # duration-lpt-v1 uses pinned historical durations only to balance scheduling;
   # every collected node still runs exactly once under the full manifest gate.
@@ -267,7 +266,7 @@ jobs:
   # Estimates do not certify passing tests; each shard keeps its 120-minute limit
   # and at most two pytest shards run concurrently.
   pytest-shards:
-    name: Complete pytest shard ${{ matrix.shard }} of 12
+    name: Complete pytest shard ${{ matrix.shard }} of 20
     if: "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
     needs: pytest-manifest
     runs-on: windows-2022
@@ -276,7 +275,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     steps:
       - uses: actions/checkout@v4
         with:
