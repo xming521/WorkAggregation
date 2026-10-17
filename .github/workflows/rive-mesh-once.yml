@@ -1,0 +1,35 @@
+name: Rive synthetic mesh one-time diagnostic
+on:
+  push:
+    branches: [test/20261017-rive-cloud-mesh]
+permissions:
+  contents: read
+jobs:
+  mesh-diagnostic:
+    name: Sandboxed raster mesh diagnostic (not release validation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/rive-mesh-validation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install official Chromium
+        run: npx playwright install chromium
+      - name: Run one sandboxed diagnostic without unsafe fallbacks
+        run: npm test
+      - name: Preserve diagnostics and actual frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rive-mesh-diagnostic-${{ github.sha }}
+          path: tools/rive-mesh-validation/evidence
+          retention-days: 7
+          if-no-files-found: error
