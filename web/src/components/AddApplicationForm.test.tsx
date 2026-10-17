@@ -74,6 +74,48 @@ afterEach(async () => {
   }
 });
 
+// Hold a real polyfill refresh across a clock switch, as a prior UI owner can.
+// Its separate ESM controller keeps this fixture independent of AntD's CJS singleton.
+async function pendingDisconnectedResizeFrame() {
+  const requestFrame = globalThis.requestAnimationFrame;
+  const cancelFrame = globalThis.cancelAnimationFrame;
+  const frames: number[] = [];
+  globalThis.requestAnimationFrame = (callback) => {
+    const handle = requestFrame(callback);
+    frames.push(handle);
+    return handle;
+  };
+  let module: typeof import('resize-observer-polyfill');
+  try {
+    module = await vi.importActual<typeof import('resize-observer-polyfill')>(
+      'resize-observer-polyfill/dist/ResizeObserver.es.js',
+    );
+  } finally {
+    globalThis.requestAnimationFrame = requestFrame;
+  }
+  const onResize = vi.fn();
+  const observer = new module.default(onResize);
+  const schedule = vi.spyOn(globalThis, 'setTimeout')
+    .mockImplementation(() => 0 as unknown as ReturnType<typeof setTimeout>);
+  let registrations: typeof schedule.mock.calls;
+  try {
+    observer.observe(document.createElement('div'));
+    registrations = schedule.mock.calls.slice();
+  } finally {
+    observer.disconnect();
+    schedule.mockRestore();
+  }
+  expect(registrations).toHaveLength(1);
+  expect(registrations[0][0]).toBeTypeOf('function');
+  expect(registrations[0][1]).toBe(20);
+  return {
+    release: registrations[0][0] as () => void,
+    frames,
+    onResize,
+    dispose: () => frames.forEach((handle) => cancelFrame(handle)),
+  };
+}
+
 describe('single Application intake', () => {
   it.each(['cancel', 'external'])('reoffers a bypassed unknown submission after %s close and reopen', async (method) => {
     savePendingCreation('workspace-a', { request, status: 'unknown' });
@@ -191,18 +233,62 @@ describe('single Application intake', () => {
     expect(createApplicationWithJd).toHaveBeenCalledWith(request);
     expect(loadPendingCreations('workspace-a')).toHaveLength(1);
   });
-  it('destroys real static message portals and their expiry timers before the next intake', async () => {
+  it.each([false, true])('destroys real static message portals and their expiry timers (pending resize frame: %s)', async (withResizeFrame) => {
+    const resizeFrame = withResizeFrame ? await pendingDisconnectedResizeFrame() : null;
     vi.useFakeTimers();
+    const scheduleTimeout = vi.spyOn(globalThis, 'setTimeout');
+    const cancelTimeout = vi.spyOn(globalThis, 'clearTimeout');
+    const scheduleInterval = vi.spyOn(globalThis, 'setInterval');
+    const cancelInterval = vi.spyOn(globalThis, 'clearInterval');
+    const onClose = vi.fn();
     try {
-      await act(async () => { void message.success('Owned intake cleanup notice', 60); });
+      resizeFrame?.release();
+      if (resizeFrame) {
+        expect(resizeFrame.frames).toHaveLength(1);
+        expect(scheduleInterval).toHaveBeenCalledTimes(1);
+        expect(scheduleInterval.mock.results[0].type).toBe('return');
+      }
+      const frameInterval = scheduleInterval.mock.results[0]?.value;
+      const firstRegistration = scheduleTimeout.mock.calls.length;
+      await act(async () => {
+        void message.success({
+          key: 'owned-intake-cleanup-notice',
+          content: 'Owned intake cleanup notice',
+          duration: 60,
+          onClose,
+        });
+      });
       expect(document.querySelector('.ant-message')?.textContent).toContain('Owned intake cleanup notice');
       expect(vi.getTimerCount()).toBeGreaterThan(0);
+      // This open's exact expiry handle, not every prior owner's timer.
+      const expiryRegistrations = scheduleTimeout.mock.calls.flatMap((args, index) =>
+        index >= firstRegistration && args[1] === 60_000
+          ? [scheduleTimeout.mock.results[index]]
+          : [],
+      );
+      expect(expiryRegistrations).toHaveLength(1);
+      expect(expiryRegistrations[0].type).toBe('return');
+      const expiryHandle = expiryRegistrations[0].value;
+      expect(cancelTimeout).not.toHaveBeenCalledWith(expiryHandle);
+      expect(onClose).not.toHaveBeenCalled();
       await act(async () => { message.destroy(); });
       expect(document.querySelector('.ant-message')).toBeNull();
-      expect(vi.getTimerCount()).toBe(0);
+      expect(cancelTimeout).toHaveBeenCalledWith(expiryHandle);
+      if (resizeFrame) expect(cancelInterval).not.toHaveBeenCalledWith(frameInterval);
       await act(async () => { await vi.runAllTimersAsync(); });
+      expect(onClose).not.toHaveBeenCalled();
       expect(document.querySelector('.ant-message')).toBeNull();
+      if (resizeFrame) {
+        expect(cancelInterval).toHaveBeenCalledWith(frameInterval);
+        expect(resizeFrame.onResize).not.toHaveBeenCalled();
+      }
     } finally {
+      // Cancel only this fixture's RAF on failure; normally it retires itself above.
+      resizeFrame?.dispose();
+      scheduleTimeout.mockRestore();
+      cancelTimeout.mockRestore();
+      scheduleInterval.mockRestore();
+      cancelInterval.mockRestore();
       vi.useRealTimers();
     }
   });

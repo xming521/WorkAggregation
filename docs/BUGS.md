@@ -5,6 +5,18 @@
 
 ## 当前记录
 
+## 消息清理回归误把其他组件的定时器计为泄漏（2026-10-17）
+
+**现象：** PR #36 第五候选的完整 Windows 前端测试中，新增消息清理回归确认 portal 已消失，但全局 fake timer 数量仍为 1；原 14 项投递业务场景通过。
+
+**根因：** 全局计数无法证明剩余资源属于消息。离线控制真实 ResizeObserver polyfill 的已断开 observer 尾回调跨越时钟切换，可确定性重现独立 jsdom animation-frame interval 留存、消息自身 expiry 已释放的相同症状；未取得 Windows 失败现场的 timer callback 栈，不能断言该次剩余资源必为此 interval。
+
+**修复：** 回归只追踪本次真实 message.open 期间唯一注册的 expiry 句柄，检查销毁前未取消、销毁后精确取消、portal 消失以及推进原定时器后专属 onClose 不触发。保留普通路径并加入真实 ResizeObserver 尾回调交错；独立 frame 由自身生命周期释放，失败收尾也只取消该 fixture 自有 frame。完整表单文件加入既有 installer 早期聚焦门禁，最终全量不减少。
+
+**验证边界：** 故意阻止该 expiry 句柄的真实 clear 后，即使 spy 记录和 portal 检查通过，专属 onClose 仍触发并使新断言失败。此负例证明资源断言有效，不代表新的 Windows 合并候选已验收。
+
+**教训：** 清理检查应验证资源归属与实际到期行为，不能将第三方组件的独立计时器混为消息泄漏，也不能清空全部 timers 掩盖残留。
+
 ## 严格离线升级测试误拦 Windows 内部 socketpair（2026-10-16）
 
 **现象：** PR #36 旧 Windows 分片的两个桌面邮件组合测试在 TestClient 启动前失败，栈停在 asyncio Proactor 创建内部 socketpair 的 connect。集中扫描还发现 master 既有邮件升级测试使用相同的全禁 connect 方式。

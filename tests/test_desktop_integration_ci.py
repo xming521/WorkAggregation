@@ -90,6 +90,8 @@ def test_mail_upgrade_and_socketpair_guards_run_in_early_windows_job():
     ):
         assert test_file in command
     assert "if ($LASTEXITCODE -ne 0)" in focused
+    assert "npm.cmd test --prefix web -- src/components/AddApplicationForm.test.tsx" in focused
+    assert 'if ($LASTEXITCODE -ne 0) { throw "Application intake lifecycle regression failed" }' in focused
     for bypass in ("-p no:", "-o addopts", "-k ", "continue-on-error"):
         assert bypass not in focused
 

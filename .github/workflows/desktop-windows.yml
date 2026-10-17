@@ -97,6 +97,8 @@ jobs:
           Start-Transcript -Path desktop/ci-evidence/02-focused-tests.log
           uv run --frozen pytest -v tests/test_desktop.py tests/test_auth_api.py tests/test_static_frontend.py tests/test_desktop_job_mail_integration.py tests/test_job_mail_master_upgrade.py tests/test_offline_socketpair_guard.py --durations=15 --junitxml=desktop/ci-evidence/focused-pytest.xml
           if ($LASTEXITCODE -ne 0) { throw "Focused desktop regression tests failed" }
+          npm.cmd test --prefix web -- src/components/AddApplicationForm.test.tsx
+          if ($LASTEXITCODE -ne 0) { throw "Application intake lifecycle regression failed" }
           npm.cmd test --prefix desktop
           if ($LASTEXITCODE -ne 0) { throw "Desktop lifecycle tests failed" }
           Stop-Transcript
