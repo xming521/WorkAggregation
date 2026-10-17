@@ -1,15 +1,31 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createPackage } from '@electron/asar';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
+import { AUDITED_DESKTOP_PRODUCT } from '../../desktop-source-manifest.mjs';
 import { AUDITED_RESPONSE_MODULES, nativeEffectiveCspObserver } from '../../effective-csp-observer.mjs';
 
-// Synthetic archive contains unexecuted checked-in product source only.
+// These probes certify the historical pinned installer, not the current checkout.
+// Read immutable reviewed blobs; product changes must not silently rewrite the
+// historical manifest or turn current source into an old-product fixture.
+export function auditedModule(name) {
+  assert.ok(Object.hasOwn(AUDITED_RESPONSE_MODULES, name), 'unknown audited module');
+  const bytes = execFileSync('git', ['show', '--no-ext-diff', '--no-textconv', `${AUDITED_DESKTOP_PRODUCT}:desktop/${name}`],
+    { cwd: fileURLToPath(new URL('../../../../', import.meta.url)), maxBuffer: 1024 * 1024 });
+  const source = bytes.toString('utf8').replace(/\r\n/g, '\n');
+  assert.equal(createHash('sha256').update(source).digest('hex'), AUDITED_RESPONSE_MODULES[name], 'pinned fixture source differs from reviewed hash');
+  return source;
+}
+
+// Synthetic archive contains unexecuted pinned product source only.
 export async function auditedArchive(installDir, overrides = {}) {
   const source = path.join(installDir, 'synthetic-app');
   await fs.mkdir(source, { recursive: true });
   for (const name of Object.keys(AUDITED_RESPONSE_MODULES)) {
-    await fs.writeFile(path.join(source, name), overrides[name] ?? await fs.readFile(new URL(`../../../${name}`, import.meta.url)));
+    await fs.writeFile(path.join(source, name), overrides[name] ?? auditedModule(name));
   }
   await fs.writeFile(path.join(source, 'package.json'), JSON.stringify({ name: 'offerpilot-desktop', main: 'main.cjs',
     version: '0.1.0-desktop.1', ...overrides.metadata }));

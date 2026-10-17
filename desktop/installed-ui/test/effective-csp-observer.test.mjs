@@ -8,7 +8,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { auditInstalledResponseObserver, nativeEffectiveCspObserver, assertEffectiveCspObservation } from '../effective-csp-observer.mjs';
 import { AUDITED_DESKTOP_PRODUCT } from '../desktop-source-manifest.mjs';
-import { auditedArchive, nativeObserverFixture } from './fixtures/effective-csp-fixture.mjs';
+import { auditedArchive, auditedModule, nativeObserverFixture } from './fixtures/effective-csp-fixture.mjs';
 const { contentSecurityPolicy: policy } = createRequire(import.meta.url)('../../capabilities.cjs');
 const ownerURL = 'http://127.0.0.1:18420/?view=settings';
 const moduleURL = 'http://127.0.0.1:18420/assets/ort-wasm-simd-threaded.asyncify-test.mjs';
@@ -219,4 +219,13 @@ test('reviewed desktop module manifest covers every packaged local CJS and relat
   const { RELEASE_POLICY, unavailableReason } = createRequire(import.meta.url)('../../updater.cjs');
   assert.equal(RELEASE_POLICY, null);
   assert.equal(unavailableReason({ packaged: true, platform: 'win32', policy: RELEASE_POLICY }), '此验证包尚未配置正式签名更新源。');
+});
+
+
+test('historical audit fixture binds immutable source and rejects current Haru bytes as the old product', async t => {
+  const current = (await fs.readFile(new URL('../../haru.cjs', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  assert.notEqual(auditedModule('haru.cjs'), current, 'the changed Haru must not be relabeled as the old installer');
+  await assert.rejects(auditInstalledResponseObserver(await installation(t, { 'haru.cjs': current })),
+    /installed response policy module differs from audited product/);
+  assert.throws(() => auditedModule('../main.cjs'), /unknown audited module/);
 });
