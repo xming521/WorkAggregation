@@ -1,3 +1,4 @@
+import { useMascotCharacter } from '@/features/pilotMascot/mascotCharacter';
 import { useEffect, useRef, useState } from 'react';
 import type { PilotConversationController } from './usePilotConversationController';
 import type { DesktopHaruCommand, DesktopHaruSnapshot } from './desktopHaru';
@@ -47,6 +48,7 @@ export function useDesktopHaruOwner(controller: PilotConversationController, ope
   const { mode } = useThemeMode();
   const bridge = window.offerpilotDesktop;
   const isOwner = bridge?.role === 'owner';
+  const { character } = useMascotCharacter();
   const [animationLevel, setAnimationLevel] = useState(readPilotMascotAnimationLevel);
   useEffect(() => {
     if (!isOwner) return;
@@ -61,7 +63,7 @@ export function useDesktopHaruOwner(controller: PilotConversationController, ope
   }, [isOwner]);
   const current = useRef({ controller, openPending });
   current.current = { controller, openPending };
-  const data = isOwner ? { ...desktopHaruSnapshot(controller), theme: mode, animationLevel } : null;
+  const data = isOwner ? { ...desktopHaruSnapshot(controller), theme: mode, animationLevel, character } : null;
   const signature = JSON.stringify(data);
   const controls = isOwner ? controlSignature(controller) : "";
   const controlRef = useRef({ controls: '', request: controller.activeRequestRef.current });

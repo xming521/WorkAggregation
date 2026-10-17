@@ -1,6 +1,7 @@
 export interface DesktopHaruSnapshot {
   version: number;
   theme?: 'light' | 'dark';
+  character?: 'legacy' | 'original-preview';
   conversationId: number | null;
   taskState: 'idle' | 'running' | 'waiting_confirmation' | 'completed' | 'failed';
   messages: { role: 'user' | 'assistant'; content: string }[];

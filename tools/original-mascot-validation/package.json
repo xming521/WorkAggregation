@@ -1,0 +1,7 @@
+{
+  "name": "offerpilot-original-mascot-validation",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": { "build": "node build.cjs", "test": "node --test security-diagnostics.test.cjs", "validate": "node validate.cjs" },
+  "dependencies": { "playwright": "1.62.1", "pngjs": "7.0.0" }
+}

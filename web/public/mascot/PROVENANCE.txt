@@ -1,0 +1,27 @@
+OfferPilot original character integration preview, 2026-10-17
+
+AI-generated original character artwork, generated for this project with user approval.
+The illustration, transparent background edit, and two eyelid states were generated
+with OpenAI image generation in the user's design session. RML, regional mesh and
+animation timeline were authored for that session. No third-party character assets
+are used in character.png or character.riv. This does not assert exclusive rights
+or apply the Rive runtime's MIT license to the character artwork.
+
+character.png is the approved 1024 x 1536 transparent RGBA artwork.
+SHA256: 10aba77fb5bd403d60af30dfa5166073721d9318c4b819364eef9131e16530fd
+character.riv embeds the original image and the two localized eye-state images.
+Artboard: ApprovedCharacterIdleStudy
+Animation: Subtle breath and peripheral hair study
+Duration: 4 seconds, 60 fps. Half-closed at frame 114, closed at 117,
+half-closed at 122, open at 125. Hair and breathing motion are intentionally subtle.
+This is a raster mesh with a three-state drawn blink, not a fully separated rig.
+Only the selected eye regions of generated eyelid sources are displayed.
+The faint upper-lid highlight and original alpha maximum 254 are known asset traits.
+
+The preview retains the legacy character as the default, selectable in settings.
+It is a technical integration evaluation, not a complete production character.
+No new character name, expressions, speech lip-sync or interaction motions are added.
+
+Built with official Rive CLI 1.6.0; https://rive.app/docs/legal/terms-of-service
+Runtime: @rive-app/canvas 2.44.2 (MIT). See /assets/mascot/RIVE-LICENSE.txt.
+WASM and scene assets are bundled locally; no runtime CDN fallback is enabled.

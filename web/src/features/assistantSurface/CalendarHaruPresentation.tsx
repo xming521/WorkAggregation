@@ -1,7 +1,8 @@
+import { useMascotCharacter } from '@/features/pilotMascot/mascotCharacter';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Dropdown } from 'antd';
 import { CheckOutlined, EllipsisOutlined, MessageOutlined } from '@ant-design/icons';
-import { live2dPilotMascotRuntime, type PilotMascotActivity, type PilotMascotRuntimeController } from '@/features/pilotMascot/live2dRuntime';
+import { type PilotMascotActivity, type PilotMascotRuntimeController } from '@/features/pilotMascot/riveRuntime';
 import type { PilotMascotAnimationLevel, PilotMascotRect } from '@/features/pilotMascot/pilotMascotPreference';
 import { effectiveHaruPresentation, readHaruPresentation, writeHaruPresentation, type HaruPresentationMode } from './haruPresentationPreference';
 import { useMascotVisibility } from '@/features/pilotMascot/useMascotVisibility';
@@ -22,6 +23,7 @@ const ACTIVITY_LABELS: Record<PilotMascotActivity, string> = {
   success: '处理完成', error: '需要查看',
 };
 export default function CalendarHaruPresentation({ activity, panelOpen, onToggle, triggerRef, onAnchorRectChange, animationLevel = 'minimal' }: Props) {
+  const { character, runtime: selectedRuntime } = useMascotCharacter();
   const pageVisible = useMascotVisibility();
   const [mode, setMode] = useState(readHaruPresentation);
   const [viewport, setViewport] = useState(() => ({ width: typeof window === 'undefined' ? 1440 : window.innerWidth, height: typeof window === 'undefined' ? 900 : window.innerHeight }));
@@ -54,12 +56,12 @@ export default function CalendarHaruPresentation({ activity, panelOpen, onToggle
   useEffect(() => {
     if (!canvas.current || !pageVisible) return;
     const abort = new AbortController(); let disposed = false; setFailed(false);
-    void live2dPilotMascotRuntime.mount(canvas.current, abort.signal, animationLevel).then((runtime) => {
+    void selectedRuntime.mount(canvas.current, abort.signal, animationLevel).then((runtime) => {
       if (disposed) { runtime.dispose(); return; }
       controller.current = runtime; runtime.setZoom(1); runtime.setActivity(latestActivity.current);
     }).catch(() => { if (!disposed) setFailed(true); });
     return () => { disposed = true; abort.abort(); controller.current?.dispose(); controller.current = undefined; };
-  }, [animationLevel, motionRevision, pageVisible]);
+  }, [animationLevel, motionRevision, pageVisible, selectedRuntime]);
   useEffect(() => { controller.current?.setActivity(activity); }, [activity]);
   useLayoutEffect(() => {
     const report = () => { const rect = triggerRef.current?.getBoundingClientRect(); if (rect && rect.width > 0) onAnchorRectChange({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }); };
@@ -73,7 +75,7 @@ export default function CalendarHaruPresentation({ activity, panelOpen, onToggle
     <div className={styles.presentation} data-haru-mode={effective} data-haru-preference={mode} data-haru-status={activity}>
       <Dropdown trigger={['contextMenu']} open={menuOwner === 'context'} onOpenChange={(open) => setMenuOwner((owner) => open ? 'context' : owner === 'context' ? null : owner)} autoFocus autoAdjustOverflow menu={{ items, 'aria-label': 'Haru 展示' }}>
         <button ref={triggerRef} className={styles.launcher} aria-label={`Haru · ${status} · ${panelOpen ? '收起' : '打开'}对话`} aria-expanded={panelOpen} aria-controls="haru-chat-window" onClick={onToggle} onKeyDown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); setMenuOwner('context'); } }}>
-          <span className={styles.portrait} aria-hidden="true"><span className={styles.modelFrame}><canvas ref={canvas} /></span>{failed && <span className={styles.fallback}><MessageOutlined /></span>}</span>
+          <span className={styles.portrait} aria-hidden="true"><span className={styles.modelFrame}><canvas key={`${character}-${animationLevel}-${motionRevision}-${pageVisible}`} ref={canvas} /></span>{failed && <span className={styles.fallback}><MessageOutlined /></span>}</span>
           <span className={styles.caption}><span className={styles.dot} />Haru{status !== '随时待命' && <small>{status}</small>}</span>
         </button>
       </Dropdown>

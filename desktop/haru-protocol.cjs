@@ -10,6 +10,7 @@ function sanitizeSnapshot(value) {
   if (!value || !Number.isSafeInteger(value.version) || value.version < 1 || !TASKS.has(value.taskState)) return null;
   return {
     version: value.version,
+    ...(['legacy', 'original-preview'].includes(value.character) ? { character: value.character } : {}),
     ...(['light', 'dark'].includes(value.theme) ? { theme: value.theme } : {}),
     ...(['full', 'minimal', 'off'].includes(value.animationLevel) ? { animationLevel: value.animationLevel } : {}),
     conversationId: Number.isSafeInteger(value.conversationId) && value.conversationId > 0 ? value.conversationId : null,

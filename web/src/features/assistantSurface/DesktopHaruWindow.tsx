@@ -1,18 +1,23 @@
+import { live2dPilotMascotRuntime } from '@/features/pilotMascot/live2dRuntime';
+import { rivePilotMascotRuntime } from '@/features/pilotMascot/riveRuntime';
+import type { MascotCharacter } from '@/features/pilotMascot/mascotCharacter';
+import haruWindowLight from './assets/haru-window-light.png';
+import haruWindowDark from './assets/haru-window-dark.png';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { CloseOutlined, HolderOutlined, RightOutlined, UnorderedListOutlined, UpOutlined, UserOutlined } from '@ant-design/icons';
 import type { PilotMascotAnimationLevel } from '@/features/pilotMascot/pilotMascotPreference';
 import type { DesktopHaruRequest, DesktopHaruState } from './desktopHaru';
-import { live2dPilotMascotRuntime, type PilotMascotActivity } from '@/features/pilotMascot/live2dRuntime';
+import { type PilotMascotActivity } from '@/features/pilotMascot/riveRuntime';
 import { useThemeMode } from '@/theme/ThemeContext';
-import haruWindowLight from './assets/haru-window-light.png';
-import haruWindowDark from './assets/haru-window-dark.png';
+import { MASCOT_IMAGE_URL } from '@/features/pilotMascot/riveRuntime';
 import './DesktopHaruWindow.css';
 
 const STATUS = { idle: '随时待命', running: '正在处理', waiting_confirmation: '等待你确认', completed: '已完成', failed: '需要查看' };
 const GREETING = { idle: '慢慢来，我陪你捋清楚。', running: '我正在整理，稍等一下。', waiting_confirmation: '有一项修改，等你确认。', completed: '整理好了，一起看看吧。', failed: '遇到了一点问题，一起看看。' };
 const INITIAL: DesktopHaruState = { connected: false, generation: 0, snapshot: null, visible: false, expanded: false, alwaysOnTop: false };
 
-function HaruCanvas({ active, activity, animationLevel }: { active: boolean; activity: PilotMascotActivity; animationLevel: PilotMascotAnimationLevel }) {
+function HaruCanvas({ active, activity, animationLevel, character }: { active: boolean; activity: PilotMascotActivity; animationLevel: PilotMascotAnimationLevel; character: MascotCharacter }) {
+  const selectedRuntime = character === 'original-preview' ? rivePilotMascotRuntime : live2dPilotMascotRuntime;
   const ref = useRef<HTMLDivElement>(null);
   const [motionRevision, setMotionRevision] = useState(0);
   useEffect(() => {
@@ -25,8 +30,7 @@ function HaruCanvas({ active, activity, animationLevel }: { active: boolean; act
   const [runtimeState, setRuntimeState] = useState<'loading' | 'ready' | 'failed' | 'hidden'>('hidden');
   useEffect(() => {
     if (!active || !ref.current) { setRuntimeState('hidden'); return; }
-    // Pixi destroys the WebGL context on dispose. A disposed canvas cannot be
-    // reused for another activity or after hiding, including StrictMode remounts.
+    // Give each mount its own drawing surface, including StrictMode remounts.
     const canvas = document.createElement('canvas');
     ref.current.append(canvas);
     const abort = new AbortController();
@@ -34,7 +38,7 @@ function HaruCanvas({ active, activity, animationLevel }: { active: boolean; act
     setRuntimeState('loading');
     // Keep the desktop companion alive while idle. The runtime still honors
     // reduced motion; hiding or expanding disposes its ticker.
-    void live2dPilotMascotRuntime.mount(canvas, abort.signal, animationLevel).then(runtime => {
+    void selectedRuntime.mount(canvas, abort.signal, animationLevel).then(runtime => {
       if (abort.signal.aborted) { runtime.dispose(); return; }
       dispose = () => runtime.dispose();
       runtime.setActivity(activity);
@@ -48,7 +52,7 @@ function HaruCanvas({ active, activity, animationLevel }: { active: boolean; act
       }
     });
     return () => { abort.abort(); dispose?.(); canvas.remove(); };
-  }, [active, activity, animationLevel, motionRevision]);
+  }, [active, activity, animationLevel, motionRevision, selectedRuntime]);
   return <div ref={ref} className="desktop-haru-portrait" data-runtime-state={runtimeState} aria-hidden="true" />;
 }
 
@@ -96,12 +100,15 @@ export default function DesktopHaruWindow() {
   }, [bridge, state.expanded, state.visible]);
   const snapshot = state.snapshot;
   // Owner reloads clear the snapshot, not the user's last explicit animation choice.
+  const retainedCharacter = useRef<MascotCharacter>('legacy');
+  if (snapshot?.character === 'legacy' || snapshot?.character === 'original-preview') retainedCharacter.current = snapshot.character;
+  const character = retainedCharacter.current;
   const retainedAnimationLevel = useRef<PilotMascotAnimationLevel>('full');
   if (snapshot?.animationLevel === 'full' || snapshot?.animationLevel === 'minimal' || snapshot?.animationLevel === 'off') {
     retainedAnimationLevel.current = snapshot.animationLevel;
   }
   const theme = snapshot?.theme ?? mode;
-  const portraitSource = theme === 'dark' ? haruWindowDark : haruWindowLight;
+  const portraitSource = character === 'original-preview' ? MASCOT_IMAGE_URL : theme === 'dark' ? haruWindowDark : haruWindowLight;
   const active = state.visible && pageVisible;
   const activity: PilotMascotActivity = snapshot?.taskState === 'running' ? 'thinking' : snapshot?.hasPending ? 'waiting_confirmation' : snapshot?.taskState === 'failed' ? 'error' : 'idle';
   const windowAction = (action: 'show-main' | 'show-ai-settings' | 'hide-haru' | 'toggle-top' | 'expand' | 'collapse') => { void bridge?.windowAction(action).then(ok => { if (!ok) setNotice('窗口操作失败，请使用托盘菜单。'); }).catch(() => setNotice('窗口操作失败，请使用托盘菜单。')); };
@@ -137,7 +144,7 @@ export default function DesktopHaruWindow() {
       setNotice('连接中断，操作可能已经提交。请打开主窗口核对。');
     } finally { requestLock.current = false; setBusy(false); }
   };
-  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} data-theme={theme} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (contextExpanded) { setContextExpanded(false); contextToggle.current?.focus(); } else windowAction(state.expanded ? 'collapse' : 'hide-haru'); } }}>
+  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} data-theme={theme} data-character={character} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (contextExpanded) { setContextExpanded(false); contextToggle.current?.focus(); } else windowAction(state.expanded ? 'collapse' : 'hide-haru'); } }}>
     {state.expanded ? <header className="desktop-haru-bar">
       <strong>Haru</strong>
       <HolderOutlined className="desktop-haru-grip" aria-hidden="true" />
@@ -175,7 +182,7 @@ export default function DesktopHaruWindow() {
       <span className="desktop-haru-speech" aria-hidden="true">{state.connected && snapshot ? GREETING[snapshot.taskState] : '打开主窗，我们就能继续聊。'}</span>
       <span className="desktop-haru-presence" role="status"><i aria-hidden="true" data-activity={activity} />{state.connected && snapshot ? STATUS[snapshot.taskState] : '等待主窗口连接'}</span>
       <span className="desktop-haru-expand-hint" aria-hidden="true">收起对话 <UpOutlined /></span>
-      </> : <HaruCanvas active={active} activity={activity} animationLevel={retainedAnimationLevel.current} />}
+      </> : <HaruCanvas character={character} active={active} activity={activity} animationLevel={retainedAnimationLevel.current} />}
     </button>
     {state.expanded ? <section className="desktop-haru-chat" aria-label="Haru 对话">
       <div className="desktop-haru-context">

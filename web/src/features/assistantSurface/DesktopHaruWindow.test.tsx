@@ -369,3 +369,23 @@ it('retains explicit animation off during owner loss and only resumes on a later
   expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'full');
   expect(dispose).toHaveBeenCalledTimes(1);
 });
+
+it('takes original preview only from the owner snapshot and retains it across reconnects', async () => {
+  localStorage.setItem('offerpilot.mascot.characterPreview', 'original-preview');
+  try {
+    await mount();
+    expect(host.querySelector('main')?.dataset.character).toBe('legacy');
+    await act(async () => update({ ...state, snapshot: { ...state.snapshot!, character: 'original-preview', animationLevel: 'off' } }));
+    expect(host.querySelector('main')?.dataset.character).toBe('original-preview');
+    const source = host.querySelector('.desktop-haru-static-portrait')?.getAttribute('src');
+    expect(source).toContain('character.png');
+    expect(host.querySelector('canvas')).toBeNull();
+    await act(async () => update({ ...state, connected: false, snapshot: null }));
+    expect(host.querySelector('main')?.dataset.character).toBe('original-preview');
+    await act(async () => update({ ...state, expanded: false, snapshot: { ...state.snapshot!, character: 'original-preview', animationLevel: 'off' } }));
+    expect(host.querySelector('[data-mascot-fallback]')?.getAttribute('src')).toBe(source);
+    await act(async () => update({ ...state, snapshot: { ...state.snapshot!, character: 'legacy' } }));
+    expect(host.querySelector('main')?.dataset.character).toBe('legacy');
+    expect(host.querySelector('[data-mascot-fallback]')).toBeNull();
+  } finally { localStorage.removeItem('offerpilot.mascot.characterPreview'); }
+});

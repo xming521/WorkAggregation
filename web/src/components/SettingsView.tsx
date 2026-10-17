@@ -1,3 +1,4 @@
+import { setMascotCharacter, useMascotCharacter } from '@/features/pilotMascot/mascotCharacter';
 import JobMailSettings from '@/features/jobMail/JobMailSettings';
 import ContextPolicySettings from './ContextPolicySettings';
 import ConfirmedMemorySettings from './ConfirmedMemorySettings';
@@ -41,6 +42,7 @@ export default function SettingsView({
   onPilotMascotResetPosition = () => undefined,
   systemReducedMotion = false,
 }: Props) {
+  const { character } = useMascotCharacter();
   const queryClient = useQueryClient();
   const [logLevel, setLogLevel] = useState('');
   const [logPage, setLogPage] = useState(1);
@@ -296,11 +298,16 @@ export default function SettingsView({
             ? '系统已开启减少动态效果，Haru 将以静态方式显示。'
             : 'Haru 会遵循系统的减少动态效果设置。'}
         </Typography.Text>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          原创角色接入验证
+          <Switch aria-label="原创角色接入验证" checked={character === 'original-preview'} onChange={(enabled) => {
+            try { setMascotCharacter(enabled ? 'original-preview' : 'legacy'); }
+            catch { void message.error('无法保存角色选择，请检查本地存储权限。'); }
+          }} />
+        </label>
         <Typography.Text style={{ color: 'var(--op-muted)', fontSize: 12 }}>
-          Haru character © Live2D Inc.，依据官方样例数据条款使用。{' '}
-          <a href="https://www.live2d.com/en/learn/sample/" target="_blank" rel="noreferrer">
-            查看 Live2D 样例与许可说明
-          </a>
+          {character === 'original-preview' ? <>技术验证：仅含待机微动与眨眼，尚未正式替换。原创角色由 AI 辅助生成；<a href="https://github.com/rive-app/rive-wasm/blob/master/LICENSE" target="_blank" rel="noreferrer">Rive 运行时许可（MIT）</a></>
+            : <>Haru character © Live2D Inc.，依据官方样例数据条款使用。<a href="https://www.live2d.com/en/learn/sample/" target="_blank" rel="noreferrer">查看 Live2D 样例与许可说明</a></>}
         </Typography.Text>
       </section>
 

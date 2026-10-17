@@ -1,0 +1,3 @@
+html,body,#root{margin:0;width:100%;height:100%;font-family:system-ui;background:#f7f8fc;color:#32374d}
+html[data-theme=dark],html[data-theme=dark] body,html[data-theme=dark] #root{background:#151727;color:#eef0ff}
+.fixture-label{padding:24px} .desktop-haru{margin:auto}

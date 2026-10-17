@@ -260,3 +260,7 @@ html.desktop-haru-root,
   .desktop-haru.expanded .desktop-haru-speech { max-width: 116px; font-size: 11px; }
   .desktop-haru-chat { padding-inline: 9px; }
 }
+
+/* Validation opt-in: preserve the original dialogue layout and static rendering. */
+.desktop-haru[data-character='original-preview'] .desktop-haru-static-portrait { inset: -5px auto auto -14%; width: 100%; height: auto; object-fit: contain; }
+.desktop-haru[data-character='original-preview'] .desktop-haru-message-avatar img { object-fit: cover; object-position: center top; transform: scale(4.3); transform-origin: 50% 8%; }

@@ -33,3 +33,20 @@ it('right-clicks without opening chat, persists mode, and retains the same toggl
   expect(toggle).toHaveBeenCalledTimes(1);
   act(() => root.unmount()); host.remove();
 });
+
+it('allocates a fresh canvas for each legacy/original renderer switch', async () => {
+  const { setMascotCharacter } = await import('@/features/pilotMascot/mascotCharacter');
+  localStorage.clear();
+  window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  await act(async () => root.render(<CalendarHaruPresentation activity="idle" panelOpen={false} onToggle={() => undefined} triggerRef={createRef()} onAnchorRectChange={() => undefined} animationLevel="off" />));
+  const legacy = host.querySelector('canvas');
+  await act(async () => setMascotCharacter('original-preview'));
+  const original = host.querySelector('canvas');
+  expect(original).not.toBe(legacy);
+  expect(host.querySelector('[data-mascot-fallback]')).not.toBeNull();
+  await act(async () => setMascotCharacter('legacy'));
+  expect(host.querySelector('canvas')).not.toBe(original);
+  expect(host.querySelector('[data-mascot-fallback]')).toBeNull();
+  act(() => root.unmount()); host.remove(); localStorage.clear();
+});

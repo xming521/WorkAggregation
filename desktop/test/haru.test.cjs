@@ -16,6 +16,8 @@ test('snapshot copies only bounded prose, booleans and theme enum; never credent
   assert.equal(value.error.length, 1200);
   assert(!JSON.stringify(value).includes('secret'));
   assert(!('pending' in value));
+  for (const character of ['legacy', 'original-preview']) assert.equal(sanitizeSnapshot({ ...view, character }).character, character);
+  for (const character of [undefined, true, {}, null, 'remote-url', '/assets/evil']) assert(!('character' in sanitizeSnapshot({ ...view, character })));
   for (const animationLevel of ['full', 'minimal', 'off']) assert.equal(sanitizeSnapshot({ ...view, animationLevel }).animationLevel, animationLevel);
   for (const animationLevel of [undefined, true, { level: 'off' }, null, 'invalid']) assert(!('animationLevel' in sanitizeSnapshot({ ...view, animationLevel })));
   for (const aiConfigured of [true, false]) assert.equal(sanitizeSnapshot({ ...view, aiConfigured }).aiConfigured, aiConfigured);

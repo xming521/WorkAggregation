@@ -1,0 +1,48 @@
+name: Original mascot bounded preview
+on:
+  push:
+    branches: [feat/20261017-original-mascot-runtime]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+concurrency:
+  group: original-mascot-preview-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  browser-evidence:
+    if: github.ref == 'refs/heads/feat/20261017-original-mascot-runtime'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            tools/original-mascot-validation/package-lock.json
+      - name: Install locked frontend and isolated harness
+        run: |
+          npm ci --prefix web
+          npm ci --prefix tools/original-mascot-validation --ignore-scripts
+      - name: Production build and focused regression tests
+        run: |
+          npm run build --prefix web
+          npm test --prefix web -- --maxWorkers=2 --minWorkers=1 src/features/pilotMascot/riveRuntime.test.ts src/features/pilotMascot/PilotMascot.test.tsx src/features/assistantSurface/CalendarHaruPresentation.test.tsx src/features/assistantSurface/DesktopHaruWindow.test.tsx src/features/assistantSurface/useDesktopHaruOwner.test.tsx src/components/SettingsView.mascot.test.tsx
+          npm test --prefix tools/original-mascot-validation
+          npm run build --prefix tools/original-mascot-validation
+      - name: Sandboxed installed Chrome product-component evidence
+        run: npm run validate --prefix tools/original-mascot-validation
+      - name: Retain bounded browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-mascot-browser-evidence
+          path: tools/original-mascot-validation/evidence/
+          retention-days: 7
+          if-no-files-found: warn

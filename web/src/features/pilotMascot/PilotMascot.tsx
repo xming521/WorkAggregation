@@ -1,13 +1,13 @@
+import { useMascotCharacter } from './mascotCharacter';
 import { createPortal } from 'react-dom';
 import { classifyMascotFailure, type MascotFailureReason } from './mascotFailure';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 import { CloseOutlined, MessageOutlined, MinusOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
-  live2dPilotMascotRuntime,
   type PilotMascotActivity,
   type PilotMascotRuntime,
   type PilotMascotRuntimeController,
-} from './live2dRuntime';
+} from './riveRuntime';
 import {
   DEFAULT_PILOT_MASCOT_POSITIONS,
   normalizePilotMascotZoom,
@@ -25,7 +25,7 @@ import {
 import { useMascotVisibility } from './useMascotVisibility';
 import styles from './PilotMascot.module.css';
 
-export type { PilotMascotActivity, PilotMascotRuntime } from './live2dRuntime';
+export type { PilotMascotActivity, PilotMascotRuntime } from './riveRuntime';
 export type { PilotMascotAnimationLevel } from './pilotMascotPreference';
 
 export interface PilotMascotNotification {
@@ -98,9 +98,11 @@ export default function PilotMascot({
   studioEvidenceOpen = true,
   position,
   onPositionChange,
-  runtime = live2dPilotMascotRuntime,
+  runtime: suppliedRuntime,
   triggerRef: externalTriggerRef,
 }: Props) {
+  const { character, runtime: selectedRuntime } = useMascotCharacter();
+  const runtime = suppliedRuntime ?? selectedRuntime;
   const pageVisible = useMascotVisibility();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const internalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -476,7 +478,7 @@ export default function PilotMascot({
       >
         <span className={styles.glow} aria-hidden="true" />
         <span className={styles.canvasHost} aria-hidden="true">
-          <canvas ref={canvasRef} className={styles.canvas} />
+          <canvas key={`${character}-${animationLevel}-${reducedMotionRevision}-${pageVisible}`} ref={canvasRef} className={styles.canvas} />
         </span>
         {loadFailed ? (
           <span className={styles.fallback} role="status" aria-live="polite">

@@ -1,3 +1,4 @@
+import { setMascotCharacter, MASCOT_CHARACTER_KEY } from '@/features/pilotMascot/mascotCharacter';
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -35,6 +36,7 @@ function latest(): DesktopHaruSnapshot { return publish.mock.calls[publish.mock.
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.removeItem(PILOT_MASCOT_ANIMATION_KEY);
+  localStorage.removeItem(MASCOT_CHARACTER_KEY);
   theme = 'light';
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   window.offerpilotDesktop = { role: 'owner', publish, reply, onShowPilot: handler => { showPilot = handler; return offShowPilot; }, onCommand: handler => { command = handler; return vi.fn(); }, disconnect: vi.fn(), windowAction, getState: vi.fn(), onState: vi.fn() };
@@ -49,6 +51,14 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); delete window.offerpilotDesktop; });
 
 describe('desktop Haru owner', () => {
+  it('publishes only the selected character without changing the command version', () => {
+    render(); const version = latest().version;
+    expect(latest().character).toBe('legacy');
+    act(() => setMascotCharacter('original-preview'));
+    expect(latest().character).toBe('original-preview');
+    expect(latest().version).toBe(version);
+    act(() => setMascotCharacter('legacy'));
+  });
   it('publishes the application theme without invalidating an in-flight command version', () => {
     render();
     const version = latest().version;
