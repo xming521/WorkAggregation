@@ -21,8 +21,22 @@ jobs:
           node-version: '22'
       - name: Install pinned test dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Install official Chromium
-        run: npx playwright install chromium
+      - name: Inspect preinstalled Chrome and existing sandbox environment
+        run: |
+          mkdir -p evidence
+          {
+            id
+            cat /etc/os-release
+            command -v google-chrome || true
+            readlink -f /usr/bin/google-chrome || true
+            google-chrome --version || true
+            ls -l /opt/google/chrome/chrome /opt/google/chrome/chrome-sandbox || true
+            if [ -r /etc/apparmor.d/chrome ]; then cat /etc/apparmor.d/chrome; else echo 'Existing Chrome AppArmor profile is not readable'; fi
+            for file in /proc/sys/kernel/unprivileged_userns_clone /proc/sys/kernel/apparmor_restrict_unprivileged_userns; do
+              if [ -r "$file" ]; then printf '%s=' "$file"; cat "$file"; fi
+            done
+          } > evidence/environment.txt 2>&1
+          cat evidence/environment.txt
       - name: Run one sandboxed diagnostic without unsafe fallbacks
         run: npm test
       - name: Preserve diagnostics and actual frames
