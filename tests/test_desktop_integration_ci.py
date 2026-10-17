@@ -70,7 +70,8 @@ def test_prs_use_full_read_only_merge_candidate_validation_without_duplicate_can
 
 def test_package_only_escape_hatch_is_bound_to_old_push_branch():
     expression = ("github.event_name == 'push' && "
-                  "github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && "
+                  "(github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' || "
+                  "github.ref == 'refs/heads/fix/20261017-haru-window-controls') && "
                   "startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')")
     assert WORKFLOW.count(expression) == 4
     dispatch = ("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') "

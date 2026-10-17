@@ -36,7 +36,7 @@ def _activation() -> str:
 def _package_only(event_name: str, payload: dict, ref: str = "refs/heads/feat/20261005-windows-desktop-validation") -> bool:
     # Fail closed if the production expression is widened or changes shape.
     match = re.fullmatch(
-        r"github\.event_name == '([^']+)' && github\.ref == '([^']+)' && "
+        r"github\.event_name == '([^']+)' && \(github\.ref == '([^']+)' \|\| github\.ref == '([^']+)'\) && "
         r"startsWith\(github\.event\.head_commit\.message, '([^']+)'\)",
         _activation().split(") || (", 1)[0][1:],
     )
@@ -45,8 +45,9 @@ def _package_only(event_name: str, payload: dict, ref: str = "refs/heads/feat/20
         "&& github.ref != 'refs/heads/master' && inputs.package_only == true)"
     )
     assert match
-    required_event, required_ref, prefix = match.groups()
+    required_event, required_ref, fix_ref, prefix = match.groups()
     assert required_ref == "refs/heads/feat/20261005-windows-desktop-validation"
+    assert fix_ref == "refs/heads/fix/20261017-haru-window-controls"
     assert required_event == "push"
     assert prefix == PREFIX
     commit = payload.get("head_commit") or {}
@@ -56,7 +57,7 @@ def _package_only(event_name: str, payload: dict, ref: str = "refs/heads/feat/20
                          and ref.casefold() != 'refs/heads/master'
                          and (payload.get('inputs') or {}).get('package_only') is True)
     return explicit_dispatch or (event_name.casefold() == required_event.casefold()
-            and ref.casefold() == required_ref.casefold()
+            and ref.casefold() in {required_ref.casefold(), fix_ref.casefold()}
             and message.casefold().startswith(prefix.casefold()))
 
 
@@ -257,3 +258,17 @@ def test_explicit_dispatch_is_branch_only_and_cannot_bypass_master_or_pr(event, 
     assert _package_only(event, payload, ref) is expected
     for job in ("pytest-manifest", "pytest-shards", "full-regression"):
         assert _regression_enabled(job, event, payload, ref) is not expected
+
+
+@pytest.mark.parametrize("ref,message,expected", [
+    ("refs/heads/fix/20261017-haru-window-controls", PREFIX + "Haru validation", True),
+    ("refs/heads/fix/20261017-haru-window-controls", "fix: AI ordinary change", False),
+    ("refs/heads/fix/20261017-haru-window-controls-other", PREFIX + "wrong branch", False),
+    ("refs/heads/master", PREFIX + "wrong branch", False),
+])
+def test_haru_package_push_is_exact_and_requires_explicit_marker(ref, message, expected):
+    payload = {"head_commit": {"message": message}}
+    assert _package_only("push", payload, ref) is expected
+    for job in ("pytest-manifest", "pytest-shards", "full-regression"):
+        assert _regression_enabled(job, "push", payload, ref) is not expected
+    assert "      - fix/20261017-haru-window-controls\n" in WORKFLOW
