@@ -73,7 +73,10 @@ def test_package_only_escape_hatch_is_bound_to_old_push_branch():
                   "github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && "
                   "startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')")
     assert WORKFLOW.count(expression) == 4
-    assert f'WINDOWS_PACKAGE_ONLY: "${{{{ {expression} }}}}"' in WORKFLOW
+    dispatch = ("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') "
+                "&& github.ref != 'refs/heads/master' && inputs.package_only == true")
+    assert f'WINDOWS_PACKAGE_ONLY: "${{{{ ({expression}) || ({dispatch}) }}}}"' in WORKFLOW
+    assert WORKFLOW.count(dispatch) == 4
     assert "timeout-minutes: 120" in WORKFLOW and "max-parallel: 2" in WORKFLOW
     assert "scripts/release-gate.ps1 -Install -PytestEvidence pytest-evidence" in WORKFLOW
 

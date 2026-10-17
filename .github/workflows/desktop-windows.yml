@@ -2,7 +2,7 @@ name: Windows desktop validation (unsigned)
 
 # Experimental validation only. Packaging never implies release readiness.
 # PR merge candidates always run the complete gate. Historical
-# package-only routing is retained only for the original validation branch.
+# package-only runs are limited to the original push branch or explicit non-master dispatch.
 on:
   push:
     branches:
@@ -11,19 +11,26 @@ on:
     branches: [master]
     # No paths filter: every PR receives the complete required status.
   workflow_dispatch:
+    inputs:
+      package_only:
+        description: 'Experimental installer only on non-master branches; never a full validation pass'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 # Do not cancel existing runs implicitly; supersession needs explicit approval.
 
-# Package-only is opt-in on push, from the first-line commit prefix including
+# Package-only is opt-in on non-master dispatch, or on the legacy push branch
+# from the first-line commit prefix including
 # its trailing space. GitHub startsWith is case-insensitive: uppercase/lowercase
-# variants are deliberately accepted. Missing markers and dispatch use full mode.
+# variants are deliberately accepted. Dispatch defaults to full; master and PRs stay full.
 # https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#startswith
 # Skipping full regression must never produce a successful validation-status.
 env:
-  WINDOWS_PACKAGE_ONLY: "${{ github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ') }}"
+  WINDOWS_PACKAGE_ONLY: "${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/master' && inputs.package_only == true) }}"
   LITELLM_LOCAL_MODEL_COST_MAP: "True"
   PYTHONUTF8: "1"
   PYTHONUNBUFFERED: "1"
@@ -213,7 +220,7 @@ jobs:
 
   pytest-manifest:
     name: Collect complete pytest manifest
-    if: "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
+    if: "${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/master' && inputs.package_only == true)) }}"
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
@@ -267,7 +274,7 @@ jobs:
   # and at most two pytest shards run concurrently.
   pytest-shards:
     name: Complete pytest shard ${{ matrix.shard }} of 20
-    if: "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
+    if: "${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/master' && inputs.package_only == true)) }}"
     needs: pytest-manifest
     runs-on: windows-2022
     timeout-minutes: 120
@@ -322,7 +329,7 @@ jobs:
 
   full-regression:
     name: Full release regression (required for release)
-    if: "${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
+    if: "${{ always() && !((github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/master' && inputs.package_only == true)) }}"
     needs: [pytest-manifest, pytest-shards]
     runs-on: windows-2022
     timeout-minutes: 90

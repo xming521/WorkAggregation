@@ -140,7 +140,7 @@ function sessionHarness({ storedTitleUnique = true, counts = [], wrongBody = fal
     async getAttribute() { return theme; }
     async inputValue() { return inputs[this.role]; }
     async fill(text) { inputs[this.role] = text; }
-    async waitFor() {}
+    async waitFor() { events.push(`wait:${this.selector}`); }
     async scrollIntoViewIfNeeded() {}
     async click() {
       events.push(this.selector);
@@ -159,6 +159,7 @@ function sessionHarness({ storedTitleUnique = true, counts = [], wrongBody = fal
   const native = { origin: ORIGIN, async assertIdentity() { events.push('identity'); },
     async prepareTray() { events.push('prepare-tray'); }, async hideOwner() { events.push('hide-owner'); },
     async waitVisible(role) { events.push(`visible:${role}`); }, async waitHidden(role) { events.push(`hidden:${role}`); },
+    async hideHaru() { events.push('tray-hide'); },
     async restoreHaru() { events.push('tray-show'); } };
   const capture = async (id, surface, stage) => {
     assert.equal(stage, 'pilot-stream');
@@ -175,7 +176,12 @@ test('session matrix retains two drafts, captures both themes, clears only its i
   assert.equal(Object.keys(first).length, 5);
   assert.deepEqual(value.inputs, { owner: '', haru: '' });
   assert.ok(value.events.indexOf('hide-owner') < value.events.indexOf('visible:owner'));
-  assert.ok(value.events.indexOf('hidden:haru') < value.events.indexOf('tray-show'));
+  const close = value.events.indexOf('|关闭 Haru 对话');
+  assert.ok(close >= 0);
+  assert.deepEqual(value.events.slice(close, close + 7), [
+    '|关闭 Haru 对话', 'wait:|.desktop-haru.collapsed', 'visible:haru',
+    '|展开 Haru 对话', 'tray-hide', 'hidden:haru', 'tray-show',
+  ]);
   const checks = await value.session.afterRestart({ ...value.args,
     restart: { productionTrayExit: true, processAndPortsReleased: true, sameProfileAndExe: true } });
   assert.equal(Object.keys(checks).length, 10);

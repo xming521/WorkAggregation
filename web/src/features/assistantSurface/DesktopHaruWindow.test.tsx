@@ -287,7 +287,8 @@ it('dismisses the context disclosure before collapsing the native window and res
   expect(windowAction).toHaveBeenCalledWith('collapse');
   await act(async () => update({ ...state, expanded: false }));
   await act(async () => host.querySelector('main')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-  expect(windowAction).toHaveBeenLastCalledWith('hide-haru');
+  expect(windowAction).toHaveBeenLastCalledWith('collapse');
+  expect(windowAction).toHaveBeenCalledTimes(1);
   expect(request).not.toHaveBeenCalled();
 });
 it('keeps the native portrait toggle and close behavior separate from stopping a running task', async () => {
@@ -295,8 +296,8 @@ it('keeps the native portrait toggle and close behavior separate from stopping a
   await act(async () => update({ ...state, snapshot: { ...state.snapshot!, taskState: 'running', canStop: true, loading: true, canSend: false } }));
   await act(async () => host.querySelector<HTMLButtonElement>('.desktop-haru-avatar')!.click());
   expect(windowAction).toHaveBeenLastCalledWith('collapse');
-  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="将 Haru 收到托盘"]')!.click());
-  expect(windowAction).toHaveBeenLastCalledWith('hide-haru');
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="关闭 Haru 对话"]')!.click());
+  expect(windowAction).toHaveBeenLastCalledWith('collapse');
   expect(request).not.toHaveBeenCalled();
   expect(button('停止').disabled).toBe(false);
   await act(async () => update({ ...state, expanded: false }));
@@ -368,4 +369,13 @@ it('retains explicit animation off during owner loss and only resumes on a later
   await act(async () => update({ ...state, snapshot: { ...state.snapshot!, animationLevel: 'full' } }));
   expect(live2dPilotMascotRuntime.mount).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), 'full');
   expect(dispose).toHaveBeenCalledTimes(1);
+});
+
+it.each([false, true])('opens the native character menu when expanded=%s without dragging or changing chat', async expanded => {
+  state = { ...state, expanded }; await mount();
+  await act(async () => host.querySelector('.desktop-haru-avatar')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })));
+  expect(windowAction).toHaveBeenCalledTimes(1);
+  expect(windowAction).toHaveBeenCalledWith('context-menu');
+  expect(dragWindow).not.toHaveBeenCalled();
+  expect(request).not.toHaveBeenCalled();
 });

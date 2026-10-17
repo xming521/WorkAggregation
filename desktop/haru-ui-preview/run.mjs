@@ -250,13 +250,15 @@ try {
     await page.setViewportSize({ width: 420, height: 740 });
     await checkpoint('expanded-after-collapse');
     assert.equal(await page.getByLabel('给 Haru 发消息', { exact: true }).evaluate(node => node === document.activeElement), true);
-    // Escape closes the conversation; a second Escape hides the synthetic
-    // surface and must dispose its model. Resuming mounts the real model again.
+    // Escape closes the conversation and keeps the character visible.
+    // Explicit hiding disposes its model; resuming mounts it again.
     await page.keyboard.press('Escape');
     await waitBridge(() => !window.haruUiPreview.observe().expanded);
     await page.setViewportSize({ width: 260, height: 340 });
     await page.getByRole('button', { name: '展开 Haru 对话', exact: true }).focus();
     await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => window.haruUiPreview.observe().visible), true);
+    await page.evaluate(() => window.offerpilotDesktop.windowAction('hide-haru'));
     await waitBridge(() => !window.haruUiPreview.observe().visible);
     await page.waitForFunction(() => !document.querySelector('.desktop-haru-portrait canvas'));
     assert.equal(await page.locator('.desktop-haru-portrait canvas').count(), 0);

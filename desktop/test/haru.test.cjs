@@ -80,7 +80,7 @@ test('bounds recover on negative-coordinate, removed, scaled and tiny displays',
   assert(Object.values(invalid).every(Number.isFinite));
 });
 
-function harness(t, { trayFails = false } = {}) {
+function harness(t, { trayFails = false, preferences, folder: existingFolder } = {}) {
   let nextId = 0;
   class Contents extends EventEmitter {
     constructor() { super(); this.id = ++nextId; this.mainFrame = { url: origin + '/' }; this.sent = []; this.destroyed = false; }
@@ -103,8 +103,9 @@ function harness(t, { trayFails = false } = {}) {
     destroy() { this.destroyed = true; this.webContents.destroyed = true; this.webContents.emit('destroyed'); }
   }
   Window.all = [];
+  let tray;
   class Tray extends EventEmitter {
-    constructor() { super(); if (trayFails) throw new Error('missing tray'); }
+    constructor() { super(); if (trayFails) throw new Error('missing tray'); tray = this; }
     isDestroyed() { return Boolean(this.destroyed); }
     destroy() { this.destroyed = true; }
     setToolTip() {}
@@ -122,18 +123,21 @@ function harness(t, { trayFails = false } = {}) {
   let cursor = { x: 1100, y: 500 };
   screen.getCursorScreenPoint = () => ({ ...cursor });
   const main = new Window();
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'haru-shell-'));
+  const folder = existingFolder || fs.mkdtempSync(path.join(os.tmpdir(), 'haru-shell-'));
+  if (preferences !== undefined) fs.writeFileSync(path.join(folder, 'haru-window.json'), preferences);
+  const menus = [];
+  const Menu = { buildFromTemplate: items => { const menu = { items, popup: options => { menu.options = options; menus.push(menu); } }; return menu; } };
   let quitting = false;
   let quitCalls = 0;
   const registered = [];
-  const shell = createHaruShell({ BrowserWindow: Window, Tray, Menu: { buildFromTemplate: value => value }, nativeImage: { createFromPath: value => value }, screen, ipcMain: ipc, mainWindow: main, desktopSession: {}, origin, userData: folder, registerWindow: win => registered.push(win), isQuitting: () => quitting, quit: () => { quitCalls++; quitting = true; } });
+  const shell = createHaruShell({ BrowserWindow: Window, Tray, Menu, nativeImage: { createFromPath: value => value }, screen, ipcMain: ipc, mainWindow: main, desktopSession: {}, origin, userData: folder, registerWindow: win => registered.push(win), isQuitting: () => quitting, quit: () => { quitCalls++; quitting = true; } });
   const mirror = Window.all[1];
   mirror.emit('ready-to-show');
   const event = win => ({ sender: win.webContents, senderFrame: win.webContents.mainFrame });
   const invoke = (win, name, value) => ipc.handlers.get(CHANNEL + name)(event(win), value);
   const publish = value => ipc.emit(CHANNEL + 'publish', event(main), value);
   t.after(() => { quitting = true; shell.dispose(); fs.rmSync(folder, { recursive: true, force: true }); });
-  return { main, mirror, ipc, event, invoke, publish, shell, registered, screen, setCursor: point => { cursor = point; }, setQuitting: value => { quitting = value; }, quitCalls: () => quitCalls };
+  return { folder, menus, tray, main, mirror, ipc, event, invoke, publish, shell, registered, screen, setCursor: point => { cursor = point; }, setQuitting: value => { quitting = value; }, quitCalls: () => quitCalls };
 }
 test('only owner publishes; only mirror sends; stale epochs fail after reload', async t => {
   const h = harness(t);
@@ -190,7 +194,7 @@ test('owner loss invalidates state and resolves pending commands without replay'
   assert.equal(h.invoke(h.mirror, 'state').connected, false);
   assert.equal(h.main.webContents.sent.filter(item => item.channel === CHANNEL + 'command').length, 1);
 });
-test('close hides both windows without stopping owner; trayless main close quits safely', t => {
+test('close collapses Haru without hiding it or stopping owner; trayless main close quits safely', t => {
   const h = harness(t);
   h.main.show();
   let prevented = 0;
@@ -198,7 +202,8 @@ test('close hides both windows without stopping owner; trayless main close quits
   h.mirror.emit('close', { preventDefault: () => prevented++ });
   assert.equal(prevented, 2);
   assert.equal(h.main.isVisible(), false);
-  assert.equal(h.mirror.isVisible(), false);
+  assert.equal(h.mirror.isVisible(), true);
+  assert.equal(h.invoke(h.mirror, 'state').expanded, false);
   assert.equal(h.quitCalls(), 0);
   const noTray = harness(t, { trayFails: true });
   noTray.main.emit('close', { preventDefault() {} });
@@ -220,7 +225,7 @@ test('a removed screen reclamps current bounds and pin is an explicit window act
   h.screen.emit('display-removed');
   assert.deepEqual(h.mirror.getBounds(), { x: 0, y: 60, width: 420, height: 740 });
   assert.equal(h.invoke(h.mirror, 'window', 'toggle-top'), true);
-  assert.equal(h.mirror.pinned, true);
+  assert.equal(h.mirror.pinned, false);
   assert.equal(h.invoke(h.mirror, 'window', 'quit'), false);
 });
 
@@ -443,4 +448,58 @@ test('AI settings intent restores the owner and is delivered once without changi
   assert.deepEqual(h.main.webContents.sent, [{ channel: CHANNEL + 'show-ai-settings', value: undefined }]);
   assert.equal(h.invoke(h.mirror, 'state').snapshot.conversationId, 7);
   assert.equal(h.invoke(h.mirror, 'window', 'show-ai-settings?url=evil'), false);
+});
+
+test('new and malformed preferences default to pinned, only explicit boolean false opts out', t => {
+  for (const preferences of [undefined, 'broken', 'null', '{}', '{"alwaysOnTop":"false"}', '{"alwaysOnTop":0}', '{"alwaysOnTop":true}']) {
+    const h = harness(t, { preferences });
+    assert.equal(h.mirror.options.alwaysOnTop, true, String(preferences));
+    assert.equal(h.invoke(h.mirror, 'state').alwaysOnTop, true);
+  }
+  const h = harness(t, { preferences: '{"alwaysOnTop":false}' });
+  assert.equal(h.mirror.options.alwaysOnTop, false);
+});
+test('character context menu toggles durable pin state and hides with tray recovery in either form', t => {
+  const h = harness(t);
+  for (const expanded of [true, false, true, false]) {
+    h.invoke(h.mirror, 'window', expanded ? 'expand' : 'collapse');
+    assert.equal(h.invoke(h.main, 'window', 'context-menu'), false);
+    const foreign = { sender: h.mirror.webContents, senderFrame: { url: origin + '/' } };
+    assert.equal(h.ipc.handlers.get(CHANNEL + 'window')(foreign, 'context-menu'), false);
+    assert.equal(h.invoke(h.mirror, 'window', 'context-menu'), true);
+    const menu = h.menus.at(-1);
+    assert.equal(menu.options.window, h.mirror);
+    assert.equal(menu.items[1].checked, true);
+    menu.items[1].click();
+    assert.equal(h.mirror.pinned, false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(h.folder, 'haru-window.json'))).alwaysOnTop, false);
+    h.invoke(h.mirror, 'window', 'context-menu');
+    assert.equal(h.menus.at(-1).items[1].checked, false);
+    menu.items[0].click();
+    assert.equal(h.mirror.isVisible(), false);
+    assert.equal(h.invoke(h.mirror, 'window', 'context-menu'), false);
+    assert.equal(h.tray.menu.items[1].label, '显示 Haru');
+    if (expanded) h.tray.menu.items[1].click();
+    else h.tray.emit('click');
+    assert.equal(h.mirror.isVisible(), true);
+    assert.equal(h.invoke(h.mirror, 'state').expanded, expanded);
+    h.invoke(h.mirror, 'window', 'toggle-top');
+  }
+  h.invoke(h.mirror, 'window', 'toggle-top');
+  h.shell.dispose();
+  const restarted = harness(t, { folder: h.folder });
+  assert.equal(restarted.mirror.options.alwaysOnTop, false);
+});
+test('repeated close keeps the character visible, collapses geometry, and allows real shutdown', t => {
+  const h = harness(t);
+  for (let i = 0; i < 3; i++) {
+    h.invoke(h.mirror, 'window', 'expand');
+    h.mirror.emit('close', { preventDefault() {} });
+    assert.equal(h.invoke(h.mirror, 'state').expanded, false);
+    assert.equal(h.mirror.isVisible(), true);
+    assert.equal(h.mirror.getBounds().width, 260);
+    assert.equal(h.mirror.getBounds().height, 340);
+  }
+  h.setQuitting(true);
+  h.mirror.emit('close', { preventDefault() { assert.fail('must not prevent application shutdown'); } });
 });

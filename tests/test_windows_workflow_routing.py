@@ -38,7 +38,11 @@ def _package_only(event_name: str, payload: dict, ref: str = "refs/heads/feat/20
     match = re.fullmatch(
         r"github\.event_name == '([^']+)' && github\.ref == '([^']+)' && "
         r"startsWith\(github\.event\.head_commit\.message, '([^']+)'\)",
-        _activation(),
+        _activation().split(") || (", 1)[0][1:],
+    )
+    assert _activation().endswith(
+        ") || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') "
+        "&& github.ref != 'refs/heads/master' && inputs.package_only == true)"
     )
     assert match
     required_event, required_ref, prefix = match.groups()
@@ -47,12 +51,16 @@ def _package_only(event_name: str, payload: dict, ref: str = "refs/heads/feat/20
     assert prefix == PREFIX
     commit = payload.get("head_commit") or {}
     message = commit.get("message") or ""  # Missing properties/null cast to empty strings.
-    return (event_name.casefold() == required_event.casefold()
+    explicit_dispatch = (event_name.casefold() == 'workflow_dispatch'
+                         and ref.casefold().startswith('refs/heads/')
+                         and ref.casefold() != 'refs/heads/master'
+                         and (payload.get('inputs') or {}).get('package_only') is True)
+    return explicit_dispatch or (event_name.casefold() == required_event.casefold()
             and ref.casefold() == required_ref.casefold()
             and message.casefold().startswith(prefix.casefold()))
 
 
-def _regression_enabled(job: str, event_name: str, payload: dict) -> bool:
+def _regression_enabled(job: str, event_name: str, payload: dict, ref: str = "refs/heads/feat/20261005-windows-desktop-validation") -> bool:
     match = re.search(r'^    if: "\$\{\{ (.+) \}\}"$', _job(job), re.M)
     assert match, f"Missing explicit mode guard for {job}"
     expected = f"!({_activation()})"
@@ -60,7 +68,7 @@ def _regression_enabled(job: str, event_name: str, payload: dict) -> bool:
         # Aggregation still runs after failed/skipped dependencies in full mode.
         expected = f"always() && {expected}"
     assert match.group(1) == expected
-    return not _package_only(event_name, payload)
+    return not _package_only(event_name, payload, ref)
 
 
 @pytest.mark.parametrize(
@@ -99,7 +107,8 @@ def test_only_explicit_push_prefix_skips_regression(event_name, payload, package
 
 
 def test_default_workflow_and_regression_dependency_contract_remain_full():
-    assert "  workflow_dispatch:\n\npermissions:" in WORKFLOW
+    assert "      package_only:\n" in WORKFLOW
+    assert "        type: boolean\n        required: false\n        default: false\n" in WORKFLOW
     assert "      - feat/20261005-windows-desktop-validation\n" in WORKFLOW
     assert "    needs: pytest-manifest\n" in _job("pytest-shards")
     assert "    needs: [pytest-manifest, pytest-shards]\n" in _job("full-regression")
@@ -229,3 +238,22 @@ def test_final_status_requires_both_jobs_success(package_result, regression_resu
     assert status.count("throw ") == 1
     assert not re.search(r"\b(exit|return|continue-on-error)\b", status)
     assert "if: ${{ always() }}\n        uses: actions/upload-artifact@v4" in status
+
+
+@pytest.mark.parametrize("event,ref,requested,expected", [
+    ("workflow_dispatch", "refs/heads/fix/haru", True, True),
+    ("workflow_dispatch", "refs/heads/fix/haru", False, False),
+    ("workflow_dispatch", "refs/heads/fix/haru", None, False),
+    ("workflow_dispatch", "refs/heads/master", True, False),
+    ("workflow_dispatch", "refs/heads/MASTER", True, False),
+    ("workflow_dispatch", "refs/tags/experimental", True, False),
+    ("pull_request", "refs/pull/36/merge", True, False),
+    ("pull_request", "refs/heads/fix/haru", True, False),
+    ("push", "refs/heads/fix/haru", True, False),
+    ("push", "refs/heads/master", True, False),
+])
+def test_explicit_dispatch_is_branch_only_and_cannot_bypass_master_or_pr(event, ref, requested, expected):
+    payload = {"inputs": {"package_only": requested}, "head_commit": {"message": PREFIX + "test"}}
+    assert _package_only(event, payload, ref) is expected
+    for job in ("pytest-manifest", "pytest-shards", "full-regression"):
+        assert _regression_enabled(job, event, payload, ref) is not expected

@@ -138,6 +138,7 @@ function nativeControls(session, prepared) {
     },
     async waitVisible(role) { demand(['owner', 'haru'].includes(role), 'INVALID_HARNESS'); await until(async () => await visible(role) === true); },
     async waitHidden(role) { demand(['owner', 'haru'].includes(role), 'INVALID_HARNESS'); await until(async () => await visible(role) === false); },
+    async hideHaru() { await session.app.evaluate(invokeTrayAction, 'hide'); await until(async () => await visible('haru') === false); },
     async restoreHaru() { await session.app.evaluate(invokeTrayAction, 'show'); await until(async () => await visible('haru') === true); },
   };
 }
