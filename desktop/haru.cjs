@@ -8,7 +8,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   let tray;
   let snapshot = null;
   let expanded = false;
-  let pinned = false;
+  let pinned = true;
   let nextCommand = 0;
   let generation = 0;
   let saveTimer;
@@ -17,7 +17,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   const pending = new Map();
   const stateFile = path.join(userData, 'haru-window.json');
   let saved;
-  try { saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')); pinned = saved?.alwaysOnTop === true; } catch { /* First launch or invalid preferences use defaults. */ }
+  try { saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')); pinned = saved?.alwaysOnTop !== false; } catch { /* First launch or invalid preferences use defaults. */ }
   const workAreas = () => {
     const primary = screen.getPrimaryDisplay();
     return [primary, ...screen.getAllDisplays().filter(display => display.id !== primary.id)].map(display => display.workArea);
@@ -76,6 +76,23 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
     publishState();
     refreshMenu();
   };
+  const setExpanded = value => {
+    if (!liveHaru()) return;
+    cancelDrag();
+    expanded = value;
+    const old = haru.getBounds();
+    const width = expanded ? 420 : 260;
+    const height = expanded ? 740 : 340;
+    haru.setBounds(clampBounds({ x: old.x + old.width - width, y: old.y + old.height - height, width, height }, workAreas()));
+    publishState();
+  };
+  const showContextMenu = () => {
+    cancelDrag();
+    Menu.buildFromTemplate([
+      { label: '隐藏 Haru', click: () => { if (!isQuitting() && liveHaru()) haru.hide(); } },
+      { label: 'Haru 始终置顶', type: 'checkbox', checked: pinned, click: () => { if (!isQuitting()) setPinned(!pinned); } },
+    ]).popup({ window: haru });
+  };
   const invalidateOwner = () => {
     snapshot = null;
     generation += 1;
@@ -97,7 +114,7 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
       });
       registerWindow(haru);
       haru.once('ready-to-show', () => { if (!isQuitting() && liveHaru()) { haru.show(); publishState(); } });
-      haru.on('close', event => { if (!isQuitting()) { event.preventDefault(); haru.hide(); } });
+      haru.on('close', event => { if (!isQuitting()) { event.preventDefault(); setExpanded(false); } });
       haru.on('show', () => { publishState(); refreshMenu(); });
       haru.on('hide', () => { cancelDrag(); publishState(); refreshMenu(); });
       haru.on('blur', cancelDrag);
@@ -130,15 +147,10 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
       }
       else if (action === 'show-haru') showHaru();
       else if (action === 'hide-haru' && liveHaru()) haru.hide();
+      else if (action === 'context-menu' && trustedHaru(event) && haru.isVisible()) showContextMenu();
       else if (action === 'toggle-top') setPinned(!pinned);
       else if ((action === 'expand' || action === 'collapse') && liveHaru()) {
-        cancelDrag();
-        expanded = action === 'expand';
-        const old = haru.getBounds();
-        const width = expanded ? 420 : 260;
-        const height = expanded ? 740 : 340;
-        haru.setBounds(clampBounds({ x: old.x + old.width - width, y: old.y + old.height - height, width, height }, workAreas()));
-        publishState();
+        setExpanded(action === 'expand');
       } else return false;
       return true;
     },

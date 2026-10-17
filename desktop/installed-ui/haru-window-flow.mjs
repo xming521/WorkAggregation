@@ -101,7 +101,13 @@ export async function probeInstalledHaruWindows({ app, page, haru, ids, waitUnti
     if (await page.locator('html').getAttribute('data-theme') !== theme) await button(page, '切换明暗模式').click();
     await haru.waitForFunction(theme => document.querySelector('.desktop-haru')?.getAttribute('data-theme') === theme, theme);
     await frame(`expanded-${theme}`, true, theme);
-    await button(haru, '将 Haru 收到托盘').click();
+    await button(haru, '关闭 Haru 对话').click();
+    await waitUntil(async () => !(await state()).expanded);
+    assert.equal((await readNativeWindow(app, haru)).visible, true, 'closing chat keeps Haru visible');
+    await frame(`closed-chat-${theme}`, false, theme);
+    await button(haru, '展开 Haru 对话').click();
+    await frame(`reopened-after-close-${theme}`, true, theme);
+    await app.evaluate(invokeTrayAction, 'hide');
     await waitUntil(async () => !(await readNativeWindow(app, haru)).visible && !(await state()).visible);
     assert.equal(haru.isClosed(), false);
     assert.equal(await haru.locator('.desktop-haru canvas').count(), 0, 'hidden expanded static view must not create a runtime');

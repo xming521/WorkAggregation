@@ -10,7 +10,7 @@ import './DesktopHaruWindow.css';
 
 const STATUS = { idle: '随时待命', running: '正在处理', waiting_confirmation: '等待你确认', completed: '已完成', failed: '需要查看' };
 const GREETING = { idle: '慢慢来，我陪你捋清楚。', running: '我正在整理，稍等一下。', waiting_confirmation: '有一项修改，等你确认。', completed: '整理好了，一起看看吧。', failed: '遇到了一点问题，一起看看。' };
-const INITIAL: DesktopHaruState = { connected: false, generation: 0, snapshot: null, visible: false, expanded: false, alwaysOnTop: false };
+const INITIAL: DesktopHaruState = { connected: false, generation: 0, snapshot: null, visible: false, expanded: false, alwaysOnTop: true };
 
 function HaruCanvas({ active, activity, animationLevel }: { active: boolean; activity: PilotMascotActivity; animationLevel: PilotMascotAnimationLevel }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -104,7 +104,7 @@ export default function DesktopHaruWindow() {
   const portraitSource = theme === 'dark' ? haruWindowDark : haruWindowLight;
   const active = state.visible && pageVisible;
   const activity: PilotMascotActivity = snapshot?.taskState === 'running' ? 'thinking' : snapshot?.hasPending ? 'waiting_confirmation' : snapshot?.taskState === 'failed' ? 'error' : 'idle';
-  const windowAction = (action: 'show-main' | 'show-ai-settings' | 'hide-haru' | 'toggle-top' | 'expand' | 'collapse') => { void bridge?.windowAction(action).then(ok => { if (!ok) setNotice('窗口操作失败，请使用托盘菜单。'); }).catch(() => setNotice('窗口操作失败，请使用托盘菜单。')); };
+  const windowAction = (action: 'show-main' | 'show-ai-settings' | 'hide-haru' | 'context-menu' | 'toggle-top' | 'expand' | 'collapse') => { void bridge?.windowAction(action).then(ok => { if (!ok) setNotice('窗口操作失败，请使用托盘菜单。'); }).catch(() => setNotice('窗口操作失败，请使用托盘菜单。')); };
   const dragWindow = (phase: 'start' | 'move' | 'end' | 'cancel') => { void bridge?.dragWindow?.(phase).catch(() => setNotice('拖动暂不可用，请重试。')); };
   const moved = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const current = gesture.current;
@@ -137,17 +137,18 @@ export default function DesktopHaruWindow() {
       setNotice('连接中断，操作可能已经提交。请打开主窗口核对。');
     } finally { requestLock.current = false; setBusy(false); }
   };
-  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} data-theme={theme} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (contextExpanded) { setContextExpanded(false); contextToggle.current?.focus(); } else windowAction(state.expanded ? 'collapse' : 'hide-haru'); } }}>
+  return <main className={`desktop-haru ${state.expanded ? 'expanded' : 'collapsed'}`} data-theme={theme} aria-label="Haru 桌面小窗" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (contextExpanded) { setContextExpanded(false); contextToggle.current?.focus(); } else if (state.expanded) windowAction('collapse'); } }}>
     {state.expanded ? <header className="desktop-haru-bar">
       <strong>Haru</strong>
       <HolderOutlined className="desktop-haru-grip" aria-hidden="true" />
       <nav aria-label="窗口操作">
         <button type="button" aria-label="Haru 始终置顶" aria-pressed={state.alwaysOnTop} onClick={() => windowAction('toggle-top')}>置顶</button>
         <button type="button" aria-label="打开 OfferPilot 主窗口" onClick={() => windowAction('show-main')}>主窗</button>
-        <button type="button" aria-label="将 Haru 收到托盘" onClick={() => windowAction('hide-haru')}><CloseOutlined aria-hidden="true" /></button>
+        <button type="button" aria-label="关闭 Haru 对话" onClick={() => windowAction('collapse')}><CloseOutlined aria-hidden="true" /></button>
       </nav>
     </header> : null}
     <button type="button" className="desktop-haru-avatar" aria-label={state.expanded ? '收起 Haru 对话' : '展开 Haru 对话'}
+      onContextMenu={event => { event.preventDefault(); windowAction('context-menu'); }}
       onDragStart={event => event.preventDefault()}
       onPointerDown={event => {
         if (state.expanded || event.button !== 0 || event.isPrimary === false || gesture.current) return;

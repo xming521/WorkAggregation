@@ -215,7 +215,11 @@ export function createMockHaruSession({ mode, broker } = {}) {
       await haru.getByRole('button', exact('打开 OfferPilot 主窗口')).click({ timeout: within(deadlineMs) });
       await native.waitVisible('owner');
       await read(args, retained, true);
-      await haru.getByRole('button', exact('将 Haru 收到托盘')).click({ timeout: within(deadlineMs) });
+      await haru.getByRole('button', exact('关闭 Haru 对话')).click({ timeout: within(deadlineMs) });
+      await haru.locator('.desktop-haru.collapsed').waitFor({ timeout: within(deadlineMs) });
+      await native.waitVisible('haru');
+      await haru.getByRole('button', exact('展开 Haru 对话')).click({ timeout: within(deadlineMs) });
+      await native.hideHaru();
       await native.waitHidden('haru');
       await native.restoreHaru();
       await read(args, retained, true);
