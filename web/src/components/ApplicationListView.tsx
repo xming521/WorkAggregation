@@ -45,7 +45,7 @@ export default function ApplicationListView({
   viewState,
   onViewStateChange,
 }: ApplicationListViewProps) {
-  useLocale();
+  const locale = useLocale();
   const tableRef = useRef<HTMLDivElement>(null);
   const [horizontalOverflow, setHorizontalOverflow] = useState(false);
   useEffect(() => {
@@ -152,7 +152,7 @@ export default function ApplicationListView({
           value={sortBy}
           options={SORT_OPTIONS.map((option) => ({ ...option }))}
           onChange={(value) => updateViewState({ sortBy: value })}
-          style={{ width: 160 }}
+          style={{ width: locale === 'en-US' ? 220 : 160, maxWidth: '100%' }}
         />
         <div className={styles.fallbackDock} data-pilot-mascot-fallback-dock />
       </div>

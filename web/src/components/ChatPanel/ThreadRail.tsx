@@ -205,7 +205,7 @@ export default function ThreadRail({
         allowClear
         prefix={<SearchOutlined aria-hidden="true" />}
         aria-label={t("搜索对话")}
-        placeholder={t("搜索对话")}
+        placeholder={t("搜索对话", undefined, "pilot.search.placeholder")}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />

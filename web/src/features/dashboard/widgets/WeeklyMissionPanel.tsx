@@ -57,10 +57,10 @@ export function deriveWeeklySummary(
 
 function formatValue(metric: MissionMetric): string {
   if (metric.target != null && metric.target > 0) return `${metric.current} / ${metric.target}`;
-  if (metric.kind === 'interviews') return t("{value0} 场", { value0: metric.current });
-  if (metric.kind === 'practice') return metric.current > 0 ? t("{value0} 道待复习", { value0: metric.current }) : t("已清空");
-  if (metric.kind === 'followups') return metric.current > 0 ? t("{value0} 个待跟进", { value0: metric.current }) : t("节奏正常");
-  if (metric.kind === 'offers') return metric.current > 0 ? t("{value0} 个临近截止", { value0: metric.current }) : t("暂无临近截止");
+  if (metric.kind === 'interviews') return t("{value0} 场", { value0: metric.current }, metric.current === 1 ? "mission.interview.one" : undefined);
+  if (metric.kind === 'practice') return metric.current > 0 ? t("{value0} 道待复习", { value0: metric.current }, metric.current === 1 ? "mission.review.one" : undefined) : t("已清空");
+  if (metric.kind === 'followups') return metric.current > 0 ? t("{value0} 个待跟进", { value0: metric.current }, metric.current === 1 ? "mission.followup.one" : undefined) : t("节奏正常");
+  if (metric.kind === 'offers') return metric.current > 0 ? t("{value0} 个临近截止", { value0: metric.current }, metric.current === 1 ? "mission.deadline.one" : undefined) : t("暂无临近截止");
   return `${metric.current}`;
 }
 

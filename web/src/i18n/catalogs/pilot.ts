@@ -226,6 +226,7 @@ const catalog: Record<string, string> = {
   "暂无对话": "No conversations yet",
   "新建对话": "New conversation",
   "搜索对话": "Search conversations",
+  "pilot.search.placeholder": "Search",
   "对话视图": "Conversation view",
   "进行中": "In progress",
   "已归档": "Archived",

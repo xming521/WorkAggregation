@@ -2,7 +2,7 @@ name: UI localization synthetic browser QA
 on:
   workflow_dispatch:
   push:
-    branches: [feat/20261019-localization-integration]
+    branches: [feat/20261019-localization-integration, test/20261019-localization-browser-review]
     paths: ['web/**', '.github/workflows/ui-localization.yml']
 permissions:
   contents: read

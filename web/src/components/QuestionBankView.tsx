@@ -116,7 +116,7 @@ export default function QuestionBankView({
 /* ----------------------------- 题库 tab ----------------------------- */
 
 function BankTab() {
-  useLocale();
+  const locale = useLocale();
   const qc = useQueryClient();
   const [status, setStatus] = useState<QuestionStatus | 'all'>('all');
   const [difficulty, setDifficulty] = useState<QuestionDifficulty | 'all'>('all');
@@ -189,12 +189,12 @@ function BankTab() {
           allowClear
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{ width: 240 }}
+          style={{ width: locale === 'en-US' ? 340 : 240, maxWidth: '100%' }}
         />
         <Select
           value={status}
           onChange={setStatus}
-          style={{ width: 120 }}
+          style={{ width: locale === 'en-US' ? 145 : 120 }}
           aria-label={t("按状态筛选")}
           options={[
             { label: t("全部状态"), value: 'all' },
@@ -206,7 +206,7 @@ function BankTab() {
         <Select
           value={difficulty}
           onChange={setDifficulty}
-          style={{ width: 110 }}
+          style={{ width: locale === 'en-US' ? 150 : 110 }}
           aria-label={t("按难度筛选")}
           options={[
             { label: t("全部难度"), value: 'all' },

@@ -191,6 +191,12 @@
   max-width: 100%;
 }
 
+/* English status labels need room for text plus the Select arrow. Footer wraps
+   the action buttons instead of abbreviating a product-authored status. */
+:global(html[lang='en-US']) .cardStatus {
+  flex-basis: 140px;
+}
+
 .cardActions {
   display: flex;
   align-items: center;
