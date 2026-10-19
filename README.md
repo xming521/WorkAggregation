@@ -1,75 +1,40 @@
-# OfferPilot — 开源、本地优先的 AI 求职与投递管理工具
+# OfferPilot — 开源、本地优先的求职 Agent
 
 [简体中文](README.md) | [English](README.en.md)
 
-**集中管理投递进度、简历、面试与 Offer，让每一轮准备都有记录可查。**
+**帮你准备下一场面试，也让你看懂 Agent 怎样把事情做成。**
 
-OfferPilot 由 offercontext 维护，是面向个人求职者的开源 AI 求职工作台。
-你可以在本地管理不同公司和岗位的投递记录，整理简历与岗位描述，
-进行模拟面试、保存复盘，并比较收到的 Offer。
+OfferPilot 由 offercontext 维护，把投递、简历、面试与 Offer 放进同一个工作台。
+内置 Pilot 结合你保存的求职资料查询信息、起草内容、调用工具，并在你确认后更新关键求职记录。
+它不会自动投递，也不会替你联系招聘方。
 
-**English:** OfferPilot by offercontext is an open-source, local-first
-AI job application tracker for individual job seekers. It supports resume
-management, interview preparation, mock interviews, interview reviews,
-offer comparison and salary negotiation preparation.
+想研究 Agent 的 AI builder，也可以从同一个求职场景出发，沿着图解、小实验与源码，
+理解工具调用、上下文、写入确认和执行控制。
 
-提供 Windows x64 未签名桌面测试版，也支持 Docker 或源码方式在本机部署。基础投递记录无需先配置 AI；
-使用 AI 辅助功能时，再连接自己的模型服务。
+[Windows 未签名测试版下载](https://github.com/offercontext/offerPilot/releases/tag/v0.1.0-desktop.1)｜[Docker / 源码启动](#快速开始)｜[看懂 Agent](#不仅能用也可以拆开学)｜[用户指南](docs/product-manual/产品说明书.md)
 
-[Windows 测试版下载](https://github.com/offercontext/offerPilot/releases/tag/v0.1.0-desktop.1)｜[快速开始](#快速开始)｜[用户指南](docs/product-manual/产品说明书.md)｜[常见问题](#常见问题)
+Windows 安装包为实验性预发行版，请先阅读下方[测试版边界](#快速开始)。基础投递记录无需配置 AI；
+使用 AI 时需连接自己的模型服务，相关资料可能离开设备并产生服务商费用。
 
-第一次接触 Agent？先看[一场面试是怎么记下来的](docs/learn/01-record-an-interview.md)，无需写代码或安装项目。其他主题见[完整学习路线](docs/learn/README.md)。
+## 先看它怎样记下一场面试
 
-## 主要功能
+下面复用一次真实操作的素材：2026-10-08，在固定源码基线 `c0a447bb` 上使用隔离的虚构数据与真实模型采集，
+不代表当前 Windows 测试版的完整验收。公司、岗位与日期均为演示案例，不是你的待办。
 
-| 功能 | 具体用途 |
-| --- | --- |
-| 投递管理 | 按公司、岗位和阶段跟进求职进度，关联岗位描述与面试安排 |
-| 简历与材料准备 | 管理简历版本，结合岗位要求生成并审阅材料建议 |
-| 面试准备与模拟 | 根据简历和岗位描述练习问答，查看 AI 追问与反馈 |
-| 面试复盘 | 保存面试记录，选择并确认需要继续练习的重点 |
-| Offer 对比与谈薪 | 比较已填写的薪酬、福利和答复期限，准备谈薪沟通 |
-| Pilot AI 助手 | 结合求职资料查询、分析、起草内容或提出修改建议 |
+> 请为云岚数据的测试开发岗位新增面试日程：2026 年 10 月 15 日，北京时间下午 3 点（UTC+8），线上，时长 60 分钟。
 
-Pilot 是内置 AI 助手，Haru 是可选角色入口；隐藏 Haru 不影响使用 Pilot。
+**查询已有投递 → 提出保存建议 → 你核对并确认 → 程序保存 → 在日历核对结果。**
 
-本仓库介绍本地部署版本。在线服务可访问
-[offerContext Hub](https://hub.offercontext.cn)；
-其功能与数据处理方式以站内说明为准，不默认与本地版本一致或互通。
+1. Pilot 借助工具查找对应投递，结合返回资料提出面试安排。
+2. 确认卡展示准备保存的内容；此时尚未新增日程。
+3. 确认后，程序保存同一场面试，再到日历核对公司、岗位和时间。此次操作没有向招聘方发送通知。
 
-## 真实界面
+![实际待确认卡：云岚数据测试开发、10 月 15 日 15:00、线上、60 分钟](docs/learn/images/runtime-20261008/05-interview-pending.jpg)
 
-以下为本地部署开发版的实际界面，截图更新于 2026 年 9 月。不同版本的功能与界面可能存在差异，截图对应版本见[用户指南](docs/product-manual/产品说明书.md)。
+![实际保存后的日历：同一场云岚数据测试开发面试，15:00–16:00](docs/learn/images/runtime-20261008/08-calendar-verified.jpg)
 
-### 1. 跟进每个岗位的投递进度
-
-在同一看板中查看公司、岗位与当前阶段，按待投递、已投递、笔试、面试、Offer 和结束整理进展。
-
-![投递看板：按公司、岗位和阶段跟进](docs/product-manual/screenshots/R03-05-page-create-saved.png)
-
-### 2. 为目标岗位准备投递材料
-
-在投递详情中选择简历和本次使用的岗位描述（JD），进入材料工作区生成并审阅建议。确认后创建岗位简历版本，保留基础简历。
-
-![投递准备：对照岗位与简历审阅 AI 生成的优化建议草稿](docs/product-manual/screenshots/04-03-material-generated.png)
-
-### 3. 结合求职资料使用 AI 助手
-
-在同一个会话中查询投递进展、整理岗位资料或起草下一步计划，并对照右侧参考资料核对建议。
-
-![完整 Pilot 页面：左侧会话列表、中间对话与新建投递确认卡、右侧参考资料及底部输入区](docs/product-manual/screenshots/R03-02-pilot-create-confirm.png)
-
-### 4. 面试前练习，面试后整理经验
-
-从已安排的面试进入练习，或直接使用“快速模拟”，选择并核对本次岗位资料与简历后开始问答。独立练习不要求先创建真实投递或日程。
-
-![新版文字模拟面试：沿用筱哲与远帆科技案例，查看中文提问依据并回答 AI 追问](docs/product-manual/screenshots/R08-studio-evidence.png)
-
-### 5. 比较 Offer 条件，准备谈薪
-
-录入 Offer 后可以比较已知薪酬条件、补充自定义比较维度，并进入谈薪准备或谈薪教练，整理下一次沟通的重点。
-
-![Offer 横向对比：查看等宽摘要卡片、年薪与回复时间差，并逐项核对薪酬、福利和截止日](docs/product-manual/screenshots/R08-offer-comparison-polished.png)
+AI 说“记好了”还不够，记录要真正保存，内容也要核对正确。
+[查看完整过程](docs/learn/01-record-an-interview.md)与[素材、版本及验证范围](docs/learn/images/runtime-20261008/README.md)。
 
 ## 快速开始
 
@@ -158,6 +123,77 @@ macOS Keychain 或 Linux Secret Service；仅安装 Python 包不等于系统安
 先记录一个岗位，不必先配置 AI。打开投递看板，添加公司和岗位，再进入详情保存岗位描述。
 
 需要 AI 辅助时，再到“设置 → AI 与模型 → 配置 AI”填写模型服务信息，测试连接、应用到 Provider 列表，最后点击页面顶部“保存”。完整步骤见[第一次使用指南](docs/product-manual/产品说明书.md#start)。
+
+## 求职过程中，可以怎样使用它
+
+| 功能 | 具体用途 |
+| --- | --- |
+| 投递管理 | 按公司、岗位和阶段跟进求职进度，关联岗位描述与面试安排 |
+| 简历与材料准备 | 管理简历版本，结合岗位要求生成并审阅材料建议 |
+| 面试准备与模拟 | 根据简历和岗位描述练习问答，查看 AI 追问与反馈 |
+| 面试复盘 | 保存面试记录，选择并确认需要继续练习的重点 |
+| Offer 对比与谈薪 | 比较已填写的薪酬、福利和答复期限，准备谈薪沟通 |
+| Pilot 求职 Agent | 结合资料查询、分析和起草内容，调用工具，并在确认后更新关键记录 |
+
+本仓库介绍本地部署版本。在线服务可访问
+[offerContext Hub](https://hub.offercontext.cn)；
+其功能与数据处理方式以站内说明为准，不默认与本地版本一致或互通。
+
+## 真实界面
+
+以下为本地部署开发版的实际界面，截图更新于 2026 年 9 月。不同版本的功能与界面可能存在差异，截图对应版本见[用户指南](docs/product-manual/产品说明书.md)。
+
+### 1. 跟进每个岗位的投递进度
+
+在同一看板中查看公司、岗位与当前阶段，按待投递、已投递、笔试、面试、Offer 和结束整理进展。
+
+![投递看板：按公司、岗位和阶段跟进](docs/product-manual/screenshots/R03-05-page-create-saved.png)
+
+### 2. 为目标岗位准备投递材料
+
+在投递详情中选择简历和本次使用的岗位描述（JD），进入材料工作区生成并审阅建议。确认后创建岗位简历版本，保留基础简历。
+
+![投递准备：对照岗位与简历审阅 AI 生成的优化建议草稿](docs/product-manual/screenshots/04-03-material-generated.png)
+
+### 3. 结合求职资料使用 AI 助手
+
+在同一个会话中查询投递进展、整理岗位资料或起草下一步计划，并对照右侧参考资料核对建议。
+
+![完整 Pilot 页面：左侧会话列表、中间对话与新建投递确认卡、右侧参考资料及底部输入区](docs/product-manual/screenshots/R03-02-pilot-create-confirm.png)
+
+### 4. 面试前练习，面试后整理经验
+
+从已安排的面试进入练习，或直接使用“快速模拟”，选择并核对本次岗位资料与简历后开始问答。独立练习不要求先创建真实投递或日程。
+
+![新版文字模拟面试：沿用筱哲与远帆科技案例，查看中文提问依据并回答 AI 追问](docs/product-manual/screenshots/R08-studio-evidence.png)
+
+### 5. 比较 Offer 条件，准备谈薪
+
+录入 Offer 后可以比较已知薪酬条件、补充自定义比较维度，并进入谈薪准备或谈薪教练，整理下一次沟通的重点。
+
+![Offer 横向对比：查看等宽摘要卡片、年薪与回复时间差，并逐项核对薪酬、福利和截止日](docs/product-manual/screenshots/R08-offer-comparison-polished.png)
+
+## Haru 与 Pilot
+
+Pilot 是负责对话与任务协作的内置 Agent；Haru 是桌面宽屏上的可选角色入口。
+喜欢角色交互，可以从 Haru 进入；喜欢清爽界面，也可以隐藏它，继续使用 Pilot。
+Haru 采用 Live2D 官方样例角色，并非 OfferPilot 原创角色，归属与使用条件见[许可证](#许可证)。
+
+## 不仅能用，也可以拆开学
+
+求职者可以直接使用工作台，不需要先学习 Harness。AI builder 也可以只研究一个具体问题：
+**为什么同一条面试安排，重复确认也不该保存两遍？**
+
+- **先看懂**：从[一场面试怎样被记录](docs/learn/01-record-an-interview.md)开始，再按[四篇短路线](docs/learn/README.md)看清资料、模型、工具与人的分工。无需安装项目或写代码。
+- **动手试**：运行[只用 Python 标准库的小实验](docs/learn/examples/README.md)，观察“确认前 0 条 → 确认后 1 条 → 重复确认仍为 1 条”。实验使用模拟模型，不需要模型密钥，不是模型能力评测。
+- **拆开实现**：按兴趣阅读[Harness 源码导读](docs/learn/advanced/README.md)，追踪 Agent Loop、上下文、写入确认、取消与恢复、运行记录和验证。
+
+学习材料以具体源码基线与验证记录为依据，尚未开展读者试读；它是一条实战阅读与实验路线，不保证读完就能独立实现完整系统。
+
+## 参与项目
+
+发现问题或有改进建议，欢迎[提交 Issue](https://github.com/offercontext/offerPilot/issues)。
+想贡献改动，请先阅读[贡献指南](CONTRIBUTING.md)，说明目标、修改范围与实际验证结果。
 
 ## 隐私、费用与使用限制
 
