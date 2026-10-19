@@ -531,9 +531,14 @@ body {
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+    --knowledge-search-width: 320px;
   }
-  html[lang='en-US'] .knowledge-sources-search-input {
-    width: 420px !important;
+  .knowledge-sources-search-input {
+    width: var(--knowledge-search-width) !important;
+    flex: 0 0 var(--knowledge-search-width);
+  }
+  html[lang='en-US'] .knowledge-sources-search {
+    --knowledge-search-width: 420px;
   }
 }
 .knowledge-sources-search-input.ant-affix-wrapper,
