@@ -1,0 +1,54 @@
+name: Single mail input screenshot supplement
+on:
+  push:
+    branches: [test/20261019-mail-input-db9d8536]
+    paths: ['.github/workflows/mail-input-supplement.yml', 'qa/mail-input-supplement.mjs']
+permissions:
+  contents: read
+jobs:
+  mail-input-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+      - uses: actions/checkout@v4
+        with:
+          ref: db9d8536845fbe2d7cee93b0d0b029185525277a
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: source/web/package-lock.json
+      - name: Verify fixed source and build its unchanged product
+        run: |
+          test "$(git -C source rev-parse HEAD)" = db9d8536845fbe2d7cee93b0d0b029185525277a
+          test -z "$(git -C source status --porcelain)"
+          npm ci --prefix source/web
+          npm run build --prefix source/web
+          git -C source diff --exit-code
+      - name: Install browser and CJK fonts
+        working-directory: source/web
+        run: |
+          npx playwright-core install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+      - name: Capture only stable mail input using synthetic API
+        env:
+          LOCALIZATION_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/mail-input-supplement
+        run: |
+          mkdir -p artifacts/mail-input-supplement
+          git -C source rev-parse HEAD > artifacts/mail-input-supplement/source-sha.txt
+          sha256sum harness/qa/mail-input-supplement.mjs > artifacts/mail-input-supplement/harness-sha256.txt
+          cp harness/qa/mail-input-supplement.mjs source/web/tests/localization/mail-input-supplement.mjs
+          node source/web/tests/localization/mail-input-supplement.mjs
+      - name: Upload standalone supplemental evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-input-supplement-db9d8536-${{ github.run_id }}
+          path: artifacts/mail-input-supplement
+          if-no-files-found: error
+          retention-days: 14
