@@ -81,7 +81,8 @@ export function observeLayoutFailure(page, output, name, { maxEvents = 200, capt
     if (events.length >= maxEvents) { events.shift(); droppedEvents++; }
     events.push({ ms: Date.now() - started, type, ...values });
   };
-  const on = (type, callback) => { page.on(type, callback); listeners.push([type, callback]); };
+  const listen = (target, type, callback) => { target.on(type, callback); listeners.push([target, type, callback]); };
+  const on = (type, callback) => listen(page, type, callback);
   on('console', item => {
     if (['warning', 'error'].includes(item.type())) record('console', { level: item.type(), kind: messageKind(item.text()), resource: resourceName(item.location().url) });
   });
@@ -93,13 +94,13 @@ export function observeLayoutFailure(page, output, name, { maxEvents = 200, capt
   on('response', response => { if (response.status() >= 400) record('http-error', { status: response.status(), resource: resourceName(response.url()) }); });
   on('framenavigated', frame => { if (frame === page.mainFrame()) record('navigation', { resource: resourceName(frame.url()) }); });
   on('websocket', socket => {
-    socket.on('framereceived', data => {
+    listen(socket, 'framereceived', data => {
       try { if (JSON.parse(String(data.payload)).type === 'full-reload') record('vite-full-reload'); } catch { /* No raw WebSocket payloads. */ }
     });
-    socket.on('socketerror', () => record('websocket-error'));
+    listen(socket, 'socketerror', () => record('websocket-error'));
   });
   return {
-    dispose() { for (const [type, callback] of listeners) page.off(type, callback); pending.clear(); },
+    dispose() { for (const [target, type, callback] of listeners) target.off(type, callback); listeners.length = 0; pending.clear(); },
     async capture(stage, error) {
       // Evidence must never replace the original failed result or raise a retry.
       const captureErrors = [];

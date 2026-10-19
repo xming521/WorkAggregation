@@ -7,6 +7,27 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ROOTS, ROOT_CASES, ROOT_STATES, SUBVIEWS, WIDTHS, safeShotName, summarizeCoverage, classifyRuntimeMessage, publicRequestFailure, checkGeometry } from '../coverage-model.mjs';
 
+// Cleanup cannot hide a failing assertion, and cleanup-only errors must still fail.
+async function runWithCoverageCleanup(operation, close, remove) {
+  let value;
+  let primaryError;
+  let failed = false;
+  try { value = await operation(); }
+  catch (error) { primaryError = error; failed = true; }
+  const cleanupErrors = [];
+  try {
+    try { await close(); } catch (error) { cleanupErrors.push(error); }
+  } finally {
+    try { await remove(); } catch (error) { cleanupErrors.push(error); }
+  }
+  if (failed) {
+    if (cleanupErrors.length) throw new AggregateError([primaryError, ...cleanupErrors], 'Coverage test and cache cleanup failed', { cause: primaryError });
+    throw primaryError;
+  }
+  if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Coverage cache cleanup failed');
+  return value;
+}
+
 test('coverage inventory exactly matches production navigation routes, module labels and visible tabs', async () => {
   const navigationUrl = new URL('../../../web/src/layout/navigation.ts', import.meta.url);
   const source = fs.readFileSync(navigationUrl, 'utf8');
@@ -26,7 +47,7 @@ test('coverage inventory exactly matches production navigation routes, module la
   // This helper disables discovery; its partial optimized set must never seed browser QA.
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offerpilot-coverage-vite-'));
   let server;
-  try {
+  await runWithCoverageCleanup(async () => {
     server = await createServer({ root: webRoot, cacheDir,
       server: { middlewareMode: true, hmr: false, watch: null },
       optimizeDeps: { noDiscovery: true, include: [] },
@@ -59,9 +80,42 @@ test('coverage inventory exactly matches production navigation routes, module la
     }
     assert.equal(SUBVIEWS.length, 32); assert.equal(new Set(SUBVIEWS.map(({ id }) => id)).size, 32);
     assert.deepEqual(WIDTHS, [900, 1008, 1280, 1440]);
-  } finally {
-    try { await server?.close(); }
-    finally { fs.rmSync(cacheDir, { recursive: true, force: true }); }
+  }, () => server?.close(), () => fs.rmSync(cacheDir, { recursive: true, force: true }));
+});
+
+test('coverage cleanup preserves the primary failure and attempts removal even when close fails', async () => {
+  const primary = new assert.AssertionError({ message: 'Original inventory assertion' });
+  const closeError = new Error('Close failed');
+  const removeError = new Error('Remove failed');
+  const calls = [];
+  await assert.rejects(runWithCoverageCleanup(
+    async () => { throw primary; },
+    async () => { calls.push('close'); throw closeError; },
+    () => { calls.push('remove'); throw removeError; },
+  ), error => {
+    assert.ok(error instanceof AggregateError);
+    assert.equal(error.cause, primary);
+    assert.deepEqual(error.errors, [primary, closeError, removeError]);
+    return true;
+  });
+  assert.deepEqual(calls, ['close', 'remove']);
+  await assert.rejects(runWithCoverageCleanup(async () => { throw primary; }, () => {}, () => {}), error => error === primary);
+});
+
+test('coverage cleanup-only failures cannot turn into successful tests', async () => {
+  for (const failedStep of ['close', 'remove']) {
+    const cleanupError = new Error(`${failedStep} failed`);
+    const calls = [];
+    await assert.rejects(runWithCoverageCleanup(
+      () => 'passed',
+      () => { calls.push('close'); if (failedStep === 'close') throw cleanupError; },
+      () => { calls.push('remove'); if (failedStep === 'remove') throw cleanupError; },
+    ), error => {
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors, [cleanupError]);
+      return true;
+    });
+    assert.deepEqual(calls, ['close', 'remove']);
   }
 });
 

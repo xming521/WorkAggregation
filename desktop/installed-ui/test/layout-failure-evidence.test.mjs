@@ -101,6 +101,21 @@ if (process.argv[2] === '--intentional-timeout') {
     assert.equal(page.listenerCount('pageerror'), 0);
   });
 
+  test('disposing evidence removes both page and WebSocket child listeners', () => {
+    const page = new EventEmitter();
+    const sockets = [new EventEmitter(), new EventEmitter()];
+    const observer = observeLayoutFailure(page, '.', 'negative');
+    for (const socket of sockets) {
+      page.emit('websocket', socket);
+      assert.equal(socket.listenerCount('framereceived'), 1);
+      assert.equal(socket.listenerCount('socketerror'), 1);
+    }
+    observer.dispose();
+    observer.dispose(); // Disposal remains safe after the original failure path.
+    assert.deepEqual(page.eventNames(), []);
+    for (const socket of sockets) assert.deepEqual(socket.eventNames(), []);
+  });
+
   test('unavailable DOM or unwritable evidence cannot replace the original failure', async () => {
     const output = await mkdtemp(path.join(os.tmpdir(), 'layout-evidence-unavailable-'));
     const page = new EventEmitter();
