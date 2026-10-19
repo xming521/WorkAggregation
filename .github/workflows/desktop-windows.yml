@@ -79,6 +79,7 @@ jobs:
             web/package-lock.json
             desktop/package-lock.json
       - name: Install locked Python validation dependencies
+        timeout-minutes: 5
         env:
           UV_HTTP_RETRIES: "6"
           UV_HTTP_CONNECT_TIMEOUT: "10"
@@ -251,6 +252,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install locked Python manifest dependencies
+        timeout-minutes: 5
         env:
           UV_HTTP_RETRIES: "6"
           UV_HTTP_CONNECT_TIMEOUT: "10"
@@ -320,6 +322,7 @@ jobs:
           name: pytest-manifest-${{ github.sha }}-${{ github.run_attempt }}
           path: pytest-evidence
       - name: Install locked Python shard dependencies
+        timeout-minutes: 5
         env:
           UV_HTTP_RETRIES: "6"
           UV_HTTP_CONNECT_TIMEOUT: "10"
@@ -377,6 +380,7 @@ jobs:
           path: pytest-evidence
           merge-multiple: true
       - name: Install locked Python regression dependencies
+        timeout-minutes: 5
         env:
           UV_HTTP_RETRIES: "6"
           UV_HTTP_CONNECT_TIMEOUT: "10"

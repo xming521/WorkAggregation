@@ -11,7 +11,9 @@
 
 **根因：** `uv.lock` 固定了 TUNA registry 与 wheel 绝对 URL；该次连接失败耗尽 uv 默认的三次请求重试。单个失败不能证明镜像整体宕机。`--frozen` 同样锁定 URL，额外 index 参数不能透明替换该下载来源。
 
-**修复：** 四处 Python 安装独立成 step，仅安装时设六次 HTTP 请求重试，并显式保留十秒连接、三十秒读取超时。uv 版本、依赖锁、失败检查、产品测试及 manifest/run/attempt 身份校验保持原样；不重试整个测试或 workflow。保留原安装 transcript，独立诊断使用 loopback 对照与空缓存 Windows 安装测量，未实测前不新增五分钟上限。
+**修复：** 四处 Python 安装独立成 step，仅安装时设六次 HTTP 请求重试，并显式保留十秒连接、三十秒读取超时。uv 版本、依赖锁、失败检查、产品测试及 manifest/run/attempt 身份校验保持原样；不重试整个测试或 workflow。保留原安装 transcript。独立诊断验证后仅对四个安装 step 增加五分钟上限，不包含 npm 或 pytest。
+
+**验证边界：** 独立 Windows 诊断 [run 39260306504](https://github.com/offercontext/offerPilot/actions/runs/39260306504) 使用 uv 0.12.19，空缓存完整 frozen sync 为 10.157 秒，六组 loopback 对照全通过；永久 503 七次请求后于 69.188 秒失败。五分钟上限有本次观测裕量，不是未来网络时延保证。
 
 **教训：** 网络恢复应限于传输层并有次数边界。404、错 hash、构建错误继续失败；官方源迁移须审查锁文件来源与哈希变化，不能临时改锁后冒充原验收身份。独立下载诊断不能替代完整发布验收。
 
