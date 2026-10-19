@@ -1,0 +1,75 @@
+name: Isolated Windows frozen dependency diagnostic
+
+# One explicitly authorized diagnostic branch; never PR, master, or release CI.
+on:
+  push:
+    branches: [chore/20261019-windows-dependency-retry]
+    paths:
+      - '.github/workflows/windows-dependency-diagnostic.yml'
+      - 'scripts/uv-download-diagnostic.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  download-diagnostic:
+    if: github.ref == 'refs/heads/chore/20261019-windows-dependency-retry'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.19'
+          enable-cache: false
+      - name: Record bounded diagnostic scope
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'frozen-download-evidence'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          @(
+            'DEPENDENCY INSTALLATION DIAGNOSTIC ONLY. NOT RELEASE READY.',
+            "Commit: $env:GITHUB_SHA",
+            "Run: $env:GITHUB_RUN_ID",
+            "Attempt: $env:GITHUB_RUN_ATTEMPT",
+            'No product pytest, full release gate, packaging, or real services.',
+            'Fresh external cache and environment; original uv.lock stays unchanged.',
+            'The candidate does not impose a five-minute install cap before measurement.'
+          ) | Set-Content (Join-Path $output 'scope.txt')
+          uv --version
+          Get-FileHash uv.lock -Algorithm SHA256 | Format-List
+      - name: Real uv loopback retry and fatal-error controls
+        timeout-minutes: 7
+        run: |
+          python scripts/uv-download-diagnostic.py fixtures --output "$env:RUNNER_TEMP/frozen-download-evidence/fixtures"
+          if ($LASTEXITCODE -ne 0) { throw 'Real uv retry or negative control failed' }
+      - name: Measure complete frozen sync with a cold cache
+        timeout-minutes: 11
+        run: |
+          python scripts/uv-download-diagnostic.py cold-sync --output "$env:RUNNER_TEMP/frozen-download-evidence/cold"
+          if ($LASTEXITCODE -ne 0) { throw 'Cold-cache frozen install failed' }
+          git diff --exit-code -- uv.lock pyproject.toml
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen dependency inputs changed' }
+      - name: Preserve diagnostic logs and measured identity
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-frozen-download-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/frozen-download-evidence/scope.txt
+            ${{ runner.temp }}/frozen-download-evidence/fixtures/*-summary.json
+            ${{ runner.temp }}/frozen-download-evidence/fixtures/*.log
+            ${{ runner.temp }}/frozen-download-evidence/cold/*-summary.json
+            ${{ runner.temp }}/frozen-download-evidence/cold/*.log
+          if-no-files-found: error
+          retention-days: 7
