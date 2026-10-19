@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { initializeLocale, setLocale, t, type Locale } from '@/i18n';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writePilotMascotAnimationLevel, PILOT_MASCOT_ANIMATION_CHANGED, PILOT_MASCOT_ANIMATION_KEY } from '@/features/pilotMascot/pilotMascotPreference';
 import { desktopHaruSnapshot, useDesktopHaruOwner } from './useDesktopHaruOwner';
-import type { DesktopHaruCommand, DesktopHaruSnapshot } from './desktopHaru';
+import { DESKTOP_HARU_SEND_FAILURE, type DesktopHaruCommand, type DesktopHaruSnapshot } from './desktopHaru';
 import type { PilotConversationController } from './usePilotConversationController';
 import type { ChatStartRequest, Conversation } from '@/types/chat';
+import { buildPilotPageContext } from '@/lib/pilotPageContext';
+import type { Application } from '@/types/application';
+import type { Offer } from '@/types/offer';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root;
@@ -21,6 +25,16 @@ const reply = vi.fn();
 const openPending = vi.fn();
 const windowAction = vi.fn().mockResolvedValue(true);
 const offShowPilot = vi.fn();
+const localeListeners = new Set<(value: unknown) => void>();
+let nativeLocale: Locale = 'zh-CN';
+function localeChanged(value: Locale) { nativeLocale = value; localeListeners.forEach(listener => listener(value)); }
+// Preserve the native event source for the module's one initialization, while
+// resetting its authoritative preference before each independent test.
+const localeBridge = {
+  getLocale: vi.fn(async () => nativeLocale),
+  onLocale: vi.fn((listener: (value: unknown) => void) => { localeListeners.add(listener); return () => { localeListeners.delete(listener); }; }),
+  setLocale: vi.fn(async (value: Locale) => { localeChanged(value); return value; }),
+};
 const applicationDraft: ChatStartRequest = {
   requestKey: 1, context_type: 'application', context_ref: '8',
   context_label: '星河科技 · 前端工程师', mode: 'general',
@@ -32,12 +46,15 @@ const activeConversation: Conversation = {
 function Harness() { useDesktopHaruOwner(controller, openPending); return null; }
 function render() { act(() => root.render(<Harness />)); }
 function latest(): DesktopHaruSnapshot { return publish.mock.calls[publish.mock.calls.length - 1][0]; }
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   localStorage.removeItem(PILOT_MASCOT_ANIMATION_KEY);
   theme = 'light';
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   window.offerpilotDesktop = { role: 'owner', publish, reply, onShowPilot: handler => { showPilot = handler; return offShowPilot; }, onCommand: handler => { command = handler; return vi.fn(); }, disconnect: vi.fn(), windowAction, getState: vi.fn(), onState: vi.fn() };
+  window.offerpilotLocale = localeBridge;
+  await initializeLocale();
+  localeChanged('zh-CN');
   controller = {
     conversations: [], turns: [], taskState: 'idle', hasKey: true, loading: false, pending: null,
     attachments: [], followingContext: { view: 'applications-list', label: '同名公司', entity: { kind: 'application', id: 1, label: '同名公司' } },
@@ -46,7 +63,8 @@ beforeEach(() => {
     isActionOwnerReady: vi.fn(() => true), sendMessage: vi.fn().mockResolvedValue('ignored'), stopActiveRequest: vi.fn(), setLastError: vi.fn(), setComposerDraft: vi.fn(),
   } as unknown as PilotConversationController;
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); delete window.offerpilotDesktop; });
+afterEach(() => { act(() => root.unmount()); host.remove(); localeChanged('zh-CN'); delete window.offerpilotDesktop; delete window.offerpilotLocale; });
+afterAll(() => localeListeners.clear());
 
 describe('desktop Haru owner', () => {
   it('publishes the application theme without invalidating an in-flight command version', () => {
@@ -246,4 +264,125 @@ it('honors an explicit session preference when storage fails and rejects non-enu
     act(() => window.dispatchEvent(new CustomEvent(PILOT_MASCOT_ANIMATION_CHANGED, { detail })));
     expect(latest().animationLevel).toBe('off');
   }
+});
+
+it('republishes localized generated labels without changing command versions or translating custom content', async () => {
+  controller = { ...controller, followingContext: undefined, conversationId: 7, conversations: [{ ...activeConversation, context_label: undefined }], turns: [{ role: 'assistant', content: '工作台' }] };
+  render(); const version = latest().version;
+  expect(latest().contextLabel).toBe('投递 #7');
+  await act(async () => { await setLocale('en-US'); });
+  expect(latest().contextLabel).toBe('Application #7'); expect(latest().version).toBe(version);
+  expect(localeBridge.setLocale).toHaveBeenCalledWith('en-US');
+  expect(latest().messages[0].content).toBe('工作台');
+  expect(controller.sendMessage).not.toHaveBeenCalled(); expect(controller.stopActiveRequest).not.toHaveBeenCalled();
+  controller = { ...controller, conversations: [{ ...activeConversation, context_label: '工作台' }] }; render();
+  expect(latest().contextLabel).toBe('工作台');
+  controller = { ...controller, conversations: [] }; render(); expect(latest().contextLabel).toBe('Workspace');
+  controller = { ...controller, conversationId: undefined }; render(); expect(latest().contextLabel).toBe('Current page');
+  await act(async () => { await setLocale('zh-CN'); }); expect(latest().contextLabel).toBe('当前页面');
+  expect(controller.setComposerDraft).not.toHaveBeenCalled();
+});
+
+it('tags only its own rejected-send failure and clears provenance for another error', async () => {
+  await setLocale('en-US');
+  controller.sendMessage = vi.fn().mockRejectedValue(Error('private provider details'));
+  controller.setLastError = vi.fn(value => { controller = { ...controller, lastError: value as string }; });
+  render(); const version = latest().version;
+  await act(async () => command({ id: 1, version, action: 'send', text: 'hello' }));
+  render();
+  expect(controller.setLastError).toHaveBeenCalledWith(DESKTOP_HARU_SEND_FAILURE);
+  expect(latest()).toMatchObject({ error: DESKTOP_HARU_SEND_FAILURE, errorKey: 'desktop_send_failed', version });
+  expect(JSON.stringify(latest())).not.toContain('private provider details');
+  await act(async () => { await setLocale('zh-CN'); });
+  expect(latest().errorKey).toBe('desktop_send_failed'); expect(latest().version).toBe(version);
+  controller = { ...controller, lastError: '检查更新' }; render();
+  expect(latest().error).toBe('检查更新'); expect(latest()).not.toHaveProperty('errorKey');
+  controller = { ...controller, lastError: DESKTOP_HARU_SEND_FAILURE }; render();
+  expect(latest()).not.toHaveProperty('errorKey');
+});
+
+it.each(['dashboard', 'application', 'offer'] as const)('keeps the control version across real %s page-context translations and retains Stop', async kind => {
+  const application = { id: 17, company_name: '今日', position_name: '自定义岗位', status: 'interview' } as Application;
+  const offer = { id: 19, company_name: 'Today', position_name: 'Custom role', status: 'negotiating' } as Offer;
+  const build = () => buildPilotPageContext({ view: kind === 'dashboard' ? 'dashboard' : kind === 'application' ? 'applications-list' : 'offers',
+    selectedApplication: kind === 'application' ? application : undefined, coachedOffer: kind === 'offer' ? offer : undefined })!;
+  const chinese = build();
+  controller = { ...controller, followingContext: chinese, pinnedContext: chinese, requestContextSnapshot: chinese,
+    loading: true, taskState: 'running', executionControl: { ...controller.executionControl, canStop: true } };
+  render(); const version = latest().version;
+  await act(async () => { await setLocale('en-US'); });
+  const english = build();
+  expect(english).not.toEqual(chinese);
+  controller = { ...controller, followingContext: english }; render();
+  expect(latest().version).toBe(version);
+  // Frozen request/pinned snapshots can retain the previous display language.
+  act(() => command({ id: 1, version, action: 'stop' }));
+  expect(controller.stopActiveRequest).toHaveBeenCalledOnce(); expect(reply).toHaveBeenLastCalledWith(1, { ok: true });
+  controller = { ...controller, pinnedContext: english, requestContextSnapshot: english }; render();
+  expect(latest().version).toBe(version);
+  await act(async () => { await setLocale('zh-CN'); });
+  controller = { ...controller, followingContext: build() }; render();
+  expect(latest().version).toBe(version);
+  expect(controller.sendMessage).not.toHaveBeenCalled();
+});
+
+it('retains real identity/status/filter/custom text changes in the canonical control signature', async () => {
+  const application = { id: 17, company_name: 'Company', position_name: 'Role', status: 'interview' } as Application;
+  const build = () => buildPilotPageContext({ view: 'applications-list', selectedApplication: application })!;
+  controller = { ...controller, followingContext: build() }; render();
+  let version = latest().version;
+  for (const patch of [
+    { ...build(), entity: { ...build().entity!, id: '18' } },
+    { ...build(), entity: { ...build().entity!, label: '面试' } },
+    { ...build(), entity: { ...build().entity!, description: '用户自定义说明' } },
+    { ...build(), label: '自定义页面名称' },
+    { ...build(), filters: [{ key: 'status', label: '自定义筛选', value: 'interview' }] },
+    { ...build(), filters: [{ key: 'status', label: '自定义筛选', value: 'offer' }] },
+    { ...build(), filters: [{ key: 'status', label: '更改筛选名称', value: 'offer' }] },
+  ]) {
+    controller = { ...controller, followingContext: patch }; render();
+    expect(latest().version).toBeGreaterThan(version); version = latest().version;
+  }
+  controller = { ...controller, followingContext: build() }; render(); version = latest().version;
+  application.status = 'offer'; controller = { ...controller, followingContext: build() }; render();
+  expect(latest().version).toBeGreaterThan(version);
+  const custom = { ...build(), label: 'My custom context', entity: { ...build().entity!, label: '今日', description: 'Current status: user-authored note' } };
+  controller = { ...controller, followingContext: custom }; render(); version = latest().version;
+  await act(async () => { await setLocale('en-US'); });
+  expect(latest().version).toBe(version); expect(controller.followingContext).toEqual(custom);
+});
+
+
+it.each(['view label', 'entity label', 'entity description'] as const)('retains custom %s changes even when text equals authored translations', async field => {
+  // Deliberately hand-built, not registered by buildPilotPageContext. Matching
+  // catalog text must never grant user context authored-display provenance.
+  const chinese = { view: 'dashboard' as const, label: '今日', entity: {
+    kind: 'application' as const, id: '17', label: '今日',
+    description: t('当前状态：{value0}', { value0: t('待投递') }),
+  } };
+  controller = { ...controller, followingContext: chinese }; render();
+  const version = latest().version;
+  await act(async () => { await setLocale('en-US'); });
+  expect(latest().version).toBe(version);
+  const english = { ...chinese, entity: { ...chinese.entity } };
+  if (field === 'view label') english.label = t('今日');
+  if (field === 'entity label') english.entity.label = t('今日');
+  if (field === 'entity description') english.entity.description = t('当前状态：{value0}', { value0: t('待投递') });
+  expect(english).not.toEqual(chinese);
+  controller = { ...controller, followingContext: english }; render();
+  expect(latest().version).toBeGreaterThan(version);
+  command({ id: 1, version, action: 'send', text: 'stale custom context' });
+  expect(reply).toHaveBeenLastCalledWith(1, { ok: false, reason: 'stale' });
+  expect(controller.sendMessage).not.toHaveBeenCalled();
+});
+
+it('invalidates old commands when a proven context is mutated before another render', () => {
+  const context = buildPilotPageContext({ view: 'dashboard' })!;
+  controller = { ...controller, followingContext: context }; render();
+  const version = latest().version;
+  context.label = 'Today';
+  command({ id: 1, version, action: 'send', text: 'old context' });
+  expect(reply).toHaveBeenLastCalledWith(1, { ok: false, reason: 'stale' });
+  expect(controller.sendMessage).not.toHaveBeenCalled();
+  render(); expect(latest().version).toBeGreaterThan(version);
 });

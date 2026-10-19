@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 export interface JobMailSecureCapability {
   available: boolean;
   reason: string;
@@ -30,7 +31,7 @@ export class MailSecureSetupError extends Error {
   readonly code: string;
   constructor(code: string) {
     // Never retain the server response, request body, native error or its cause.
-    super('安全邮箱配置操作未确认成功');
+    super(t("安全邮箱配置操作未确认成功"));
     this.name = 'MailSecureSetupError';
     this.code = code;
   }

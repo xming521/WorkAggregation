@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import type { Application } from '@/types/application';
 import type { ScheduleEvent } from '@/types/event';
 import type { Offer } from '@/types/offer';
@@ -333,8 +334,8 @@ export function deriveNextStepSuggestions(
         facts,
         'application_detail',
         context,
-        '查看投递详情以确认下一步',
-        '查看投递详情以确认下一步',
+        t("查看投递详情以确认下一步"),
+        t("查看投递详情以确认下一步"),
         { kind: 'application_detail', applicationId },
         [],
       )],
@@ -349,10 +350,10 @@ export function deriveNextStepSuggestions(
       facts,
       'choose_resume',
       context,
-      '选择简历',
-      '先确认可用于本次投递的简历',
+      t("选择简历"),
+      t("先确认可用于本次投递的简历"),
       { kind: 'application_detail', applicationId },
-      [{ label: '已检查简历库', status: 'unknown' }],
+      [{ label: t("已检查简历库"), status: 'unknown' }],
     ));
   }
 
@@ -361,8 +362,8 @@ export function deriveNextStepSuggestions(
       facts,
       'start_fit_review',
       context,
-      '开始岗位评估',
-      '已有投递事实可供确认',
+      t("开始岗位评估"),
+      t("已有投递事实可供确认"),
       { kind: 'pilot_opportunity_fit', applicationId },
       [],
     ));
@@ -373,8 +374,8 @@ export function deriveNextStepSuggestions(
       facts,
       'prepare_materials',
       context,
-      '准备投递材料',
-      '当前投递还没有已知材料包',
+      t("准备投递材料"),
+      t("当前投递还没有已知材料包"),
       { kind: 'material_kit_entry', applicationId },
       [],
     ));
@@ -387,10 +388,10 @@ export function deriveNextStepSuggestions(
       facts,
       'prepare_interview',
       context,
-      '为这场面试做准备',
-      '已有一场当前或未来的面试事件',
+      t("为这场面试做准备"),
+      t("已有一场当前或未来的面试事件"),
       { kind: 'interview_event', applicationId, eventId: event.id },
-      [{ label: '当前使用事件', status: 'current', readonlyDestination: { kind: 'interview_event', applicationId, eventId: event.id } }],
+      [{ label: t("当前使用事件"), status: 'current', readonlyDestination: { kind: 'interview_event', applicationId, eventId: event.id } }],
       'event:' + event.id,
     ));
   } else if (currentOrFuture.length > 1) {
@@ -398,8 +399,8 @@ export function deriveNextStepSuggestions(
       facts,
       'prepare_interview',
       context,
-      '为这场面试做准备',
-      '有多场当前或未来的面试，请先选择事件',
+      t("为这场面试做准备"),
+      t("有多场当前或未来的面试，请先选择事件"),
       { kind: 'interview_event_selection', applicationId },
       [],
       'event:selection',
@@ -416,8 +417,8 @@ export function deriveNextStepSuggestions(
       facts,
       'review_interview',
       context,
-      '查看面试复盘',
-      reviewIds.length === 1 ? '已有一份历史复盘可查看' : '这场面试已结束，可以开始复盘',
+      t("查看面试复盘"),
+      reviewIds.length === 1 ? t("已有一份历史复盘可查看") : t("这场面试已结束，可以开始复盘"),
       destination,
       [],
       'event:' + event.id,
@@ -427,8 +428,8 @@ export function deriveNextStepSuggestions(
       facts,
       'review_interview',
       context,
-      '查看面试复盘',
-      '有多场已结束的面试，请先选择事件',
+      t("查看面试复盘"),
+      t("有多场已结束的面试，请先选择事件"),
       { kind: 'interview_review_selection', applicationId },
       [],
       'event:selection',

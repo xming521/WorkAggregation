@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { createApiClient } from './http';
 import type { JobMailImportInput, JobMailRun, JobMailStatus, JobMailPreview, JobMailPreviewInput, JobMailReceipt, JobMailSuggestion, JobMailSuggestionPage } from '@/types/jobMail';
 
@@ -27,7 +28,7 @@ function verifiedReceipt(value: JobMailReceipt, operationId: string, suggestionI
       || !Number.isSafeInteger(value.application_event_id) || value.application_event_id <= 0
       || !value.after || !Number.isSafeInteger(value.after.application_id) || Number(value.after.application_id) <= 0
       || !Number.isFinite(Date.parse(value.confirmed_at))) {
-    throw new Error('邮件确认回执不完整，请按原操作标识核对结果');
+    throw new Error(t("邮件确认回执不完整，请按原操作标识核对结果"));
   }
   return value;
 }

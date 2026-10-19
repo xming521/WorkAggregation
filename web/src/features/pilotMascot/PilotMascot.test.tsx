@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setLocale } from '@/i18n';
 import PilotMascot, { type PilotMascotRuntime } from './PilotMascot';
 import type { PilotMascotRuntimeController } from './live2dRuntime';
 
@@ -18,6 +19,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  setLocale('zh-CN');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -586,4 +588,45 @@ describe('PilotMascot', () => {
     act(() => trigger.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="放大角色"]')?.disabled).toBe(true);
   });
+
+  it('updates an open menu and activity in place without restarting the character runtime', async () => {
+    const props = await renderMascot({ activity: 'thinking' });
+    const canvas = container.querySelector('canvas');
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="打开 OfferPilot 领航员"]');
+    act(() => trigger?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+    act(() => setLocale('en-US'));
+    expect(container.textContent).toContain('Thinking');
+    expect(container.textContent).toContain('Character size');
+    expect(container.textContent).toContain('Bottom left');
+    expect(container.querySelector('[aria-label="Make character smaller"]')).not.toBeNull();
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+    expect(container.querySelector('canvas')).toBe(canvas);
+    expect(props.runtime?.mount).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('reserves the Studio answer area by its stable ID independently of its translated label', async () => {
+    const studio = document.createElement('div');
+    studio.setAttribute('data-interview-studio', '');
+    const answer = document.createElement('section');
+    answer.id = 'interview-answer-panel';
+    answer.setAttribute('aria-label', 'Localized answer workspace');
+    studio.appendChild(answer);
+    document.body.appendChild(studio);
+    const answerRect = { left: 700, top: 120, right: 1024, bottom: 700, width: 324, height: 580 };
+    vi.spyOn(answer, 'getBoundingClientRect').mockReturnValue(answerRect as DOMRect);
+    try {
+      await renderMascot({ placement: 'interview-studio', position: { xRatio: 0.82, yRatio: 0.5 } });
+      const mascot = container.querySelector<HTMLElement>('aside')!;
+      const left = Number.parseFloat(mascot.style.left);
+      const top = Number.parseFloat(mascot.style.top);
+      const right = left + Number.parseFloat(mascot.style.width);
+      const bottom = top + Number.parseFloat(mascot.style.height);
+      expect(right <= answerRect.left || left >= answerRect.right || bottom <= answerRect.top || top >= answerRect.bottom).toBe(true);
+    } finally {
+      studio.remove();
+    }
+  });
+
 });

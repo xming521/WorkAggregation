@@ -5,7 +5,7 @@ function fixture(snapshot, options={}) {
   let requests=0, prompts=0, locked=false;
   contents.send=(_name,payload)=>{requests++; if(options.noReply)return;queueMicrotask(()=>ipcMain.emit(CHANNEL+'prepare-reply',{sender:contents,senderFrame:contents.mainFrame},{id:payload.id,snapshot:typeof snapshot==='function'?snapshot(requests):snapshot}));};
   const window={webContents:contents,isDestroyed:()=>false};
-  const safety=createInstallSafety({ipcMain,window,origin:'http://127.0.0.1:1234',timeoutMs:10,dialog:{showMessageBox:async(_w,opts)=>{prompts++;assert.equal(opts.defaultId,0);assert.match(opts.detail,/无法完整自动检测/);options.onPrompt?.(contents);return {response:options.cancel?0:1};}},lock:()=>{locked=true;},unlock:()=>{locked=false;}});
+  const safety=createInstallSafety({ipcMain,window,origin:'http://127.0.0.1:1234',timeoutMs:10,t:options.t,dialog:{showMessageBox:async(_w,opts)=>{prompts++;assert.equal(opts.defaultId,0);assert.match(opts.detail,options.t?/cannot all be detected automatically/:/无法完整自动检测/);options.inspect?.(opts);options.onPrompt?.(contents);return {response:options.cancel?0:1};}},lock:()=>{locked=true;},unlock:()=>{locked=false;}});
   return {safety,ipcMain,contents,requests:()=>requests,prompts:()=>prompts,locked:()=>locked};
 }
 const safe={ready:true,hasDraft:false,activeRun:false,pendingApproval:false};
@@ -20,4 +20,14 @@ test('late dirty state after confirm aborts and unlocks',async()=>{const f=fixtu
 test('navigation during confirmation, malformed, and lost renderer fail closed',async()=>{
   const nav=fixture(safe,{onPrompt:c=>c.emit('did-start-navigation',{},'http://127.0.0.1:1234/',false,true)});assert.match(await nav.safety.prepare(),/变化/);nav.safety.dispose();
   for(const f of [fixture({ready:true}),fixture(safe,{noReply:true})]){assert.match(await f.safety.prepare(),/无法确认/);assert.equal(f.prompts(),0);f.safety.dispose();}
+});
+
+test('English install confirmation retains warning details and fail-closed second check', async () => {
+  const { translate } = require('../locale.cjs');
+  const f = fixture(n => ({ ...safe, hasDraft: n === 2 }), { t: source => translate(source, 'en-US'), inspect: opts => {
+    assert.equal(opts.title, 'Install update and restart?');
+    assert.equal(opts.buttons[0], 'Cancel'); assert.equal(opts.cancelId, 0);
+    assert.match(opts.detail, /A backup does not guarantee/);
+  } });
+  assert.match(await f.safety.prepare(), /草稿/); assert.equal(f.locked(), false); f.safety.dispose();
 });

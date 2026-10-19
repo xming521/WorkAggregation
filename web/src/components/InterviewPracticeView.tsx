@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useEffect, useState } from 'react';
 import { Segmented, Typography } from 'antd';
 import AdaptiveInterviewPracticeWorkspace from './AdaptiveInterviewPracticeWorkspace';
@@ -36,6 +37,7 @@ export default function InterviewPracticeView({
   quickPracticeResumes,
   onOpenStudio,
 }: InterviewPracticeViewProps) {
+  useLocale();
   const [mode, setMode] = useState<InterviewPracticeMode>(adaptiveFocus ? 'review' : 'quick');
 
   useEffect(() => {
@@ -51,18 +53,17 @@ export default function InterviewPracticeView({
     >
       <div className="op-section-heading" style={{ marginBottom: 18 }}>
         <div>
-          <Title id="interview-practice-title" level={2} style={{ margin: 0 }}>面试练习</Title>
+          <Title id="interview-practice-title" level={2} style={{ margin: 0 }}>{t("面试练习")}</Title>
           <Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
-            选择快速模拟，或围绕已确认的复盘重点练习回答。
-          </Paragraph>
+            {t("选择快速模拟，或围绕已确认的复盘重点练习回答。")}</Paragraph>
         </div>
         <Segmented
-          aria-label="面试练习类型"
+          aria-label={t("面试练习类型")}
           value={mode}
           onChange={(value) => setMode(value as InterviewPracticeMode)}
           options={[
-            { label: '快速模拟', value: 'quick' },
-            { label: '复盘重点练习', value: 'review' },
+            { label: t("快速模拟"), value: 'quick' },
+            { label: t("复盘重点练习"), value: 'review' },
           ]}
         />
       </div>
