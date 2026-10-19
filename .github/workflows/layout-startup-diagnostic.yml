@@ -1,0 +1,85 @@
+name: Targeted Windows layout startup diagnostic
+on:
+  push:
+    branches: [test/20261019-layout-startup-diagnostic]
+    paths:
+      - '.github/workflows/layout-startup-diagnostic.yml'
+      - 'scripts/layout-startup-diagnostic.mjs'
+permissions:
+  contents: read
+# Separate evidence only. No full regression, packaging, cancellation, or release.
+defaults:
+  run:
+    shell: pwsh
+jobs:
+  diagnose-startup:
+    if: github.repository == 'offercontext/offerPilot' && github.ref == 'refs/heads/test/20261019-layout-startup-diagnostic' && github.event_name == 'push'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      ONNXRUNTIME_NODE_INSTALL: skip
+      LAYOUT_SOURCE_SHA: '871dc7dce69ea60cc09dfe11fbbff71199ebb0aa'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: diagnostic
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 871dc7dce69ea60cc09dfe11fbbff71199ebb0aa
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            source/web/package-lock.json
+            source/desktop/installed-ui/package-lock.json
+      - name: Verify immutable source and bounded diagnostic scope
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          $actual = git -C source rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:LAYOUT_SOURCE_SHA) { throw 'Unexpected source SHA' }
+          @(
+            "Source: $actual",
+            "Diagnostic: $env:GITHUB_SHA",
+            'Original failing run: 39299451507, job 118220478723.',
+            'Only 900x689-0-failure: three independent cold Vite starts, each followed by one warm page.',
+            'Original 15000ms readiness threshold, passed assertion and fallback interactions retained.',
+            'This diagnostic does not replace the original failure or the complete gate.',
+            "Run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          ) | Set-Content evidence/scope.txt
+          Get-FileHash -Algorithm SHA256 source/web/package-lock.json, source/desktop/installed-ui/package-lock.json, source/web/tests/desktop-layout/run.mjs, source/web/tests/desktop-layout/fixture.tsx, source/web/vite.config.ts | Format-List | Out-File evidence/source-sha256.txt
+          node --version | Set-Content evidence/node-version.txt
+          node --check diagnostic/scripts/layout-startup-diagnostic.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic syntax failed' }
+      - name: Install unchanged locked browser dependencies
+        run: |
+          npm.cmd ci --prefix source/web
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend install failed' }
+          npm.cmd ci --prefix source/desktop/installed-ui --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { throw 'Original isolated helper install failed' }
+      - name: Match original build and fixture type prerequisites
+        run: |
+          npm.cmd run build --prefix source/web
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed' }
+          node source/web/node_modules/typescript/bin/tsc --project source/web/tests/desktop-layout/tsconfig.json
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture type check failed' }
+      - name: Capture cold and warm initialization evidence
+        run: |
+          node diagnostic/scripts/layout-startup-diagnostic.mjs source evidence
+          if ($LASTEXITCODE -ne 0) { throw 'Targeted layout diagnostic found a failure; original threshold retained' }
+      - name: Verify product source stayed unchanged
+        if: always()
+        run: |
+          git -C source diff --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Source changed during diagnostic' }
+      - name: Preserve startup evidence on every outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-startup-871dc7d-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
