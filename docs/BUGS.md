@@ -5,6 +5,19 @@
 
 ## 当前记录
 
+## 布局验收与导航覆盖测试共享 Vite 缓存（2026-10-19）
+
+**现象：** 完整 Windows run 39299451507 的首个 `900x689-0-failure` case 在 15 秒 readiness 等待超时，截图为纯背景；其余 123 项通过。原 run 未保存 DOM、console 或 network，因此原空白根因仍未知，不能归因于 runner 负载或当作布局断言失败。
+
+**已证实耦合：** `coverage-model.test.mjs` 使用生产 web root 的默认缓存，虽配置 `noDiscovery=true/include=[]`，React 插件仍加入四个 React 依赖。该部分缓存与后续布局服务有相同配置哈希，首次加载再发现依赖并触发 full reload。独立对照 [run 39304127954](https://github.com/offercontext/offerPilot/actions/runs/39304127954) 的 7 项真实前置测试通过，捕获了四项到十四项缓存及 reload；之后冷、热页面都正常恢复。旧成功完整 run 也有相同 reload，故这一机制尚不能证明原超时根因。
+
+**改进：** 覆盖测试使用独占临时 Vite cache，并以嵌套 finally 保证关闭异常时也清理。列表布局 case 在失败时保存脱敏 DOM 结构、readiness 状态及限量分类 console/pageerror/network/navigation/reload 事件；采集失败不覆盖原失败。15 秒、原断言和 case 范围保持不变，无自动重试或延时。
+
+**验证边界：** 独立候选验证覆盖缓存不再污染布局服务，以及故意不 ready 的浏览器负对照必须保留现场并非零退出；定向通过不能替代完整发布验收，也不将本记录升级为原空白问题已根治。
+
+**教训：** 测试 helper 的 Vite 缓存应明确隔离；HTTP 200 只表示入口可访问。初始化超时需要保留实际页面状态与错误证据，不应靠延长 timeout 掩盖。
+
+
 ## Windows 冻结依赖下载在测试前连接超时（2026-10-19）
 
 **现象：** Windows run 39246366093 的 shard 9 在 `uv sync --frozen` 下载 attrs 26.1.0 时，三次请求重试后于 44.4 秒报 TCP connect deadline；pytest 尚未执行，未产生 shard 结果。
