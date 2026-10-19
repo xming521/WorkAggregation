@@ -1,24 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ROOTS, ROOT_CASES, ROOT_STATES, SUBVIEWS, WIDTHS, safeShotName, summarizeCoverage, classifyRuntimeMessage, publicRequestFailure, checkGeometry } from '../coverage-model.mjs';
 
-test('coverage inventory exactly matches production navigation routes, module labels and visible tabs', () => {
+test('coverage inventory exactly matches production navigation routes, module labels and visible tabs', async (t) => {
   const navigationUrl = new URL('../../../web/src/layout/navigation.ts', import.meta.url);
   const source = fs.readFileSync(navigationUrl, 'utf8');
   const union = source.match(/export type ViewMode\s*=([\s\S]*?);/);
   assert.ok(union, 'production ViewMode union is required');
   const views = [...union[1].matchAll(/'([^']+)'/g)].map(([, view]) => view);
-  // Run the actual typed module in Node's supported strip-only mode. Looking for
-  // view-name substrings cannot catch missing routes or wrong module/tab labels.
-  const script = `import { MODULE_NAV, MODULE_TABS, resolveModuleForView, defaultViewForModule, moduleTabsForView } from ${JSON.stringify(navigationUrl.href)};
-    const views = ${JSON.stringify(views)};
-    console.log(JSON.stringify({ nav: MODULE_NAV, tabs: MODULE_TABS, routes: views.map(view => ({
-      view, module: resolveModuleForView(view), defaultView: defaultViewForModule(resolveModuleForView(view)), tabs: moduleTabsForView(view),
-    })) }));`;
-  const production = JSON.parse(execFileSync(process.execPath,
-    ['--experimental-strip-types', '--input-type=module', '--eval', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  // Use the application's locked Vite toolchain: navigation now depends on the
+  // real i18n catalog's alias and import.meta.glob transformation. Do not stub
+  // translations or duplicate the production navigation in a test fixture.
+  const webRoot = fileURLToPath(new URL('../../../web/', import.meta.url));
+  const requireWeb = createRequire(new URL('../../../web/package.json', import.meta.url));
+  const loadWeb = name => import(pathToFileURL(requireWeb.resolve(name)).href);
+  const [{ createServer }, { ViteNodeServer }, { ViteNodeRunner }] = await Promise.all([
+    import(new URL('./dist/node/index.js', pathToFileURL(requireWeb.resolve('vite/package.json'))).href),
+    loadWeb('vite-node/server'), loadWeb('vite-node/client'),
+  ]);
+  const server = await createServer({ root: webRoot,
+    server: { middlewareMode: true, hmr: false, watch: null },
+    optimizeDeps: { noDiscovery: true, include: [] },
+  });
+  t.after(() => server.close());
+  await server.pluginContainer.buildStart({});
+  const node = new ViteNodeServer(server);
+  const runner = new ViteNodeRunner({ root: server.config.root, base: server.config.base,
+    fetchModule: id => node.fetchModule(id), resolveId: (id, importer) => node.resolveId(id, importer),
+  });
+  const i18n = await runner.executeFile(fileURLToPath(new URL('../../../web/src/i18n/index.ts', import.meta.url)));
+  await i18n.setLocale('zh-CN'); // This installed-UI inventory targets the Chinese baseline.
+  assert.equal(i18n.getLocale(), 'zh-CN');
+  const { MODULE_NAV, MODULE_TABS, resolveModuleForView, defaultViewForModule, moduleTabsForView } =
+    await runner.executeFile(fileURLToPath(navigationUrl));
+  const production = { nav: MODULE_NAV, tabs: MODULE_TABS, routes: views.map(view => ({
+    view, module: resolveModuleForView(view), defaultView: defaultViewForModule(resolveModuleForView(view)), tabs: moduleTabsForView(view),
+  })) };
   assert.equal(ROOTS.length, 13);
   assert.equal(new Set(ROOTS.map(({ view }) => view)).size, ROOTS.length);
   assert.deepEqual(ROOTS.map(({ view }) => view).sort(), [...views].sort());

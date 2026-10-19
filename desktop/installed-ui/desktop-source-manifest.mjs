@@ -16,3 +16,12 @@ export const AUDITED_DESKTOP_MODULE_SHA256 = Object.freeze({
   'update-integrity.cjs': 'ae261c3edac0f574612ff411c0660cce4f9c8f2bc22718392774015e23640625',
 });
 export const DESKTOP_SOURCE_FILES = Object.freeze(Object.keys(AUDITED_DESKTOP_MODULE_SHA256));
+
+// Current checkout's reviewed packaging closure. Keep this separate from the
+// immutable historical installer hashes above: localization adds modules but
+// must not relabel new source as the previously audited product.
+export const CURRENT_DESKTOP_SOURCE_FILES = Object.freeze([
+  ...DESKTOP_SOURCE_FILES,
+  'locale.cjs',
+  'locale-catalog.cjs',
+]);

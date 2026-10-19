@@ -11,7 +11,7 @@
 每次运行从当前 checkout 新构建，记录完整 source SHA、ref、run、attempt 和锁文件 SHA256。历史运行与旧 installer 不作为本次通过证据。公开 `v0.1.0-desktop.1` tag 和附件不在本任务修改范围。
 
 - 只有一个 Windows job；`contents: read`，没有并发取消或自动替换运行。
-- 不修改或调用旧 [desktop-windows.yml](../../.github/workflows/desktop-windows.yml) 的 12 分片/完整回归链路。
+- 不修改或调用旧 [desktop-windows.yml](../../.github/workflows/desktop-windows.yml) 的 20 分片/完整回归链路。
 - 不下载旧 installer、不读取或更新 installed-ui PIN、不安装旧 installed-ui helper、不复用旧 artifact 作为产品来源。
 - 不调用真实 AI、真实邮箱或发布服务，不创建 release，不自动发布或安装更新。
 - 构建依赖及 tokenizer 缓存需要网络；这不是离线构建承诺。Python 回归沿用仓库 loopback-only pytest 防护，冻结 smoke 沿用现有代理防误下载检查，后者不是网络沙箱。

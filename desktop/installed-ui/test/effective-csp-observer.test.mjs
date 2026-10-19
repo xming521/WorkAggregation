@@ -204,14 +204,22 @@ test('partial registration rejection remains owned and recoverable without touch
   assert.equal(f.registered(), false);
 });
 test('reviewed desktop module manifest covers every packaged local CJS and relative import', async () => {
-  const { DESKTOP_SOURCE_FILES, AUDITED_DESKTOP_MODULE_SHA256 } = await import('../desktop-source-manifest.mjs');
+  const { DESKTOP_SOURCE_FILES, CURRENT_DESKTOP_SOURCE_FILES, AUDITED_DESKTOP_MODULE_SHA256 } = await import('../desktop-source-manifest.mjs');
   const packageJson = JSON.parse(await fs.readFile(new URL('../../package.json', import.meta.url), 'utf8'));
-  assert.deepEqual([...DESKTOP_SOURCE_FILES].sort(), packageJson.build.files.filter(name => name.endsWith('.cjs')).sort());
+  assert.deepEqual([...CURRENT_DESKTOP_SOURCE_FILES].sort(), packageJson.build.files.filter(name => name.endsWith('.cjs')).sort());
   assert.deepEqual([...DESKTOP_SOURCE_FILES].sort(), Object.keys(AUDITED_DESKTOP_MODULE_SHA256).sort());
   for (const filename of DESKTOP_SOURCE_FILES) {
+    for (const match of auditedModule(filename).matchAll(/require\(['"](\.\/[^'"]+)['"]\)/g)) {
+      assert.ok(DESKTOP_SOURCE_FILES.includes(match[1].slice(2)), 'relative historical import missing from reviewed closure');
+    }
+  }
+  assert.equal(CURRENT_DESKTOP_SOURCE_FILES.length, 14);
+  assert.ok(CURRENT_DESKTOP_SOURCE_FILES.includes('locale.cjs'));
+  assert.ok(CURRENT_DESKTOP_SOURCE_FILES.includes('locale-catalog.cjs'));
+  for (const filename of CURRENT_DESKTOP_SOURCE_FILES) {
     const source = await fs.readFile(new URL(`../../${filename}`, import.meta.url), 'utf8');
     for (const match of source.matchAll(/require\(['"](\.\/[^'"]+)['"]\)/g)) {
-      assert.ok(DESKTOP_SOURCE_FILES.includes(match[1].slice(2)), 'relative desktop import missing from reviewed closure');
+      assert.ok(CURRENT_DESKTOP_SOURCE_FILES.includes(match[1].slice(2)), 'relative desktop import missing from reviewed closure');
     }
   }
   const updater = await fs.readFile(new URL('../../updater.cjs', import.meta.url), 'utf8');

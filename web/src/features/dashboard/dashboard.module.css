@@ -637,6 +637,16 @@
   text-align: center;
 }
 
+/* Keep desktop explanations readable at the narrower supported width. */
+@media (min-width: 1000px) {
+  .metricReason {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
 /* English labels and explanations need more room than the compact Chinese rows. */
 :global(html[lang='en-US']) .missionMetric {
   grid-template-columns: 34px minmax(0, 1fr);

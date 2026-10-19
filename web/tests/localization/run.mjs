@@ -18,9 +18,48 @@ const api=createFixtureApi({retainedConversation:true,configuredAi:true}); let b
 const allowedUserChinese=[retainedUserBody,retainedAiBody,sampleMail.evidence.snippet,'简体中文','用户原文保持不变 / user content stays unchanged','保留岗位 draft','保留邮件原文，2026-10-22 10:00 UTC 面试。','保留输入 draft'];
 const check=(name,condition,detail)=>{assert(condition,detail||name);report.assertions.push(name);};
 async function step(name,fn){console.log(`START ${name}`);try{await fn();console.log(`PASS ${name}`);}catch(error){report.failures.push({name,error:error.stack||String(error)});console.error(`FAIL ${name}: ${error.message}`);if(page&&!page.isClosed())await screenshot(`failure-${name}`).catch(()=>{});}}
+async function auditDesktopText(name) {
+ if(name.startsWith('dashboard-')) {
+  const reasons=await page.locator('[class*="metricReason"]').evaluateAll(nodes=>nodes.map(node=>({
+   text:node.textContent,
+   clipped:node.scrollWidth>node.clientWidth+1||node.scrollHeight>node.clientHeight+1,
+  })));
+  check(`${name}: all six metric explanations render`,reasons.length===6,JSON.stringify(reasons));
+  check(`${name}: metric explanations fit without clipping`,reasons.every(reason=>!reason.clipped),JSON.stringify(reasons));
+ }
+ if(name.startsWith('knowledge-')) {
+  const search=await page.locator('.knowledge-sources-search').evaluate(group=>{
+   const input=group.querySelector('input');const button=group.querySelector('button');
+   if(!input||!button)return {missing:true};
+   const style=getComputedStyle(input);const canvas=document.createElement('canvas');const context=canvas.getContext('2d');context.font=style.font;
+   const inputRect=input.getBoundingClientRect();const buttonRect=button.getBoundingClientRect();
+   return {placeholder:input.placeholder,
+    textWidth:context.measureText(input.placeholder).width,
+    available:input.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),
+    centerDifference:Math.abs((inputRect.top+inputRect.bottom-buttonRect.top-buttonRect.bottom)/2),
+    gap:buttonRect.left-inputRect.right};
+  });
+  check(`${name}: source search placeholder fits`,!search.missing&&search.textWidth<=search.available+1,JSON.stringify(search));
+  check(`${name}: source Search stays beside its input`,!search.missing&&search.centerDifference<=2&&search.gap>=0&&search.gap<=24,JSON.stringify(search));
+ }
+}
 async function screenshot(name){
+ await auditDesktopText(name);
  const capture=async suffix=>{const file=path.join(output,`${suffix.replaceAll(/[^a-zA-Z0-9_-]/g,'-')}.png`);await page.screenshot({path:file,fullPage:true,animations:'disabled'});report.screenshots.push(file);};
  await capture(name);
+ if(name.startsWith('board-')) {
+  const board=page.locator('[data-kanban-board]');
+  const before=await board.evaluate(el=>({left:el.scrollLeft,max:el.scrollWidth-el.clientWidth,overflow:getComputedStyle(el).overflowX}));
+  if(name.endsWith('-1280'))check(`${name}: board provides horizontal scroll`,before.max>0&&['auto','scroll'].includes(before.overflow),JSON.stringify(before));
+  if(before.max>0) {
+   try {
+    await board.evaluate(el=>{el.scrollLeft=el.scrollWidth;});await settle();
+    const rightmost=await board.evaluate(el=>{const columns=el.querySelectorAll('[data-kanban-column-body]');const column=columns[columns.length-1]?.parentElement;const r=column?.getBoundingClientRect();const bounds=el.getBoundingClientRect();return {left:el.scrollLeft,max:el.scrollWidth-el.clientWidth,visible:!!r&&r.left>=bounds.left-1&&r.right<=bounds.right+1};});
+    check(`${name}: rightmost board column reachable`,Math.abs(rightmost.left-rightmost.max)<=1&&rightmost.visible,JSON.stringify(rightmost));
+    await capture(`${name}-rightmost`);
+   } finally {await board.evaluate((el,left)=>{el.scrollLeft=left;},before.left);await settle();}
+  }
+ }
  // The desktop shell scrolls internally: fullPage alone only captures its first viewport.
  if(await page.getByRole('dialog').isVisible().catch(()=>false))return;
  const content=page.locator('.op-app-content');

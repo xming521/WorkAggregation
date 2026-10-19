@@ -733,17 +733,19 @@ export default function KnowledgeSourcesView() {
           <Button icon={<FormOutlined />} onClick={() => setPasteOpen(true)}>
             {t("粘贴正文")}</Button>
           <span className="knowledge-toolbar-spacer" />
-          <Input
-            placeholder={t("搜索资料内容（中文/英文关键词）")}
-            className="knowledge-sources-search-input"
-            style={{ width: 'min(320px, 100%)' }}
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onPressEnter={handleSearch}
-            prefix={<SearchOutlined />}
-          />
-          <Button onClick={handleSearch} loading={searchMutation.isPending}>
-            {t("搜索")}</Button>
+          <div className="knowledge-sources-search">
+            <Input
+              placeholder={t("搜索资料内容（中文/英文关键词）")}
+              className="knowledge-sources-search-input"
+              style={{ width: 'min(320px, 100%)' }}
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onPressEnter={handleSearch}
+              prefix={<SearchOutlined />}
+            />
+            <Button onClick={handleSearch} loading={searchMutation.isPending}>
+              {t("搜索")}</Button>
+          </div>
           <Space size={6} align="center">
             <Switch
               checked={includeArchived}
