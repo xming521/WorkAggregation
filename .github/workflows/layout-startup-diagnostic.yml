@@ -45,7 +45,7 @@ jobs:
             "Source: $actual",
             "Diagnostic: $env:GITHUB_SHA",
             'Original failing run: 39299451507, job 118220478723.',
-            'Only 900x689-0-failure: three independent cold Vite starts, each followed by one warm page.',
+            'Only 900x689-0-failure: one real coverage-model test predecessor, then one cold and warm page pair; preserve cache metadata.',
             'Original 15000ms readiness threshold, passed assertion and fallback interactions retained.',
             'This diagnostic does not replace the original failure or the complete gate.',
             "Run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
@@ -68,7 +68,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Fixture type check failed' }
       - name: Capture cold and warm initialization evidence
         run: |
-          node diagnostic/scripts/layout-startup-diagnostic.mjs source evidence
+          node diagnostic/scripts/layout-startup-diagnostic.mjs source evidence prime-coverage
           if ($LASTEXITCODE -ne 0) { throw 'Targeted layout diagnostic found a failure; original threshold retained' }
       - name: Verify product source stayed unchanged
         if: always()

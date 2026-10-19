@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -9,11 +9,13 @@ const output = path.resolve(process.argv[3]);
 const require = createRequire(path.join(root, 'desktop/installed-ui/package.json'));
 const { chromium } = require('playwright-core');
 const results = [];
+const primeCoverage = process.argv[4] === 'prime-coverage';
+const trialCount = primeCoverage ? 1 : 3;
 await mkdir(output, { recursive: true });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 try {
-  for (let trial = 1; trial <= 3; trial++) {
+  for (let trial = 1; trial <= trialCount; trial++) {
     const dir = path.join(output, `trial-${trial}`);
     await mkdir(dir, { recursive: true });
     // Remove only this isolated diagnostic checkout's disposable Vite dev cache.
@@ -21,6 +23,30 @@ try {
     for (const entry of await readdir(cache).catch(() => [])) {
       if (entry === 'deps' || entry.startsWith('deps_temp_')) await rm(path.join(cache, entry), { recursive: true, force: true });
     }
+    const captureCache = async label => {
+      const names = await readdir(cache).catch(() => []);
+      const metadata = {};
+      for (const entry of names) {
+        if (!entry.startsWith('deps')) continue;
+        metadata[entry] = await readFile(path.join(cache, entry, '_metadata.json'), 'utf8').catch(() => null);
+      }
+      await writeFile(path.join(dir, `${label}-cache.json`), JSON.stringify({ names, metadata }, null, 2));
+    };
+    await captureCache('before-coverage');
+    if (primeCoverage) {
+      const child = spawn(process.execPath, ['--test', 'test/coverage-model.test.mjs'], { cwd: path.join(root, 'desktop/installed-ui'), stdio: ['ignore', 'pipe', 'pipe'] });
+      let log = '';
+      child.stdout.on('data', data => { log += data; });
+      child.stderr.on('data', data => { log += data; });
+      const code = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { child.kill(); reject(new Error('Coverage predecessor exceeded 120 seconds')); }, 120000);
+        child.once('error', error => { clearTimeout(timer); reject(error); });
+        child.once('close', code => { clearTimeout(timer); resolve(code); });
+      }).finally(async () => { await writeFile(path.join(dir, 'coverage-model.log'), log); });
+      console.log(log);
+      assert.equal(code, 0, 'The real predecessor coverage-model tests must pass');
+    }
+    await captureCache('after-coverage');
     const server = spawn(process.execPath, [path.join(root, 'web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', '5174', '--strictPort'], { cwd: path.join(root, 'web'), stdio: ['ignore', 'pipe', 'pipe'] });
     let serverLog = '';
     const serverEvents = [];
@@ -130,6 +156,7 @@ try {
       server.kill();
       await Promise.race([new Promise(resolve => server.exitCode !== null ? resolve() : server.once('exit', resolve)), delay(5000)]);
       if (server.exitCode === null && server.signalCode === null) throw new Error('Vite did not exit; refusing overlapping cold trials');
+      await captureCache('after-browser');
       await writeFile(path.join(dir, 'vite.log'), serverLog);
       await writeFile(path.join(dir, 'vite-events.json'), JSON.stringify(serverEvents, null, 2));
     }
@@ -137,5 +164,5 @@ try {
 } finally {
   await writeFile(path.join(output, 'results.json'), JSON.stringify(results, null, 2));
 }
-assert.equal(results.length, 6, 'All three cold and warm pairs must execute');
+assert.equal(results.length, trialCount * 2, 'Every requested cold and warm pair must execute');
 assert.equal(results.filter(result => result.status !== 'passed').length, 0, JSON.stringify(results.filter(result => result.status !== 'passed')));
