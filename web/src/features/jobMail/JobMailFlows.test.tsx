@@ -65,6 +65,23 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); setLocale('zh-CN'); vi.restoreAllMocks(); });
 
 describe('job mail settings in StrictMode', () => {
+  it('localizes the known backend execution location live without changing status data', async () => {
+    await render(<JobMailSettings />);
+    expect(container.textContent).toContain('本地/自托管后端');
+    await act(async () => { setLocale('en-US'); });
+    expect(container.textContent).toContain('Local/self-hosted backend');
+    expect(container.textContent).not.toContain('本地/自托管后端');
+    expect(status.execution_location).toBe('本地/自托管后端');
+    await act(async () => { setLocale('zh-CN'); });
+    expect(container.textContent).toContain('本地/自托管后端');
+  });
+  it.each(['用户的自定义后端', '本地/自托管后端（用户备注）', '未连接'])('preserves unknown execution location literally: %s', async (location) => {
+    status.execution_location = location;
+    setLocale('en-US');
+    await render(<JobMailSettings />);
+    expect(container.textContent).toContain(location);
+    expect(status.execution_location).toBe(location);
+  });
   it('fails closed for real connection and never requests a credential', async () => {
     await render(<JobMailSettings />); expect(container.textContent).toContain('真实 QQ 邮箱连接须通过'); expect(container.querySelector('input[type="password"]')).toBeNull(); expect(container.textContent).not.toContain('连接合成测试邮箱');
     await click(button('连接 QQ 邮箱说明')); expect(container.textContent).toContain('本机原生凭据库不可用'); await click(button('关闭并释放临时会话')); expect(api.connectSyntheticJobMail).not.toHaveBeenCalled();

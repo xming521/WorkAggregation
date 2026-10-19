@@ -52,6 +52,13 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); client.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setLocale('zh-CN'); });
 
 describe('real AppShell localization with strict synthetic API fixtures', () => {
+  it('retains the normal backend authored mail status fields in the browser fixture', () => {
+    expect(state.api.handle('GET', '/api/job-mail/status').data).toMatchObject({
+      execution_location: '本地/自托管后端', recognition_mode: 'offline_rules',
+      retention: { pending_days: 90, processed_days: 30 },
+      notice: '识别默认离线规则；QQ连接由本机安全配置页管理，外部AI尚未开放。后端停止时不检查邮件。',
+    });
+  });
   it('models unchanged and edited mail previews with the backend proposal merge contract', () => {
     const preview = (edited_fields: Record<string, unknown>) => state.api.handle('POST', '/api/job-mail/suggestions/mail-fixture-1/preview', { operation_id: 'synthetic-operation', edited_fields }).data;
     const unchanged = preview({});

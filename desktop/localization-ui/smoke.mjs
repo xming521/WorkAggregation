@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { waitForDialogSettled, waitForPaintedCharacter } from './dialog-readiness.mjs';
 import { loadOriginalEvidence } from './retry.mjs';
 import { preferenceObservation, assertDevToolsPreference, assertDevToolsProbe, probeDevToolsDisabled } from './security.mjs';
 import { PROFILE, DRAFT, MAIL, TEXT, samePath, buttonName, classifyRequest, safeRequest, ownedProcesses, earlyOwnedProcesses,
@@ -308,6 +309,7 @@ async function launch(number, locale) {
   const collapsed = await active.haru.evaluate(async () => window.offerpilotDesktop.getState());
   assert.equal(collapsed.expanded, false, 'X must collapse the conversation');
   assert.equal(collapsed.visible, true, 'X must keep the character visible');
+  await waitForPaintedCharacter(active.haru);
   await shot(active.haru, `${number}-${locale}-haru-close-keeps-character`);
   await active.haru.getByRole('button', { name: TEXT[locale].expand, exact: true }).click();
   await launchPhase('real-haru-pin-controls');
@@ -384,6 +386,7 @@ async function switchLocale(from, to) {
   // AntD's actual combobox input is covered by its selected-text span.
   await select.locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " ant-select ")][1]').locator('.ant-select-selector').click();
   await active.page.locator('.ant-select-item-option-content').filter({ hasText: to === 'en-US' ? /^English$/ : /^简体中文$/ }).click();
+  await active.page.locator('.ant-select-dropdown:visible').waitFor({ state: 'hidden' });
   await assertLocale(to, `${active.number}-after-settings-click`);
   assert.equal(await draft.inputValue(), DRAFT, 'unsent Haru text must remain byte-for-byte unchanged');
   assert.equal(await active.haru.getByRole('button', { name: TEXT[to].send, exact: true }).isDisabled(), true);
@@ -403,8 +406,8 @@ async function mailPreview(locale) {
   await panel.scrollIntoViewIfNeeded();
   await shot(active.page, `${active.number}-${locale}-mail-settings-disabled-setup`);
   await panel.getByRole('button', { name: copy.guide, exact: true }).click();
-  const guide = active.page.getByRole('dialog');
-  await guide.waitFor();
+  const guide = active.page.getByRole('dialog', { name: locale === 'zh-CN' ? '安全配置 QQ 邮箱' : 'Secure QQ Mail setup', exact: true });
+  await waitForDialogSettled(guide);
   assert.equal(await guide.locator('input[type="password"]').count(), 0, 'disabled native setup must not solicit credentials');
   await shot(active.page, `${active.number}-${locale}-mail-safe-connection-guide`);
   await guide.getByRole('button', { name: locale === 'zh-CN' ? '关闭并释放临时会话' : 'Close and release temporary session', exact: true }).click();

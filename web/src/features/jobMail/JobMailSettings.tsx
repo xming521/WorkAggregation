@@ -107,7 +107,7 @@ export default function JobMailSettings() {
     {deletionPending && <Alert type="error" showIcon message={t("本机凭据仍待删除")} description={t("检查已停止，但凭据删除尚未成功，不能视为已清理。已确认业务事件保留。")} action={<Button disabled={!!busy} onClick={openDisconnect}>{t("重试删除凭据")}</Button>} />}
     {query.isPending ? <Skeleton active paragraph={{ rows: 3 }} /> : query.isError || !query.data ? <Alert type="error" showIcon message={t("邮箱状态读取失败")} description={t("无法判断是否检查成功，这不代表没有新邮件。")} action={<Button onClick={() => void query.refetch()}>{t("重试")}</Button>} /> : <>
       <div className={styles.stats}>
-        <div className={styles.stat}><span className={styles.muted}>{t("邮件检查运行在")}</span><span>{query.data.execution_location}</span></div>
+        <div className={styles.stat}><span className={styles.muted}>{t("邮件检查运行在")}</span><span>{query.data.execution_location === '本地/自托管后端' ? t("本地/自托管后端") : query.data.execution_location}</span></div>
         <div className={styles.stat}><span className={styles.muted}>{t("每日候选预算")}</span><span>{t("已用 ")}{query.data.budget.used} / {query.data.budget.limit}{t("，剩余 ")}{query.data.budget.remaining}</span></div>
         <div className={styles.stat}><span className={styles.muted}>{t("模型处理")}</span><span>{t("未启用；不会调用模型")}</span></div>
         <div className={styles.stat}><span className={styles.muted}>{t("同步模式")}</span><span>{connected && connection.sync_mode === 'automatic' ? t("自动同步已开启") : t("手动（默认）")}</span></div>

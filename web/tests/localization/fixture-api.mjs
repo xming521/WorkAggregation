@@ -13,7 +13,7 @@ export function createFixtureApi({ retainedConversation = false, configuredAi = 
   // Readiness boolean only; no credentials or provider endpoints exist in this fixture.
   const settings={version:'localization-fixture',data_dir:'Synthetic browser fixture',chat_auto_approve_writes:false,active_provider_id:'',fallback_provider_ids:[],providers:[],base_url:'',model:'',has_api_key:configuredAi,runtime_mode:'local',auth_enabled:false,has_auth_token:false,log_level:'INFO'};
   const policies={revision:1,policies:Object.fromEntries(['confirmed_memory','confirmed_readiness','knowledge_context','older_conversation_summary'].map(k=>[k,{enabled:true,max_units:4,version:'v1'}]))};
-  const mailStatus={capabilities:{real_connection:false,ai_recognition:false,synthetic_connection:true},connection:null,run:null,budget:{limit:100,used:0,remaining:100},execution_location:'Synthetic browser fixture',available_folders:['INBOX','Archive']};
+  const mailStatus={capabilities:{real_connection:false,ai_recognition:false,synthetic_connection:true},connection:null,run:null,budget:{limit:100,used:0,remaining:100},execution_location:'本地/自托管后端',recognition_mode:'offline_rules',retention:{pending_days:90,processed_days:30},notice:'识别默认离线规则；QQ连接由本机安全配置页管理，外部AI尚未开放。后端停止时不检查邮件。',available_folders:['INBOX','Archive']};
   const capability={available:false,reason:'secure_store_unavailable',backend:null,local_only:true,credential_input_allowed:false,configured:false,deletion_pending:false};
   let imported=false;
   const answer=(data,status=200)=>({data,status});

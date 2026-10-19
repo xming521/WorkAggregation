@@ -1085,6 +1085,7 @@ const applications: Record<string, string> = {
   "重试删除凭据": "Retry credential deletion",
   "邮箱状态读取失败": "Failed to load mailbox status",
   "无法判断是否检查成功，这不代表没有新邮件。": "Check success cannot be determined. This does not mean there is no new mail.",
+  "本地/自托管后端": "Local/self-hosted backend",
   "邮件检查运行在": "Email checks run on ",
   "每日候选预算": "Daily candidate budget",
   "已用": "Used: ",
