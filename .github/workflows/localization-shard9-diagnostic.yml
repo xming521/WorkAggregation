@@ -15,7 +15,7 @@ defaults:
     shell: pwsh
 jobs:
   diagnose:
-    name: Five unchanged Windows fault-injection tests at deb6526b
+    name: Six original-order Windows fault-injection tests at deb6526b
     runs-on: windows-2022
     timeout-minutes: 40
     steps:
@@ -42,7 +42,7 @@ jobs:
           New-Item -ItemType Directory -Force $evidence | Out-Null
           $actual = (git rev-parse HEAD).Trim()
           if ($actual -ne 'deb6526b7762ebf0309edf0813fddd120ea86dde') { throw 'Wrong diagnostic product source' }
-          @("Product source: $actual", "Workflow source: $env:GITHUB_SHA", "Run: $env:GITHUB_RUN_ID / $env:GITHUB_RUN_ATTEMPT", 'DIAGNOSTIC ONLY. NOT FULL GATE. Five existing fault-injection tests unchanged; no real AI/mail or credentials.') | Set-Content "$evidence/scope.txt"
+          @("Product source: $actual", "Workflow source: $env:GITHUB_SHA", "Run: $env:GITHUB_RUN_ID / $env:GITHUB_RUN_ATTEMPT", 'DIAGNOSTIC ONLY. NOT FULL GATE. Six existing fault-injection tests unchanged; no real AI/mail or credentials.') | Set-Content "$evidence/scope.txt"
           $sourceStatus = @(git status --porcelain)
           if ($LASTEXITCODE -ne 0) { throw 'Could not inspect product checkout' }
           [IO.File]::WriteAllText("$evidence/source-status.txt", ($sourceStatus -join "`n"))
@@ -52,38 +52,39 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Frozen Python install failed' }
           npm.cmd ci --prefix web
           if ($LASTEXITCODE -ne 0) { throw 'Locked frontend dependency install failed' }
-      - name: Run each original node separately with immediate traceback and evidence
+      - name: Run six original-order nodes in one pytest process; stop at first failure
         run: |
           $runner = Join-Path $env:RUNNER_TEMP 'localization-shard9-diagnose.py'
           @'
           import json, os, pathlib, subprocess, sys, time
           evidence = pathlib.Path(os.environ["RUNNER_TEMP"]) / "localization-shard9-evidence"
           names = [
+              "test_story_browser_harness_retries_an_exited_chromium_with_a_new_port_and_profile",
               "test_story_browser_harness_aggregates_three_exited_chromium_attempts",
               "test_story_browser_harness_retries_after_a_fixed_chromium_cdp_deadline",
               "test_story_browser_harness_rejects_a_cdp_response_that_arrives_after_the_deadline",
               "test_story_browser_harness_fails_closed_when_failed_chromium_cleanup_is_uncertain",
               "test_story_browser_harness_cleans_all_local_resources_when_auditor_startup_fails",
           ]
-          results = []
-          for index, name in enumerate(names):
-              node = "tests/test_interview_story_browser_harness.py::" + name
-              command = ["uv", "run", "--frozen", "pytest", node, "-vv", "--tb=long", "-rA",
-                         "--junitxml", str(evidence / f"{index}-junit.xml"),
-                         "--basetemp", str(evidence / f"{index}-basetemp")]
-              print(f"START {index}: {node}", flush=True)
-              started = time.monotonic()
-              with (evidence / f"{index}-pytest.log").open("w", encoding="utf-8") as log:
-                  process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                             text=True, encoding="utf-8", errors="replace")
-                  for line in process.stdout:
-                      print(line, end="", flush=True)
-                      log.write(line); log.flush()
-                  code = process.wait()
-              results.append({"node": node, "exit_code": code, "elapsed_seconds": time.monotonic()-started})
-              (evidence / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
-              print(f"END {index}: exit={code}", flush=True)
-          raise SystemExit(1 if any(item["exit_code"] for item in results) else 0)
+          nodes = ["tests/test_interview_story_browser_harness.py::" + name for name in names]
+          command = ["uv", "run", "--frozen", "pytest", *nodes, "-x", "-vv", "--tb=long", "-rA",
+                     "--junitxml", str(evidence / "sequence-junit.xml"),
+                     "--basetemp", str(evidence / "sequence-basetemp")]
+          print("Original shard9 zero-based indices: 202,203,204,205,206,208. Six tests, not 202 predecessors.", flush=True)
+          print("START original-order single pytest process", flush=True)
+          started = time.monotonic()
+          with (evidence / "sequence-pytest.log").open("w", encoding="utf-8") as log:
+              process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True, encoding="utf-8", errors="replace")
+              for line in process.stdout:
+                  print(line, end="", flush=True)
+                  log.write(line); log.flush()
+              code = process.wait()
+          result = {"nodes": nodes, "original_shard_zero_based_indices": [202,203,204,205,206,208],
+                    "exit_code": code, "elapsed_seconds": time.monotonic()-started}
+          (evidence / "results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+          print(f"END original-order sequence: exit={code}", flush=True)
+          raise SystemExit(code)
           '@ | Set-Content -Encoding utf8 $runner
           python $runner
           if ($LASTEXITCODE -ne 0) { throw 'One or more unchanged diagnostic nodes failed; inspect immediate tracebacks' }
