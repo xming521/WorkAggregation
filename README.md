@@ -184,9 +184,9 @@ Haru 采用 Live2D 官方样例角色，并非 OfferPilot 原创角色，归属�
 求职者可以直接使用工作台，不需要先学习 Harness。AI builder 也可以只研究一个具体问题：
 **为什么同一条面试安排，重复确认也不该保存两遍？**
 
-- **先看懂：**从[一场面试怎样被记录](docs/learn/01-record-an-interview.md)开始，再按[四篇短路线](docs/learn/README.md)看清资料、模型、工具与人的分工。无需安装项目或写代码。
-- **动手试：**运行[只用 Python 标准库的小实验](docs/learn/examples/README.md)，观察“确认前 0 条 → 确认后 1 条 → 重复确认仍为 1 条”。实验使用模拟模型，不需要模型密钥，不是模型能力评测。
-- **拆开实现：**按兴趣阅读[Harness 源码导读](docs/learn/advanced/README.md)，追踪 Agent Loop、上下文、写入确认、取消与恢复、运行记录和验证。
+- **先看懂**：从[一场面试怎样被记录](docs/learn/01-record-an-interview.md)开始，再按[四篇短路线](docs/learn/README.md)看清资料、模型、工具与人的分工。无需安装项目或写代码。
+- **动手试**：运行[只用 Python 标准库的小实验](docs/learn/examples/README.md)，观察“确认前 0 条 → 确认后 1 条 → 重复确认仍为 1 条”。实验使用模拟模型，不需要模型密钥，不是模型能力评测。
+- **拆开实现**：按兴趣阅读[Harness 源码导读](docs/learn/advanced/README.md)，追踪 Agent Loop、上下文、写入确认、取消与恢复、运行记录和验证。
 
 学习材料以具体源码基线与验证记录为依据，尚未开展读者试读；它是一条实战阅读与实验路线，不保证读完就能独立实现完整系统。
 
