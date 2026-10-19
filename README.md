@@ -13,10 +13,10 @@ AI job application tracker for individual job seekers. It supports resume
 management, interview preparation, mock interviews, interview reviews,
 offer comparison and salary negotiation preparation.
 
-支持 Docker 或源码方式在本机部署。基础投递记录无需先配置 AI；
+提供 Windows x64 未签名桌面测试版，也支持 Docker 或源码方式在本机部署。基础投递记录无需先配置 AI；
 使用 AI 辅助功能时，再连接自己的模型服务。
 
-[快速开始](#快速开始)｜[用户指南](docs/product-manual/产品说明书.md)｜[常见问题](#常见问题)
+[Windows 测试版下载](https://github.com/offercontext/offerPilot/releases/tag/v0.1.0-desktop.1)｜[快速开始](#快速开始)｜[用户指南](docs/product-manual/产品说明书.md)｜[常见问题](#常见问题)
 
 第一次接触 Agent？先看[一场面试是怎么记下来的](docs/learn/01-record-an-interview.md)，无需写代码或安装项目。其他主题见[完整学习路线](docs/learn/README.md)。
 
@@ -73,10 +73,25 @@ Pilot 是内置 AI 助手，Haru 是可选角色入口；隐藏 Haru 不影响�
 
 ## 快速开始
 
-选择 Docker 或源码方式启动，完成其中一种即可：
+Windows 用户可先阅读下方测试版边界；也可以选择 Docker 或源码方式启动，完成其中一种即可：
 
 - Docker 方式需要 Git 和可用的 Docker 环境，不必单独安装 Python 或 Node.js。
 - 源码方式需要 Git、uv、Python 和 Node.js/npm。项目声明 Python 最低版本为 3.10；当前 Docker 构建使用 Python 3.12 和 Node.js 20，这些构建版本不等于源码运行的最低要求。
+
+### Windows x64 桌面测试版（未签名）
+
+[下载 v0.1.0-desktop.1 测试版](https://github.com/offercontext/offerPilot/releases/tag/v0.1.0-desktop.1)。
+在 Release 的 Assets 中下载 `OfferPilot-Desktop-0.1.0-desktop.1-win-x64-setup.exe`
+及同名 `.sha256` 文件；不要把自动生成的 Source code 压缩包当作安装器。
+
+1. 这是 Windows x64 的实验性预发行版，不是稳定生产版本；无需另装 Python、Node.js 或 Docker。
+2. 安装前用 PowerShell 执行 `Get-FileHash .\OfferPilot-Desktop-0.1.0-desktop.1-win-x64-setup.exe -Algorithm SHA256`，核对 Release 与 `.sha256` 中的摘要。哈希只能校验文件完整性，不能替代发布者签名。
+3. 核对来源和哈希后，双击安装器，按向导选择安装目录，再从桌面快捷方式启动。未签名安装器可能触发 Windows SmartScreen／未知发布者提示；若浏览器、Windows 或安全软件阻止下载或运行，请停止并报告，不关闭防护或绕过警告。
+4. 初次使用请先用测试数据。安装新版前完全退出应用并备份 `%APPDATA%\OfferPilot Desktop\`；桌面工作区与源码版的 `~/.offerpilot` 独立，不自动迁移，尚不保证升级／降级兼容。卸载默认保留应用数据，不等于已有可靠备份。
+
+此测试版未启用正式更新渠道，应用内检查／下载／安装更新不可用；后续测试版请回到 Releases 手动获取。
+EXE 的真实 QQ 邮箱配置与恢复读取默认禁用；可使用手动粘贴邮件与候选审阅。
+AI 功能仍需自行配置模型服务，可能发送相关资料并产生费用。详细构建来源、校验值、验证范围见 Release；工程边界见[桌面验证说明](docs/architecture/desktop-validation.md)和[更新说明](docs/architecture/desktop-updates.md)。
 
 ### Docker
 
@@ -134,6 +149,7 @@ macOS Keychain 或 Linux Secret Service；仅安装 Python 包不等于系统安
 
 | 启动方式 | 默认数据位置 |
 | --- | --- |
+| Windows 桌面测试版 | `%APPDATA%\OfferPilot Desktop\data`（独立工作区） |
 | 源码启动 | 用户主目录下的 `~/.offerpilot`，可通过 `OFFERPILOT_DATA` 调整 |
 | 上述 Docker 命令 | `offerpilot-data` 数据卷，挂载到容器内的 `/data` |
 
