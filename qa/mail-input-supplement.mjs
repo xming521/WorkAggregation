@@ -106,11 +106,20 @@ try{
  await page.getByLabel('Sender address (manually supplied, unverified)',{exact:true}).fill('recruiter@example.invalid');
  await page.getByLabel('Actual received time (with timezone)',{exact:true}).fill('2026-10-15T07:00:00Z');
  await page.getByLabel('Email body',{exact:true}).fill('保留邮件原文，2026-10-22 10:00 UTC 面试。');
+ report.labelDiagnostics={
+  exactBodyLabelCount:await page.getByLabel('Email body',{exact:true}).count(),
+  dialogTextareaCount:await dialog.locator('textarea').count(),
+  textareaState:await dialog.locator('textarea').evaluateAll(nodes=>nodes.map(node=>({
+   tag:node.tagName,value:node.value,ariaLabel:node.getAttribute('aria-label'),labels:[...node.labels].map(label=>label.textContent),outerHTML:node.outerHTML,labelText:node.closest('label')?.textContent,
+   rect:node.getBoundingClientRect().toJSON(),ancestors:(()=>{const result=[];for(let n=node;n;n=n.parentElement){const s=getComputedStyle(n);result.push({tag:n.tagName,class:n.className,display:s.display,visibility:s.visibility,opacity:s.opacity,rect:n.getBoundingClientRect().toJSON()});}return result;})()
+  })))
+ };
+ check('one intended mail body textarea present',report.labelDiagnostics.dialogTextareaCount===1);
  const controls=[
   page.getByLabel('Email subject',{exact:true}),
   page.getByLabel('Sender address (manually supplied, unverified)',{exact:true}),
   page.getByLabel('Actual received time (with timezone)',{exact:true}),
-  page.getByLabel('Email body',{exact:true}),
+  dialog.locator('textarea'),
   dialog.getByRole('button',{name:'Preview text to submit',exact:true}),
   dialog.getByRole('button',{name:'Cancel',exact:true}),
  ];
@@ -132,7 +141,7 @@ try{
  });
  check('dialog geometry opacity and transform stable across two animation frames',report.paint.stable,JSON.stringify(report.paint));
  await audit('mail-import-supplement-en-1440');
- check('input content preserved',await page.getByLabel('Email body',{exact:true}).inputValue()==='保留邮件原文，2026-10-22 10:00 UTC 面试。');
+ check('input content preserved',await dialog.locator('textarea').inputValue()==='保留邮件原文，2026-10-22 10:00 UTC 面试。');
  check('single-state flow performs no writes',writeCount()===writesBefore&&writeCount()===0);
  check('all API requests explicitly mocked',api.unexpected.length===0);
  check('no unexpected outbound network',report.unexpectedNetwork.length===0);
@@ -142,4 +151,10 @@ try{
  await page.screenshot({path:file,fullPage:true,animations:'allow'});
  report.screenshots.push(file);
  check('exactly one supplemental screenshot',report.screenshots.length===1);
-}catch(error){report.failures.push({name:'browser/setup',error:error.stack||String(error)});console.error(error.message);}finally{report.finished_at=new Date().toISOString();report.apiRequests=api.requests;report.unmockedApi=api.unexpected;report.status=report.failures.length?'failed':'passed';await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));await browser?.close();console.log(`REPORT ${path.join(output,'report.json')}`);if(report.failures.length)process.exitCode=1;}
+}catch(error){
+ report.failures.push({name:'browser/setup',error:error.stack||String(error)});console.error(error.message);
+ if(page&&!page.isClosed()){
+  try{report.failureDOM=await page.evaluate(()=>({html:document.body.outerHTML,dialogs:[...document.querySelectorAll('[role="dialog"],textarea')].map(node=>({tag:node.tagName,rect:node.getBoundingClientRect().toJSON(),style:{display:getComputedStyle(node).display,visibility:getComputedStyle(node).visibility,opacity:getComputedStyle(node).opacity}}))}));}catch(diagnosticError){report.diagnosticError=String(diagnosticError);}
+  try{const file=path.join(output,'failure-mail-input-diagnostic.png');await page.screenshot({path:file,fullPage:true,animations:'allow'});report.screenshots.push(file);}catch(screenshotError){report.screenshotError=String(screenshotError);}
+ }
+}finally{report.finished_at=new Date().toISOString();report.apiRequests=api.requests;report.unmockedApi=api.unexpected;report.status=report.failures.length?'failed':'passed';await writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));await browser?.close();console.log(`REPORT ${path.join(output,'report.json')}`);if(report.failures.length)process.exitCode=1;}
