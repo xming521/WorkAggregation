@@ -1,0 +1,79 @@
+name: Isolated official PyPI frozen install diagnostic
+
+# Exactly one authorized diagnostic branch. No PR, packaging, or product tests.
+on:
+  push:
+    branches: [test/20261019-pypi-frozen-install]
+    paths:
+      - '.github/workflows/pypi-frozen-install-diagnostic.yml'
+      - 'scripts/pypi-frozen-install-probe.py'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  official-source-cold-install:
+    if: github.ref == 'refs/heads/test/20261019-pypi-frozen-install'
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Checkout diagnostic harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+      - name: Checkout exact source-only candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ed3b71203e91598def3f244bc5383a7dff99a51a
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.19'
+          enable-cache: false
+      - name: Record diagnostic identity and validate probe helpers
+        timeout-minutes: 1
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'pypi-frozen-install-evidence'
+          New-Item -ItemType Directory -Force $output | Out-Null
+          @(
+            'INDEPENDENT SOURCE-ONLY INSTALL DIAGNOSTIC. NOT RELEASE READY.',
+            'No product pytest, packaging, complete gate, real mail, or real models.',
+            'Existing charset-normalizer 3.4.8 regression retained; no dependency upgrade.',
+            'Existing unpinned hatchling build dependency is measured, not implicitly locked.',
+            'Candidate: ed3b71203e91598def3f244bc5383a7dff99a51a',
+            'Candidate LF lock SHA256: 50059b9cd9f23a773807af066d19c13f8d966e91780c9a1698b30b8891b22f71',
+            "Harness commit: $env:GITHUB_SHA",
+            "Run: $env:GITHUB_RUN_ID",
+            "Attempt: $env:GITHUB_RUN_ATTEMPT",
+            "Runner image: $env:ImageOS $env:ImageVersion",
+            "Started UTC: $([DateTime]::UtcNow.ToString('o'))"
+          ) | Set-Content (Join-Path $output 'scope.txt')
+          python "$env:GITHUB_WORKSPACE/harness/scripts/pypi-frozen-install-probe.py" --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic helper checks failed' }
+      - name: One cold-cache frozen install with actual build metadata
+        timeout-minutes: 5
+        run: |
+          python "$env:GITHUB_WORKSPACE/harness/scripts/pypi-frozen-install-probe.py" `
+            --project "$env:GITHUB_WORKSPACE/source" `
+            --output "$env:RUNNER_TEMP/pypi-frozen-install-evidence" `
+            --expected-commit ed3b71203e91598def3f244bc5383a7dff99a51a `
+            --expected-lock-lf-sha 50059b9cd9f23a773807af066d19c13f8d966e91780c9a1698b30b8891b22f71
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen source-only install or evidence verification failed' }
+      - name: Upload bounded installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-frozen-install-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pypi-frozen-install-evidence
+          if-no-files-found: error
+          retention-days: 7
