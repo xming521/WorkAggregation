@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     env:
       ONNXRUNTIME_NODE_INSTALL: skip
-      LAYOUT_SOURCE_SHA: '871dc7dce69ea60cc09dfe11fbbff71199ebb0aa'
+      LAYOUT_SOURCE_SHA: '9a486828d31779ad277c48817c0867b0c82122fb'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 871dc7dce69ea60cc09dfe11fbbff71199ebb0aa
+          ref: 9a486828d31779ad277c48817c0867b0c82122fb
           path: source
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -45,7 +45,7 @@ jobs:
             "Source: $actual",
             "Diagnostic: $env:GITHUB_SHA",
             'Original failing run: 39299451507, job 118220478723.',
-            'Only 900x689-0-failure: one real coverage-model test predecessor, then one cold and warm page pair; preserve cache metadata.',
+            'Candidate test isolation only: real coverage-model tests, then one cold/warm 900x689-0-failure pair; verify no shared deps cache or reload.',
             'Original 15000ms readiness threshold, passed assertion and fallback interactions retained.',
             'This diagnostic does not replace the original failure or the complete gate.',
             "Run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
@@ -66,6 +66,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed' }
           node source/web/node_modules/typescript/bin/tsc --project source/web/tests/desktop-layout/tsconfig.json
           if ($LASTEXITCODE -ne 0) { throw 'Fixture type check failed' }
+      - name: Verify redacted diagnostics and actual 15-second negative control
+        env:
+          LAYOUT_BROWSER_NEGATIVE: '1'
+        run: |
+          $env:LAYOUT_NEGATIVE_EVIDENCE_DIR = Join-Path $PWD 'evidence/negative-control'
+          node --test source/desktop/installed-ui/test/layout-failure-evidence.test.mjs 2>&1 | Tee-Object evidence/failure-evidence-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Failure evidence controls failed' }
       - name: Capture cold and warm initialization evidence
         run: |
           node diagnostic/scripts/layout-startup-diagnostic.mjs source evidence prime-coverage
@@ -79,7 +86,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: layout-startup-871dc7d-${{ github.run_id }}-${{ github.run_attempt }}
+          name: layout-isolation-9a48682-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/
           if-no-files-found: error
           retention-days: 14

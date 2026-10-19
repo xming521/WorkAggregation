@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import os from 'node:os';
 
 const root = path.resolve(process.argv[2]);
 const output = path.resolve(process.argv[3]);
@@ -31,8 +32,11 @@ try {
         metadata[entry] = await readFile(path.join(cache, entry, '_metadata.json'), 'utf8').catch(() => null);
       }
       await writeFile(path.join(dir, `${label}-cache.json`), JSON.stringify({ names, metadata }, null, 2));
+      return { names, metadata };
     };
     await captureCache('before-coverage');
+    const temporaryCaches = async () => (await readdir(os.tmpdir())).filter(name => name.startsWith('offerpilot-coverage-vite-')).sort();
+    const tempBefore = await temporaryCaches();
     if (primeCoverage) {
       const child = spawn(process.execPath, ['--test', 'test/coverage-model.test.mjs'], { cwd: path.join(root, 'desktop/installed-ui'), stdio: ['ignore', 'pipe', 'pipe'] });
       let log = '';
@@ -46,7 +50,11 @@ try {
       console.log(log);
       assert.equal(code, 0, 'The real predecessor coverage-model tests must pass');
     }
-    await captureCache('after-coverage');
+    const afterCoverage = await captureCache('after-coverage');
+    const tempAfter = await temporaryCaches();
+    await writeFile(path.join(dir, 'cache-isolation.json'), JSON.stringify({ tempBefore, tempAfter, defaultCacheEntries: Object.keys(afterCoverage.metadata) }, null, 2));
+    assert.deepEqual(afterCoverage.metadata, {}, 'Coverage helper must not populate layout deps cache');
+    assert.deepEqual(tempAfter, tempBefore, 'Coverage helper must clean its temporary cache');
     const server = spawn(process.execPath, [path.join(root, 'web/node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', '5174', '--strictPort'], { cwd: path.join(root, 'web'), stdio: ['ignore', 'pipe', 'pipe'] });
     let serverLog = '';
     const serverEvents = [];
@@ -134,6 +142,8 @@ try {
           await trigger.click({ button: 'right' });
           await page.getByRole('menuitem', { name: '隐藏角色' }).click();
           assert.equal(await page.getByRole('complementary', { name: 'Haru 助手' }).count(), 0);
+          result.fullReloads = events.filter(item => item.type === 'websocket-frame' && item.payload.includes('full-reload')).length;
+          assert.equal(result.fullReloads, 0, 'The isolated helper must not force layout dependency reload');
           result.status = 'passed';
         } catch (error) {
           result.status = 'failed'; result.stage = stage; result.error = String(error); result.elapsedMs = performance.now() - start;
