@@ -43,8 +43,10 @@ jobs:
           $actual = (git rev-parse HEAD).Trim()
           if ($actual -ne 'deb6526b7762ebf0309edf0813fddd120ea86dde') { throw 'Wrong diagnostic product source' }
           @("Product source: $actual", "Workflow source: $env:GITHUB_SHA", "Run: $env:GITHUB_RUN_ID / $env:GITHUB_RUN_ATTEMPT", 'DIAGNOSTIC ONLY. NOT FULL GATE. Five existing fault-injection tests unchanged; no real AI/mail or credentials.') | Set-Content "$evidence/scope.txt"
-          git status --porcelain | Set-Content "$evidence/source-status.txt"
-          if ((Get-Content "$evidence/source-status.txt").Length -gt 0) { throw 'Product checkout must be clean' }
+          $sourceStatus = @(git status --porcelain)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect product checkout' }
+          [IO.File]::WriteAllText("$evidence/source-status.txt", ($sourceStatus -join "`n"))
+          if ($sourceStatus.Count -ne 0) { throw 'Product checkout must be clean' }
           Get-FileHash -Algorithm SHA256 uv.lock, tests/test_interview_story_browser_harness.py, scripts/interview-story-real-ai-browser-harness.ps1, scripts/browser-network-audit.py, scripts/provider-egress-proxy.py | Format-List | Out-File "$evidence/source-sha256.txt"
           uv sync --frozen
           if ($LASTEXITCODE -ne 0) { throw 'Frozen Python install failed' }
