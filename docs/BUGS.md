@@ -5,6 +5,18 @@
 
 ## 当前记录
 
+## Windows 冻结依赖来源迁移候选（2026-10-19）
+
+**现象：** 完整 Windows run 39299451507 的 shard 9 在测试前下载 TUNA 的 httpcore 1.0.9，六次重试后仍于 89.7 秒发生 TCP timeout；增加重试未消除来源连接失败。
+
+**根因：** frozen 锁包含镜像的绝对下载 URL。不能依靠临时 index 覆盖透明回退，也不能把旧 lock/run/attempt 证据作为新来源的验收。
+
+**修复候选：** 对 82 个 registry 条目的全部 2,254 个锁定 wheel/sdist，逐一核对官方 PyPI 精确版本 JSON 的 filename、类型、SHA256 与 size。仅将 2,252 个 artifact URL、81 个 package registry 及四个必要的 rpds-py 依赖 registry 引用改为官方来源；包版本、依赖图、marker、artifact hash/size/upload-time 和其他字段不变。候选须以新锁身份完成独立冷缓存安装验证，之后再决定完整验收恢复。
+
+**已有风险：** charset-normalizer 3.4.8 原锁即为同版同 hash。其官方 [3.4.9 release](https://github.com/jawah/charset_normalizer/releases/tag/3.4.9) 说明 3.4.8 因 fallback 解码回归而撤回；本次不升级，也不把功能缺陷称为安全漏洞。根项目 hatchling 构建要求原本未固定版本、未收入 uv.lock，其传递/动态构建依赖仍是既有可复现性缺口；无额外 index 覆盖时，新旧锁的构建解析均使用官方默认源。
+
+**教训：** artifact 摘要保持不变不等于 lockfile 身份不变。所有平台的来源等价证据、实际 Windows 安装和完整产品验收各有边界，不能互相替代；未验证前不得宣称恢复完成。
+
 ## Windows 冻结依赖下载在测试前连接超时（2026-10-19）
 
 **现象：** Windows run 39246366093 的 shard 9 在 `uv sync --frozen` 下载 attrs 26.1.0 时，三次请求重试后于 44.4 秒报 TCP connect deadline；pytest 尚未执行，未产生 shard 结果。
