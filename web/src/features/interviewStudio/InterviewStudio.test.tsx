@@ -2,6 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setLocale } from '@/i18n';
 import ContinuousVoiceModePanel from './ContinuousVoiceModePanel';
 import InterviewStudio from './InterviewStudio';
 
@@ -79,6 +80,7 @@ afterEach(async () => {
   root = undefined;
   host = undefined;
   window.sessionStorage.clear();
+  setLocale('zh-CN');
 });
 
 describe('ContinuousVoiceModePanel', () => {
@@ -137,6 +139,35 @@ describe('InterviewStudio continuous voice integration', () => {
     serviceSpies.nextQuestion.mockClear();
     serviceSpies.discard.mockClear();
     serviceSpies.saveVoiceReview.mockClear();
+  });
+
+  it('switches workspace labels without restarting the attempt or translating source content', async () => {
+    await act(async () => {
+      root = createRoot(host = document.createElement('div'));
+      document.body.appendChild(host);
+      root.render(<InterviewStudio
+        context={{ kind: 'application_event', applicationId: 7, eventId: 8, resumeId: 9, jdVersionId: 10, jdText: '需要排障与回滚能力。' }}
+        onClose={vi.fn()}
+      />);
+      await Promise.resolve();
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(serviceSpies.start).toHaveBeenCalledOnce();
+    const answerArea = host!.querySelector('[data-interview-studio-answer]');
+    expect(answerArea).not.toBeNull();
+    expect(host!.textContent).toContain('请介绍一次排障经历。');
+
+    await act(async () => setLocale('en-US'));
+    expect(host!.textContent).toContain('Interview conversation');
+    expect(host!.textContent).toContain('Round 1 / 5');
+    expect(host!.textContent).toContain('请介绍一次排障经历。');
+    expect(host!.querySelector('[data-interview-studio-answer]')).toBe(answerArea);
+    expect(answerArea?.getAttribute('aria-label')).toBe('Answer workspace');
+    expect(serviceSpies.start).toHaveBeenCalledOnce();
+    expect(serviceSpies.answer).not.toHaveBeenCalled();
+    expect(serviceSpies.nextQuestion).not.toHaveBeenCalled();
+    expect(serviceSpies.finish).not.toHaveBeenCalled();
+    expect(serviceSpies.discard).not.toHaveBeenCalled();
   });
 
   it('shows a persistent top-level progress state while feedback is being generated', async () => {

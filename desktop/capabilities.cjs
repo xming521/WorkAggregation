@@ -1,4 +1,5 @@
 'use strict';
+const { translate } = require('./locale.cjs');
 const path = require('node:path');
 
 // Model data only. Executable ONNX modules/WASM are packaged with the frontend.
@@ -31,7 +32,7 @@ function sourceDownload(value, origin) {
       && /^\/api\/knowledge\/sources\/\d+\/(?:content|assets\/\d+\/content)$/.test(url.pathname);
   } catch { return false; }
 }
-function createCapabilities({ origin, desktopSession, isTrustedContents, dialog, shell, BrowserWindow }) {
+function createCapabilities({ origin, desktopSession, isTrustedContents, dialog, shell, BrowserWindow, t = translate }) {
   const audioGrants = new WeakSet();
   const pending = new WeakSet();
   const epochs = new WeakMap();
@@ -51,11 +52,11 @@ function createCapabilities({ origin, desktopSession, isTrustedContents, dialog,
     const startingURL = contents.getURL();
     const epoch = epochs.get(contents);
     Promise.resolve().then(() => dialog.showMessageBox(parent(contents), {
-      type: 'question', title: clipboardWrite ? '复制到剪贴板？' : '允许录音？',
-      message: clipboardWrite ? '允许将当前选定内容复制到系统剪贴板？' : '允许 OfferPilot 在当前窗口使用麦克风？',
-      detail: clipboardWrite ? '会替换现有剪贴板内容，仅允许这一次复制，不读取剪贴板。'
-        : '仅用于你主动开始的录音。不会授权摄像头、屏幕录制或其他设备。关闭或重新加载窗口后需要再次确认。',
-      buttons: ['取消', clipboardWrite ? '复制' : '允许麦克风'], defaultId: 0, cancelId: 0, noLink: true,
+      type: 'question', title: clipboardWrite ? t('复制到剪贴板？') : t('允许录音？'),
+      message: clipboardWrite ? t('允许将当前选定内容复制到系统剪贴板？') : t('允许 OfferPilot 在当前窗口使用麦克风？'),
+      detail: clipboardWrite ? t('会替换现有剪贴板内容，仅允许这一次复制，不读取剪贴板。')
+        : t('仅用于你主动开始的录音。不会授权摄像头、屏幕录制或其他设备。关闭或重新加载窗口后需要再次确认。'),
+      buttons: [t('取消'), clipboardWrite ? t('复制') : t('允许麦克风')], defaultId: 0, cancelId: 0, noLink: true,
     })).then(result => {
       const allowed = result.response === 1 && mainFrame(contents, details) && contents.getURL() === startingURL && epochs.get(contents) === epoch;
       if (allowed && audioOnly) audioGrants.add(contents);
@@ -79,8 +80,8 @@ function createCapabilities({ origin, desktopSession, isTrustedContents, dialog,
     // Electron's native save dialog confirms the path and overwrite explicitly.
     let selected;
     try { selected = dialog.showSaveDialogSync(parent(contents), {
-      title: '保存 OfferPilot 导出文件', defaultPath: safeFilename(item.getFilename()),
-      buttonLabel: '保存', properties: ['showOverwriteConfirmation', 'dontAddToRecent'],
+      title: t('保存 OfferPilot 导出文件'), defaultPath: safeFilename(item.getFilename()),
+      buttonLabel: t('保存'), properties: ['showOverwriteConfirmation', 'dontAddToRecent'],
     }); } catch { event.preventDefault(); return; }
     if (!selected || !trusted(contents)) { event.preventDefault(); return; }
     item.setSavePath(selected);
@@ -92,8 +93,8 @@ function createCapabilities({ origin, desktopSession, isTrustedContents, dialog,
     const epoch = epochs.get(contents);
     pending.add(contents);
     Promise.resolve().then(() => dialog.showMessageBox(parent(contents), {
-      type: 'question', title: '打开外部链接？', message: '在系统浏览器中打开此链接？', detail: url,
-      buttons: ['取消', '打开浏览器'], defaultId: 0, cancelId: 0, noLink: true,
+      type: 'question', title: t('打开外部链接？'), message: t('在系统浏览器中打开此链接？'), detail: url,
+      buttons: [t('取消'), t('打开浏览器')], defaultId: 0, cancelId: 0, noLink: true,
     })).then(async result => {
       if (result.response === 1 && trusted(contents) && contents.getURL() === startingURL && epochs.get(contents) === epoch) await shell.openExternal(url);
     }).catch(() => { /* Closing a window or a rejected OS launch must not crash the app. */ })

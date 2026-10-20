@@ -78,3 +78,6 @@ desktop/node_modules/
 desktop/dist/
 desktop/backend-dist/
 desktop/.build/
+
+# Focused desktop localization evidence (generated)
+desktop/localization-ci-evidence/

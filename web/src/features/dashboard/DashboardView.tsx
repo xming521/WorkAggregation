@@ -1,3 +1,5 @@
+import { pipelineActionId } from '@/lib/pipelineInsights';
+import { t, useLocale, getLocale } from '@/i18n';
 import JobMailPendingSummary from '@/features/jobMail/JobMailPendingSummary';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -41,9 +43,7 @@ type DetailInsight = PipelineInsight & {
   secondaryActions?: DetailAction[];
 };
 
-function getActionId(insight: PipelineInsight, action: DetailAction, kind: 'primary' | 'secondary') {
-  return action.id ?? `${insight.id}:${kind}:${action.label}`;
-}
+const getActionId = pipelineActionId;
 
 function findInsightAction(item: PipelineInsight, actionId: string): DetailAction {
   const detail = item as DetailInsight;
@@ -84,6 +84,7 @@ export default function DashboardView({
   onAddApplication,
   onOnboardingAction,
 }: Props) {
+  useLocale();
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => dayjs());
   const [selectedInsightId, setSelectedInsightId] = useState<string | null>(null);
@@ -121,11 +122,11 @@ export default function DashboardView({
   const missionMaterialKits = hasPartialMaterialKitCoverage ? undefined : materialKitsQ.data;
 
   const kpis = useMemo(() => computeKpis(apps, now), [apps, now]);
-  const funnel = useMemo(() => computeFunnel(apps), [apps]);
-  const momentum = useMemo(() => computeMomentum(apps, 4, now), [apps, now]);
+  const funnel = useMemo(() => computeFunnel(apps), [apps, getLocale()]);
+  const momentum = useMemo(() => computeMomentum(apps, 4, now), [apps, now, getLocale()]);
   const insights = useMemo(
     () => deriveActionHints({ apps, events, offers, practiceStats, weeklyTarget: 6, now }),
-    [apps, events, offers, practiceStats, now],
+    [apps, events, offers, practiceStats, now, getLocale()],
   );
   const health = useMemo(() => summarizePipelineHealth(apps, insights, 6, now), [apps, insights, now]);
   const mission = useMemo(
@@ -141,7 +142,7 @@ export default function DashboardView({
         weeklyTarget: 6,
         now,
       }),
-    [apps, events, offers, missionMaterialKits, practiceStats, insights, health.label, now],
+    [apps, events, offers, missionMaterialKits, practiceStats, insights, health.label, now, getLocale()],
   );
   const missionUnavailableKinds = useMemo(() => {
     const kinds: MissionMetricKind[] = [];
@@ -150,17 +151,7 @@ export default function DashboardView({
     if (dataState?.practiceLoading || dataState?.practiceError) kinds.push('practice');
     if (hasPartialMaterialKitCoverage || materialKitsQ.isLoading || materialKitsQ.isError) kinds.push('materials');
     return kinds;
-  }, [
-    dataState?.eventsError,
-    dataState?.eventsLoading,
-    hasPartialMaterialKitCoverage,
-    materialKitsQ.isError,
-    materialKitsQ.isLoading,
-    dataState?.offersError,
-    dataState?.offersLoading,
-    dataState?.practiceError,
-    dataState?.practiceLoading,
-  ]);
+  }, [dataState?.eventsError, dataState?.eventsLoading, hasPartialMaterialKitCoverage, materialKitsQ.isError, materialKitsQ.isLoading, dataState?.offersError, dataState?.offersLoading, dataState?.practiceError, dataState?.practiceLoading]);
 
   const todayWorkspace = useMemo(
     () => deriveTodayWorkspace({ actions: mission.actions, events, now }),
@@ -168,7 +159,7 @@ export default function DashboardView({
   );
   const completedHighlight = useMemo(
     () => deriveWeeklyCompletedHighlight({ applications: apps, offers, now }),
-    [apps, offers, now],
+    [apps, offers, now, getLocale()],
   );
   const selectedInsight = useMemo(
     () => insights.find((item) => item.id === selectedInsightId) ?? null,
@@ -201,8 +192,8 @@ export default function DashboardView({
     <Alert
       type="warning"
       showIcon
-      message="新手引导暂时加载失败"
-      action={<Button onClick={() => onboardingQ.refetch()}>重试</Button>}
+      message={t("新手引导暂时加载失败")}
+      action={<Button onClick={() => onboardingQ.refetch()}>{t("重试")}</Button>}
       style={{ marginBottom: 16 }}
     />
   ) : onboardingQ.data && (!onboardingQ.data.is_complete || onboardingQ.data.force_open) ? (
@@ -221,14 +212,11 @@ export default function DashboardView({
         {onboarding}
         <div className={styles.card} style={{ textAlign: 'center', padding: 48 }}>
           <div style={{ color: 'var(--op-ink)', fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-            从第一条投递开始建立求职节奏
-          </div>
+            {t("从第一条投递开始建立求职节奏")}</div>
           <div style={{ color: 'var(--op-muted)', marginBottom: 16 }}>
-            添加投递后，OfferPilot 会自动生成跟进提醒、面试准备和 Offer 截止期行动。
-          </div>
+            {t("添加投递后，OfferPilot 会自动生成跟进提醒、面试准备和 Offer 截止期行动。")}</div>
           <Button onClick={onAddApplication}>
-            添加第一个投递
-          </Button>
+            {t("添加第一个投递")}</Button>
         </div>
       </div>
     );
@@ -249,7 +237,7 @@ export default function DashboardView({
     <div className={styles.grid}>
       {onboarding}
       <section className={styles.todayPrimary} aria-labelledby="today-primary-title">
-        <div className={styles.commandEyebrow}>当前最重要的行动</div>
+        <div className={styles.commandEyebrow}>{t("当前最重要的行动")}</div>
         {todayWorkspace.primaryAction ? (
           <div className={styles.todayPrimaryContent}>
             <div>
@@ -268,15 +256,15 @@ export default function DashboardView({
             </div>
           </div>
         ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="今天没有需要立即处理的行动。" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("今天没有需要立即处理的行动。")} />
         )}
       </section>
 
       <JobMailPendingSummary onOpen={() => onNavigate('reminders')} />
       <section className={styles.todaySecondary} aria-labelledby="today-secondary-title">
         <div className={styles.sectionHeaderLine}>
-          <h2 id="today-secondary-title" className={styles.sectionHeading}>今日其他待办</h2>
-          <Button type="link" onClick={() => onNavigate('reminders')}>查看全部</Button>
+          <h2 id="today-secondary-title" className={styles.sectionHeading}>{t("今日其他待办")}</h2>
+          <Button type="link" onClick={() => onNavigate('reminders')}>{t("查看全部")}</Button>
         </div>
         {todayWorkspace.otherActions.length ? (
           <div className={styles.todaySecondaryList}>
@@ -287,14 +275,14 @@ export default function DashboardView({
               </button>
             ))}
           </div>
-        ) : <div className={styles.empty}>暂无其他待办</div>}
+        ) : <div className={styles.empty}>{t("暂无其他待办")}</div>}
       </section>
 
       <div className={styles.todayLowerGrid}>
-        <section aria-label="未来 7 天日程">
+        <section aria-label={t("未来 7 天日程")}>
           <UpcomingSchedule events={todayWorkspace.upcomingEvents} onOpenCalendar={() => onNavigate('calendar')} />
         </section>
-        <section aria-label="本周进度">
+        <section aria-label={t("本周进度")}>
           <WeeklyMissionPanel metrics={mission.metrics} unavailableKinds={missionUnavailableKinds} onNavigate={onNavigate} />
         </section>
       </div>
@@ -304,7 +292,7 @@ export default function DashboardView({
         defaultActiveKey={[]}
         items={[{
           key: 'analytics',
-          label: '数据分析',
+          label: t("数据分析"),
           children: (
             <div className={styles.analyticsBody}>
               <KpiCards kpis={kpis} />

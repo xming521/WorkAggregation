@@ -1,6 +1,8 @@
+import { t, useLocale } from '@/i18n';
+import { pilotPageContextControlProjection } from '@/lib/pilotPageContext';
 import { useEffect, useRef, useState } from 'react';
 import type { PilotConversationController } from './usePilotConversationController';
-import type { DesktopHaruCommand, DesktopHaruSnapshot } from './desktopHaru';
+import { DESKTOP_HARU_SEND_FAILURE, type DesktopHaruCommand, type DesktopHaruSnapshot } from './desktopHaru';
 import { compactMessageText } from './assistantPresentation';
 import { readPilotMascotAnimationLevel, PILOT_MASCOT_ANIMATION_KEY, PILOT_MASCOT_ANIMATION_CHANGED } from '@/features/pilotMascot/pilotMascotPreference';
 import { useThemeMode } from '@/theme/ThemeContext';
@@ -14,9 +16,9 @@ export function desktopHaruSnapshot(controller: PilotConversationController): Om
     controller.requestContextSnapshot?.label ||
     (controller.conversationId === undefined ? controller.draftContext?.context_label : undefined) ||
     current?.context_label ||
-    (current?.context_type === 'application' && current.context_ref ? `投递 #${current.context_ref}` : undefined) ||
+    (current?.context_type === 'application' && current.context_ref ? t('投递 #{id}', { id: current.context_ref }) : undefined) ||
     context?.entity?.label || context?.label ||
-    (controller.conversationId ? '工作台' : '当前页面');
+    (controller.conversationId ? t('工作台') : t('当前页面'));
   return {
     conversationId: controller.conversationId ?? null,
     taskState: controller.taskState,
@@ -38,12 +40,13 @@ export function desktopHaruSnapshot(controller: PilotConversationController): Om
 function controlSignature(controller: PilotConversationController) {
   const data = desktopHaruSnapshot(controller);
   return JSON.stringify([data.conversationId, data.aiConfigured, data.canSend, data.canStop, data.stopping, data.hasPending,
-    controller.pending?.operation_id, controller.followingContext, controller.pinnedContext,
-    controller.requestContextSnapshot, controller.draftContext, controller.attachments,
+    controller.pending?.operation_id, pilotPageContextControlProjection(controller.followingContext), pilotPageContextControlProjection(controller.pinnedContext),
+    pilotPageContextControlProjection(controller.requestContextSnapshot), controller.draftContext, controller.attachments,
     controller.executionControl.execution, controller.activeConversationSelectionRef.current]);
 }
 
 export function useDesktopHaruOwner(controller: PilotConversationController, openPending: () => void) {
+  useLocale();
   const { mode } = useThemeMode();
   const bridge = window.offerpilotDesktop;
   const isOwner = bridge?.role === 'owner';
@@ -59,9 +62,14 @@ export function useDesktopHaruOwner(controller: PilotConversationController, ope
     window.addEventListener('storage', storageChanged);
     return () => { window.removeEventListener(PILOT_MASCOT_ANIMATION_CHANGED, changed); window.removeEventListener('storage', storageChanged); };
   }, [isOwner]);
+  const authoredSendFailure = useRef<{ conversationId: number | undefined } | null>(null);
+  if (authoredSendFailure.current && (controller.lastError !== DESKTOP_HARU_SEND_FAILURE
+    || controller.conversationId !== authoredSendFailure.current.conversationId)) authoredSendFailure.current = null;
   const current = useRef({ controller, openPending });
   current.current = { controller, openPending };
-  const data = isOwner ? { ...desktopHaruSnapshot(controller), theme: mode, animationLevel } : null;
+  const data = isOwner ? { ...desktopHaruSnapshot(controller), theme: mode, animationLevel,
+    ...(authoredSendFailure.current ? { errorKey: 'desktop_send_failed' as const } : {}),
+  } : null;
   const signature = JSON.stringify(data);
   const controls = isOwner ? controlSignature(controller) : "";
   const controlRef = useRef({ controls: '', request: controller.activeRequestRef.current });
@@ -127,7 +135,10 @@ export function useDesktopHaruOwner(controller: PilotConversationController, ope
             if (outcome === 'sent' && !preserveOwnerDraft) owner.setComposerDraft(value => value === text ? '' : value);
           }).catch(() => {
             if (!admitted) bridge.reply?.(command.id, { ok: false, reason: 'unavailable' });
-            owner.setLastError('发送失败，请在 Pilot 中核对对话后重试。');
+            // Preserve a source key and explicit provenance so locale changes can
+            // re-render this message without translating arbitrary error text.
+            authoredSendFailure.current = { conversationId: owner.conversationId };
+            owner.setLastError(DESKTOP_HARU_SEND_FAILURE);
           }).finally(() => { sending.current = false; });
         } catch {
           sending.current = false;

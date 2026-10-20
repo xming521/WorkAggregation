@@ -1,9 +1,10 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const { translate } = require('./locale.cjs');
 const { CHANNEL, sanitizeSnapshot, validateRequest, isTrustedFrame, clampBounds } = require('./haru-protocol.cjs');
 
-function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, mainWindow, desktopSession, origin, userData, registerWindow, isQuitting, quit, log = () => {} }) {
+function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, mainWindow, desktopSession, origin, userData, registerWindow, isQuitting, quit, log = () => {}, t = translate, subscribeLocale = () => () => {} }) {
   let haru;
   let tray;
   let snapshot = null;
@@ -61,12 +62,13 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   };
   const refreshMenu = () => {
     if (!tray || tray.isDestroyed()) return;
+    tray.setToolTip(t('OfferPilot · Haru（退出请使用托盘菜单）'));
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: '打开 OfferPilot', click: showMain },
-      { label: liveHaru() && haru.isVisible() ? '隐藏 Haru' : '显示 Haru', click: () => liveHaru() && haru.isVisible() ? haru.hide() : showHaru() },
-      { label: 'Haru 始终置顶', type: 'checkbox', checked: pinned, click: () => setPinned(!pinned) },
+      { label: t('打开 OfferPilot'), click: showMain },
+      { label: liveHaru() && haru.isVisible() ? t('隐藏 Haru') : t('显示 Haru'), click: () => liveHaru() && haru.isVisible() ? haru.hide() : showHaru() },
+      { label: t('Haru 始终置顶'), type: 'checkbox', checked: pinned, click: () => setPinned(!pinned) },
       { type: 'separator' },
-      { label: '退出并停止本地服务', click: quit },
+      { label: t('退出并停止本地服务'), click: quit },
     ]));
   };
   const setPinned = value => {
@@ -89,8 +91,8 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   const showContextMenu = () => {
     cancelDrag();
     Menu.buildFromTemplate([
-      { label: '隐藏 Haru', click: () => { if (!isQuitting() && liveHaru()) haru.hide(); } },
-      { label: 'Haru 始终置顶', type: 'checkbox', checked: pinned, click: () => { if (!isQuitting()) setPinned(!pinned); } },
+      { label: t('隐藏 Haru'), click: () => { if (!isQuitting() && liveHaru()) haru.hide(); } },
+      { label: t('Haru 始终置顶'), type: 'checkbox', checked: pinned, click: () => { if (!isQuitting()) setPinned(!pinned); } },
     ]).popup({ window: haru });
   };
   const invalidateOwner = () => {
@@ -231,15 +233,18 @@ function createHaruShell({ BrowserWindow, Tray, Menu, nativeImage, screen, ipcMa
   screen.on('display-metrics-changed', fit);
   try {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'haru-tray.png')));
-    tray.setToolTip('OfferPilot · Haru（退出请使用托盘菜单）');
+    tray.setToolTip(t('OfferPilot · Haru（退出请使用托盘菜单）'));
     tray.on('double-click', showMain);
     tray.on('click', showHaru);
     refreshMenu();
   } catch { log('System tray unavailable; closing the main window will exit.\n'); }
+  const unsubscribeLocale = subscribeLocale(refreshMenu);
   showHaru();
   return {
+    getHaruContents: () => liveHaru() ? haru.webContents : null,
     showHaru,
     dispose() {
+      unsubscribeLocale();
       cancelDrag();
       ownerDestination = null;
       savePosition();

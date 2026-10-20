@@ -78,11 +78,23 @@ jobs:
           cache-dependency-path: |
             web/package-lock.json
             desktop/package-lock.json
-      - name: Install locked validation dependencies
+      - name: Install locked Python validation dependencies
+        timeout-minutes: 5
+        env:
+          UV_HTTP_RETRIES: "6"
+          UV_HTTP_CONNECT_TIMEOUT: "10"
+          UV_HTTP_TIMEOUT: "30"
         run: |
           Start-Transcript -Path desktop/ci-evidence/01-install.log
-          uv sync --frozen
-          if ($LASTEXITCODE -ne 0) { throw "Frozen Python install failed" }
+          try {
+            uv sync --frozen
+            if ($LASTEXITCODE -ne 0) { throw "Frozen Python install failed" }
+          } finally {
+            Stop-Transcript
+          }
+      - name: Install locked validation dependencies
+        run: |
+          Start-Transcript -Path desktop/ci-evidence/01-install.log -Append
           npm.cmd ci --prefix web
           if ($LASTEXITCODE -ne 0) { throw "Frontend install failed" }
           npm.cmd ci --prefix desktop
@@ -239,9 +251,16 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: |
+      - name: Install locked Python manifest dependencies
+        timeout-minutes: 5
+        env:
+          UV_HTTP_RETRIES: "6"
+          UV_HTTP_CONNECT_TIMEOUT: "10"
+          UV_HTTP_TIMEOUT: "30"
+        run: |
           uv sync --frozen
           if ($LASTEXITCODE -ne 0) { throw "Frozen Python install failed" }
+      - run: |
           npm.cmd ci --prefix web
           if ($LASTEXITCODE -ne 0) { throw "Frontend dependency install failed" }
           uv run --frozen python scripts/test_shards/gate.py collect --count 20 --manifest pytest-evidence/manifest.json
@@ -302,10 +321,17 @@ jobs:
         with:
           name: pytest-manifest-${{ github.sha }}-${{ github.run_attempt }}
           path: pytest-evidence
-      - name: Execute exact manifest partition in isolated process
+      - name: Install locked Python shard dependencies
+        timeout-minutes: 5
+        env:
+          UV_HTTP_RETRIES: "6"
+          UV_HTTP_CONNECT_TIMEOUT: "10"
+          UV_HTTP_TIMEOUT: "30"
         run: |
           uv sync --frozen
           if ($LASTEXITCODE -ne 0) { throw "Frozen Python install failed" }
+      - name: Execute exact manifest partition in isolated process
+        run: |
           npm.cmd ci --prefix web
           if ($LASTEXITCODE -ne 0) { throw "Frontend dependency install failed" }
           # No global PYTEST_ADDOPTS: nested pytest collection/parsing is unchanged.
@@ -353,10 +379,17 @@ jobs:
           pattern: pytest-*-${{ github.sha }}-${{ github.run_attempt }}
           path: pytest-evidence
           merge-multiple: true
-      - name: Install locked regression dependencies
+      - name: Install locked Python regression dependencies
+        timeout-minutes: 5
+        env:
+          UV_HTTP_RETRIES: "6"
+          UV_HTTP_CONNECT_TIMEOUT: "10"
+          UV_HTTP_TIMEOUT: "30"
         run: |
           uv sync --frozen
           if ($LASTEXITCODE -ne 0) { throw "Frozen Python install failed" }
+      - name: Install locked regression dependencies
+        run: |
           npm.cmd ci --prefix web
           if ($LASTEXITCODE -ne 0) { throw "Frontend install failed" }
       - name: Verify full pytest evidence and complete every remaining release phase

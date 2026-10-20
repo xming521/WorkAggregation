@@ -1,3 +1,4 @@
+export const DESKTOP_HARU_SEND_FAILURE = '发送失败，请在 Pilot 中核对对话后重试。';
 export interface DesktopHaruSnapshot {
   version: number;
   theme?: 'light' | 'dark';
@@ -13,6 +14,8 @@ export interface DesktopHaruSnapshot {
   canStop: boolean;
   stopping: boolean;
   error: string;
+  /** Authored presentation provenance only; never inferred from provider text. */
+  errorKey?: 'desktop_send_failed';
   stopMessage: string;
 }
 export interface DesktopHaruState {

@@ -45,7 +45,7 @@ async function backupForUpdate({ userData, version, backendExited, restrictDesti
   // Electron's live LevelDB is intentionally not copied as an alleged snapshot.
   // Updates retain the original userData/partition and never migrate its path.
   await copyTree(path.join(root, 'data'), path.join(destination, 'data'));
-  for (const filename of ['desktop-port.json', 'haru-window.json']) {
+  for (const filename of ['desktop-port.json', 'haru-window.json', 'desktop-locale.json']) {
     try { await copyTree(path.join(root, filename), path.join(destination, filename)); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }

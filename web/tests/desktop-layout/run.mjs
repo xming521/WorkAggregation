@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { runTaskPanelCases } from './task-panels.mjs';
 import { runKanbanCases } from './kanban.mjs';
+import { captureFailureScreenshot, observeLayoutFailure } from './failure-evidence.mjs';
 
 // Reuse the already locked, isolated UI helper; no production dependency changes.
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -33,14 +34,17 @@ try {
         const page = await browser.newPage({ viewport: { width, height: 689 }, colorScheme: 'dark' });
         page.setDefaultTimeout(15_000);
         page.setDefaultNavigationTimeout(15_000);
-        let stage = 'load';
+        const evidence = observeLayoutFailure(page, output, name);
+        let stage = 'navigation';
         try {
           await page.goto(`http://127.0.0.1:5174/tests/desktop-layout/fixture.html?count=${count}&mascot=${mascot}`);
+          stage = 'readiness-wait';
           const result = page.locator('[data-layout-result]');
           await page.waitForFunction(() => {
             const state = document.querySelector('[data-layout-result]')?.getAttribute('data-layout-result');
             return state && state !== 'pending';
           });
+          stage = 'layout-assert';
           assert.equal(await result.getAttribute('data-layout-result'), 'passed', name);
           stage = 'normal-layout';
           if (mascot === 'normal') {
@@ -134,9 +138,11 @@ try {
           }
           results.push({ name, status: 'passed' });
         } catch (error) {
-          await page.screenshot({ path: path.join(output, `${name}-failed.png`), animations: 'disabled' });
-          results.push({ name, status: 'failed', stage, error: String(error) });
-        } finally { await page.close(); }
+          const failure = { name, status: 'failed', stage, error: String(error) };
+          results.push(failure);
+          Object.assign(failure, await evidence.capture(stage, error));
+          Object.assign(failure, await captureFailureScreenshot(page, output, name));
+        } finally { evidence.dispose(); await page.close(); }
       }
     }
   }

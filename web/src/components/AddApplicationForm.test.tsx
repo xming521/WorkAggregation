@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createRequire } from 'node:module';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -74,14 +75,22 @@ afterEach(async () => {
   }
 });
 
+// jsdom is already the test environment dependency; keep its tiny fixture API
+// typed here without adding an otherwise unused @types/jsdom dependency.
+const { JSDOM } = createRequire(import.meta.url)('jsdom') as {
+  JSDOM: new (html: string, options: { pretendToBeVisual: boolean }) => { window: Window };
+};
+
 // Hold a real polyfill refresh across a clock switch, as a prior UI owner can.
 // Its separate ESM controller keeps this fixture independent of AntD's CJS singleton.
 async function pendingDisconnectedResizeFrame() {
   const requestFrame = globalThis.requestAnimationFrame;
-  const cancelFrame = globalThis.cancelAnimationFrame;
+  // jsdom shares one interval across all RAF callbacks in a window. A prior
+  // owner's real-clock RAF must not make this fixture borrow that interval.
+  const frameWindow = new JSDOM('', { pretendToBeVisual: true }).window;
   const frames: number[] = [];
   globalThis.requestAnimationFrame = (callback) => {
-    const handle = requestFrame(callback);
+    const handle = frameWindow.requestAnimationFrame(callback);
     frames.push(handle);
     return handle;
   };
@@ -90,6 +99,9 @@ async function pendingDisconnectedResizeFrame() {
     module = await vi.importActual<typeof import('resize-observer-polyfill')>(
       'resize-observer-polyfill/dist/ResizeObserver.es.js',
     );
+  } catch (error) {
+    frameWindow.close();
+    throw error;
   } finally {
     globalThis.requestAnimationFrame = requestFrame;
   }
@@ -112,7 +124,10 @@ async function pendingDisconnectedResizeFrame() {
     release: registrations[0][0] as () => void,
     frames,
     onResize,
-    dispose: () => frames.forEach((handle) => cancelFrame(handle)),
+    dispose: () => {
+      frames.forEach((handle) => frameWindow.cancelAnimationFrame(handle));
+      frameWindow.close();
+    },
   };
 }
 
@@ -235,6 +250,10 @@ describe('single Application intake', () => {
   });
   it.each([false, true])('destroys real static message portals and their expiry timers (pending resize frame: %s)', async (withResizeFrame) => {
     const resizeFrame = withResizeFrame ? await pendingDisconnectedResizeFrame() : null;
+    // Reproduce the competing owner that made same-window fixtures flaky.
+    // Register synchronously before switching clocks so its RAF is still pending.
+    const cancelPriorFrame = globalThis.cancelAnimationFrame;
+    const priorFrame = withResizeFrame ? requestAnimationFrame(() => {}) : null;
     vi.useFakeTimers();
     const scheduleTimeout = vi.spyOn(globalThis, 'setTimeout');
     const cancelTimeout = vi.spyOn(globalThis, 'clearTimeout');
@@ -290,6 +309,7 @@ describe('single Application intake', () => {
       scheduleInterval.mockRestore();
       cancelInterval.mockRestore();
       vi.useRealTimers();
+      if (priorFrame !== null) cancelPriorFrame(priorFrame);
     }
   });
 });

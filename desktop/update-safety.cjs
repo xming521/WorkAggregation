@@ -1,8 +1,9 @@
 'use strict';
+const { translate } = require('./locale.cjs');
 const { randomUUID } = require('node:crypto');
 const { isTrustedFrame } = require('./haru-protocol.cjs');
 const { CHANNEL } = require('./updater.cjs');
-function createInstallSafety({ ipcMain, window, origin, dialog, timeoutMs = 5000, lock = () => {}, unlock = () => {} }) {
+function createInstallSafety({ ipcMain, window, origin, dialog, timeoutMs = 5000, lock = () => {}, unlock = () => {}, t = translate }) {
   const pending = new Map();
   let generation = 0;
   const invalidate = () => {
@@ -43,7 +44,7 @@ function createInstallSafety({ ipcMain, window, origin, dialog, timeoutMs = 5000
       const start = generation;
       const first = unsafe(await request());
       if (first) return first;
-      const response = await dialog.showMessageBox(window, { type: 'question', title: '安装更新并重新启动？', message: '请确认已保存所有编辑、可结束后台任务，并同意关闭应用安装。', detail: '部分页面的未保存编辑及后台任务无法完整自动检测。点击继续表示你已保存所有编辑，并确认可结束后台任务。安装前会在本机备份数据与配置；浏览器存储保留原位。安装过程中请勿关机。安装中断可能需要手动重新安装；备份不保证旧版本能直接读取已迁移的数据。', buttons: ['取消', '已保存且可结束任务，关闭并安装'], defaultId: 0, cancelId: 0, noLink: true });
+      const response = await dialog.showMessageBox(window, { type: 'question', title: t('安装更新并重新启动？'), message: t('请确认已保存所有编辑、可结束后台任务，并同意关闭应用安装。'), detail: t('部分页面的未保存编辑及后台任务无法完整自动检测。点击继续表示你已保存所有编辑，并确认可结束后台任务。安装前会在本机备份数据与配置；浏览器存储保留原位。安装过程中请勿关机。安装中断可能需要手动重新安装；备份不保证旧版本能直接读取已迁移的数据。'), buttons: [t('取消'), t('已保存且可结束任务，关闭并安装')], defaultId: 0, cancelId: 0, noLink: true });
       if (response.response !== 1) return '已取消安装，可稍后继续。';
       if (start !== generation) return '页面状态已变化，请重新检查后再安装。';
       lock();
