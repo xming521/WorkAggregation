@@ -24,6 +24,22 @@ let root: Root; let client: QueryClient;
 const nativeComputedStyle = window.getComputedStyle.bind(window);
 function Harness() { const locale = useLocale(); return <QueryClientProvider client={client}><ThemeProvider><ConfigProvider locale={locale === 'en-US' ? enUS : zhCN}><AntApp><App /></AntApp></ConfigProvider></ThemeProvider></QueryClientProvider>; }
 async function flush() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); }); }
+async function waitForUi<T>(label: string, read: () => T | undefined): Promise<T> {
+  try {
+    return await vi.waitFor(async () => {
+      // Lazy modules and query notifications must settle, not just a fixed number of timers.
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+      const value = read();
+      expect(value, label).toBeDefined();
+      return value!;
+    }, { timeout: 2_000, interval: 20 });
+  } catch (error) {
+    const queries = client.getQueryCache().getAll().map((query) => ({
+      key: query.queryKey, status: query.state.status, fetchStatus: query.state.fetchStatus,
+    }));
+    throw new Error(`${String(error)}\nURL: ${location.href}\nDOM: ${document.body.textContent}\nQueries: ${JSON.stringify(queries)}\nRequests: ${JSON.stringify(state.api.requests)}\nUnexpected: ${JSON.stringify(state.api.unexpected)}`);
+  }
+}
 async function mount(view: string) { history.replaceState({}, '', `/?view=${view}`); await act(async () => root.render(<Harness />)); for (let i = 0; i < 4; i++) await flush(); }
 function buttons(text: string) { return [...document.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent?.replace(/\s+/g, '') === text.replace(/\s+/g, '') || b.getAttribute('aria-label') === text); }
 async function click(text: string) { const b = buttons(text).find((b) => !b.disabled); if (!b) throw new Error(`No button: ${text}\n${document.body.textContent}`); await act(async () => b.click()); await flush(); }
@@ -102,9 +118,12 @@ describe('real AppShell localization with strict synthetic API fixtures', () => 
   it('preserves a generated email confirmation preview across language switches without confirming it', async () => {
     state.api.handle('POST', '/api/job-mail/imports', {});
     await mount('reminders'); await switchLocale('en-US');
-    const suggestion = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Interview invitation'))!;
+    const suggestion = await waitForUi('generated email suggestion', () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Interview invitation')));
     expect(suggestion).toBeDefined(); await act(async () => suggestion.click()); await flush();
-    await click('Preview final changes'); expect(document.body.textContent).toContain('Final confirmation summary');
+    await waitForUi('enabled email preview action', () => buttons('Preview final changes').find((button) => !button.disabled));
+    await click('Preview final changes');
+    await waitForUi('generated email confirmation preview', () => [...document.querySelectorAll('h3')].find((heading) => heading.textContent === 'Final confirmation summary'));
+    expect(document.body.textContent).toContain('Final confirmation summary');
     const before = writes().length; await switchLocale('zh-CN'); expect(document.body.textContent).toContain('最终确认摘要');
     await switchLocale('en-US'); expect(document.body.textContent).toContain('Final confirmation summary'); expect(writes()).toHaveLength(before);
     expect(state.api.unexpected).toEqual([]);

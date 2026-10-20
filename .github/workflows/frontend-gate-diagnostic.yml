@@ -1,0 +1,105 @@
+name: Windows frontend repair diagnostic (not release acceptance)
+
+# Narrow diagnostic branch only. This does not replace the complete release gate,
+# rebuild an installer, or turn the original failed acceptance into a pass.
+on:
+  push:
+    branches:
+      - test/20261020-final-gate-diagnostics
+
+permissions:
+  contents: read
+
+env:
+  LITELLM_LOCAL_MODEL_COST_MAP: "True"
+  PYTHONUTF8: "1"
+  PYTHONUNBUFFERED: "1"
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+  ONNXRUNTIME_NODE_INSTALL: skip
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  full-frontend-diagnostic:
+    name: Entire frontend suite and build on Windows
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Source gates inspect historical commits and HEAD ancestry.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Record exact diagnostic source identity
+        run: |
+          New-Item -ItemType Directory -Force frontend-diagnostic-evidence | Out-Null
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Cannot identify checkout" }
+          $tree = git rev-parse 'HEAD^{tree}'
+          if ($LASTEXITCODE -ne 0) { throw "Cannot identify source tree" }
+          if ($head -ne $env:GITHUB_SHA) { throw "Checkout does not match workflow commit" }
+          $base = '030745211464ea2dc6bb705f2cc14b9ee3c475d3'
+          git diff --binary $base HEAD --output=frontend-diagnostic-evidence/candidate.patch
+          if ($LASTEXITCODE -ne 0) { throw "Cannot record candidate diff" }
+          $sourceHashes = [ordered]@{}
+          @(
+            'web/package-lock.json',
+            'web/vitest.config.ts',
+            'web/src/features/reviewReadiness/reviewReadinessNegativeFixtures.test.ts',
+            'web/tests/localization/mounted.test.tsx',
+            '.github/workflows/frontend-gate-diagnostic.yml'
+          ) | ForEach-Object { $sourceHashes[$_] = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() }
+          [ordered]@{
+            scope = 'DIAGNOSTIC ONLY: entire frontend suite and production build. Not complete release acceptance.'
+            originalFailedRun = 'https://github.com/offercontext/offerPilot/actions/runs/39350737031'
+            baseCommit = $base
+            commit = $head
+            tree = $tree
+            repository = $env:GITHUB_REPOSITORY
+            run = $env:GITHUB_RUN_ID
+            attempt = $env:GITHUB_RUN_ATTEMPT
+            runnerOS = $env:RUNNER_OS
+            runnerImage = $env:ImageOS
+            runnerImageVersion = $env:ImageVersion
+            node = (node --version)
+            npm = (npm.cmd --version)
+            startedUtc = [DateTime]::UtcNow.ToString('o')
+            sourceSha256 = $sourceHashes
+          } | ConvertTo-Json -Depth 5 | Set-Content frontend-diagnostic-evidence/identity.json
+      - name: Install locked frontend dependencies
+        run: |
+          Start-Transcript -Path frontend-diagnostic-evidence/install.log
+          try {
+            npm.cmd ci --prefix web
+            if ($LASTEXITCODE -ne 0) { throw "Locked frontend install failed" }
+          } finally { Stop-Transcript }
+      - name: Run complete frontend tests with unchanged worker and time limits
+        run: |
+          Start-Transcript -Path frontend-diagnostic-evidence/tests.log
+          try {
+            # No focused prewarm, selection, retries, worker override or timeout override.
+            npm.cmd test --prefix web -- --reporter=default --reporter=json --outputFile.json=../frontend-diagnostic-evidence/tests.json
+            if ($LASTEXITCODE -ne 0) { throw "Full frontend regression failed" }
+          } finally { Stop-Transcript }
+      - name: Build complete production frontend
+        run: |
+          Start-Transcript -Path frontend-diagnostic-evidence/build.log
+          try {
+            npm.cmd run build --prefix web
+            if ($LASTEXITCODE -ne 0) { throw "Frontend type check or build failed" }
+          } finally { Stop-Transcript }
+      - name: Preserve diagnostic evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-frontend-diagnostic-${{ github.sha }}-${{ github.run_attempt }}
+          path: frontend-diagnostic-evidence/
+          if-no-files-found: error
+          retention-days: 14
