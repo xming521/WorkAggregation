@@ -1,11 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ROOTS, ROOT_CASES, ROOT_STATES, SUBVIEWS, WIDTHS, safeShotName, summarizeCoverage, classifyRuntimeMessage, publicRequestFailure, checkGeometry } from '../coverage-model.mjs';
 
-test('coverage inventory exactly matches production navigation routes, module labels and visible tabs', async (t) => {
+// Cleanup cannot hide a failing assertion, and cleanup-only errors must still fail.
+async function runWithCoverageCleanup(operation, close, remove) {
+  let value;
+  let primaryError;
+  let failed = false;
+  try { value = await operation(); }
+  catch (error) { primaryError = error; failed = true; }
+  const cleanupErrors = [];
+  try {
+    try { await close(); } catch (error) { cleanupErrors.push(error); }
+  } finally {
+    try { await remove(); } catch (error) { cleanupErrors.push(error); }
+  }
+  if (failed) {
+    if (cleanupErrors.length) throw new AggregateError([primaryError, ...cleanupErrors], 'Coverage test and cache cleanup failed', { cause: primaryError });
+    throw primaryError;
+  }
+  if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Coverage cache cleanup failed');
+  return value;
+}
+
+test('coverage inventory exactly matches production navigation routes, module labels and visible tabs', async () => {
   const navigationUrl = new URL('../../../web/src/layout/navigation.ts', import.meta.url);
   const source = fs.readFileSync(navigationUrl, 'utf8');
   const union = source.match(/export type ViewMode\s*=([\s\S]*?);/);
@@ -21,39 +44,79 @@ test('coverage inventory exactly matches production navigation routes, module la
     import(new URL('./dist/node/index.js', pathToFileURL(requireWeb.resolve('vite/package.json'))).href),
     loadWeb('vite-node/server'), loadWeb('vite-node/client'),
   ]);
-  const server = await createServer({ root: webRoot,
-    server: { middlewareMode: true, hmr: false, watch: null },
-    optimizeDeps: { noDiscovery: true, include: [] },
+  // This helper disables discovery; its partial optimized set must never seed browser QA.
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'offerpilot-coverage-vite-'));
+  let server;
+  await runWithCoverageCleanup(async () => {
+    server = await createServer({ root: webRoot, cacheDir,
+      server: { middlewareMode: true, hmr: false, watch: null },
+      optimizeDeps: { noDiscovery: true, include: [] },
+    });
+    await server.pluginContainer.buildStart({});
+    const node = new ViteNodeServer(server);
+    const runner = new ViteNodeRunner({ root: server.config.root, base: server.config.base,
+      fetchModule: id => node.fetchModule(id), resolveId: (id, importer) => node.resolveId(id, importer),
+    });
+    const i18n = await runner.executeFile(fileURLToPath(new URL('../../../web/src/i18n/index.ts', import.meta.url)));
+    await i18n.setLocale('zh-CN'); // This installed-UI inventory targets the Chinese baseline.
+    assert.equal(i18n.getLocale(), 'zh-CN');
+    const { MODULE_NAV, MODULE_TABS, resolveModuleForView, defaultViewForModule, moduleTabsForView } =
+      await runner.executeFile(fileURLToPath(navigationUrl));
+    const production = { nav: MODULE_NAV, tabs: MODULE_TABS, routes: views.map(view => ({
+      view, module: resolveModuleForView(view), defaultView: defaultViewForModule(resolveModuleForView(view)), tabs: moduleTabsForView(view),
+    })) };
+    assert.equal(ROOTS.length, 13);
+    assert.equal(new Set(ROOTS.map(({ view }) => view)).size, ROOTS.length);
+    assert.deepEqual(ROOTS.map(({ view }) => view).sort(), [...views].sort());
+    assert.deepEqual(Object.values(production.tabs).flat().map(({ view }) => view).sort(), [...views].sort());
+    for (const item of ROOTS) {
+      const route = production.routes.find(({ view }) => view === item.view);
+      const module = production.nav.find(({ key }) => key === route.module);
+      assert.equal(item.module, module?.label ?? null, `${item.view} must use the production sidebar label`);
+      assert.equal(item.tab, route.tabs.length > 1 ? route.tabs.find(({ view }) => view === item.view)?.label : null,
+        `${item.view} must select an actual visible module tab`);
+      if (module) assert.equal(module.defaultView, route.defaultView, `${item.view} module default must be consistent`);
+      else assert.equal(item.view, 'pilot', 'only the command-palette Pilot root has no sidebar entry');
+    }
+    assert.equal(SUBVIEWS.length, 32); assert.equal(new Set(SUBVIEWS.map(({ id }) => id)).size, 32);
+    assert.deepEqual(WIDTHS, [900, 1008, 1280, 1440]);
+  }, () => server?.close(), () => fs.rmSync(cacheDir, { recursive: true, force: true }));
+});
+
+test('coverage cleanup preserves the primary failure and attempts removal even when close fails', async () => {
+  const primary = new assert.AssertionError({ message: 'Original inventory assertion' });
+  const closeError = new Error('Close failed');
+  const removeError = new Error('Remove failed');
+  const calls = [];
+  await assert.rejects(runWithCoverageCleanup(
+    async () => { throw primary; },
+    async () => { calls.push('close'); throw closeError; },
+    () => { calls.push('remove'); throw removeError; },
+  ), error => {
+    assert.ok(error instanceof AggregateError);
+    assert.equal(error.cause, primary);
+    assert.deepEqual(error.errors, [primary, closeError, removeError]);
+    return true;
   });
-  t.after(() => server.close());
-  await server.pluginContainer.buildStart({});
-  const node = new ViteNodeServer(server);
-  const runner = new ViteNodeRunner({ root: server.config.root, base: server.config.base,
-    fetchModule: id => node.fetchModule(id), resolveId: (id, importer) => node.resolveId(id, importer),
-  });
-  const i18n = await runner.executeFile(fileURLToPath(new URL('../../../web/src/i18n/index.ts', import.meta.url)));
-  await i18n.setLocale('zh-CN'); // This installed-UI inventory targets the Chinese baseline.
-  assert.equal(i18n.getLocale(), 'zh-CN');
-  const { MODULE_NAV, MODULE_TABS, resolveModuleForView, defaultViewForModule, moduleTabsForView } =
-    await runner.executeFile(fileURLToPath(navigationUrl));
-  const production = { nav: MODULE_NAV, tabs: MODULE_TABS, routes: views.map(view => ({
-    view, module: resolveModuleForView(view), defaultView: defaultViewForModule(resolveModuleForView(view)), tabs: moduleTabsForView(view),
-  })) };
-  assert.equal(ROOTS.length, 13);
-  assert.equal(new Set(ROOTS.map(({ view }) => view)).size, ROOTS.length);
-  assert.deepEqual(ROOTS.map(({ view }) => view).sort(), [...views].sort());
-  assert.deepEqual(Object.values(production.tabs).flat().map(({ view }) => view).sort(), [...views].sort());
-  for (const item of ROOTS) {
-    const route = production.routes.find(({ view }) => view === item.view);
-    const module = production.nav.find(({ key }) => key === route.module);
-    assert.equal(item.module, module?.label ?? null, `${item.view} must use the production sidebar label`);
-    assert.equal(item.tab, route.tabs.length > 1 ? route.tabs.find(({ view }) => view === item.view)?.label : null,
-      `${item.view} must select an actual visible module tab`);
-    if (module) assert.equal(module.defaultView, route.defaultView, `${item.view} module default must be consistent`);
-    else assert.equal(item.view, 'pilot', 'only the command-palette Pilot root has no sidebar entry');
+  assert.deepEqual(calls, ['close', 'remove']);
+  await assert.rejects(runWithCoverageCleanup(async () => { throw primary; }, () => {}, () => {}), error => error === primary);
+});
+
+test('coverage cleanup-only failures cannot turn into successful tests', async () => {
+  for (const failedStep of ['close', 'remove']) {
+    const cleanupError = new Error(`${failedStep} failed`);
+    const calls = [];
+    await assert.rejects(runWithCoverageCleanup(
+      () => 'passed',
+      () => { calls.push('close'); if (failedStep === 'close') throw cleanupError; },
+      () => { calls.push('remove'); if (failedStep === 'remove') throw cleanupError; },
+    ), error => {
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors, [cleanupError]);
+      return true;
+    });
+    assert.deepEqual(calls, ['close', 'remove']);
   }
-  assert.equal(SUBVIEWS.length, 32); assert.equal(new Set(SUBVIEWS.map(({ id }) => id)).size, 32);
-  assert.deepEqual(WIDTHS, [900, 1008, 1280, 1440]);
 });
 
 test('the complete 130-target root matrix covers both populations, dark widths and light 1280 exactly once', () => {

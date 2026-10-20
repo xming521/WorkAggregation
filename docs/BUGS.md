@@ -5,6 +5,31 @@
 
 ## 当前记录
 
+## 布局验收与导航覆盖测试共享 Vite 缓存（2026-10-19）
+
+**现象：** 完整 Windows run 39299451507 的首个 `900x689-0-failure` case 在 15 秒 readiness 等待超时，截图为纯背景；其余 123 项通过。原 run 未保存 DOM、console 或 network，因此原空白根因仍未知，不能归因于 runner 负载或当作布局断言失败。
+
+**已证实耦合：** `coverage-model.test.mjs` 使用生产 web root 的默认缓存，虽配置 `noDiscovery=true/include=[]`，React 插件仍加入四个 React 依赖。该部分缓存与后续布局服务有相同配置哈希，首次加载再发现依赖并触发 full reload。独立对照 [run 39304127954](https://github.com/offercontext/offerPilot/actions/runs/39304127954) 的 7 项真实前置测试通过，捕获了四项到十四项缓存及 reload；之后冷、热页面都正常恢复。旧成功完整 run 也有相同 reload，故这一机制尚不能证明原超时根因。
+
+**改进：** 覆盖测试使用独占临时 Vite cache，并以嵌套 finally 保证关闭异常时也清理。列表布局 case 在失败时保存脱敏 DOM 结构、readiness 状态及限量分类 console/pageerror/network/navigation/reload 事件；采集失败不覆盖原失败。15 秒、原断言和 case 范围保持不变，无自动重试或延时。
+
+**验证边界：** 独立候选验证覆盖缓存不再污染布局服务，以及故意不 ready 的浏览器负对照必须保留现场并非零退出；定向通过不能替代完整发布验收，也不将本记录升级为原空白问题已根治。
+
+**教训：** 测试 helper 的 Vite 缓存应明确隔离；HTTP 200 只表示入口可访问。初始化超时需要保留实际页面状态与错误证据，不应靠延长 timeout 掩盖。
+
+
+## Windows 冻结依赖来源迁移候选（2026-10-19）
+
+**现象：** 完整 Windows run 39299451507 的 shard 9 在测试前下载 TUNA 的 httpcore 1.0.9，六次重试后仍于 89.7 秒发生 TCP timeout；增加重试未消除来源连接失败。
+
+**根因：** frozen 锁包含镜像的绝对下载 URL。不能依靠临时 index 覆盖透明回退，也不能把旧 lock/run/attempt 证据作为新来源的验收。
+
+**修复候选：** 对 82 个 registry 条目的全部 2,254 个锁定 wheel/sdist，逐一核对官方 PyPI 精确版本 JSON 的 filename、类型、SHA256 与 size。仅将 2,252 个 artifact URL、81 个 package registry 及四个必要的 rpds-py 依赖 registry 引用改为官方来源；包版本、依赖图、marker、artifact hash/size/upload-time 和其他字段不变。候选须以新锁身份完成独立冷缓存安装验证，之后再决定完整验收恢复。
+
+**已有风险：** charset-normalizer 3.4.8 原锁即为同版同 hash。其官方 [3.4.9 release](https://github.com/jawah/charset_normalizer/releases/tag/3.4.9) 说明 3.4.8 因 fallback 解码回归而撤回；本次不升级，也不把功能缺陷称为安全漏洞。根项目 hatchling 构建要求原本未固定版本、未收入 uv.lock，其传递/动态构建依赖仍是既有可复现性缺口；无额外 index 覆盖时，新旧锁的构建解析均使用官方默认源。
+
+**教训：** artifact 摘要保持不变不等于 lockfile 身份不变。所有平台的来源等价证据、实际 Windows 安装和完整产品验收各有边界，不能互相替代；未验证前不得宣称恢复完成。
+
 ## Windows 冻结依赖下载在测试前连接超时（2026-10-19）
 
 **现象：** Windows run 39246366093 的 shard 9 在 `uv sync --frozen` 下载 attrs 26.1.0 时，三次请求重试后于 44.4 秒报 TCP connect deadline；pytest 尚未执行，未产生 shard 结果。
