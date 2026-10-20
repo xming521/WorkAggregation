@@ -69,9 +69,11 @@ function parse(path: string, source: string): ts.SourceFile {
   return parsed;
 }
 
+const forEachAuditChild = ts.forEachChild;
+
 function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
   visit(node);
-  ts.forEachChild(node, (child) => walk(child, visit));
+  forEachAuditChild(node, (child) => walk(child, visit));
 }
 
 function staticBooleanValue(node: ts.Expression): boolean | null {
