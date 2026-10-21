@@ -2424,6 +2424,7 @@ def create_app(
             return error_response(422, "force_open must be boolean")
         current = load_config(resolved_data_dir)
         current.onboarding_force_open = force_open
+        current.onboarding_dismissed = not force_open
         save_config(resolved_data_dir, current)
         return JSONResponse(onboarding_payload(current, applications, resumes, chat))
 
@@ -9068,6 +9069,7 @@ def create_app(
             auth_token=current.auth_token,
             log_level=str(payload.get("log_level") or current.log_level).upper(),
             onboarding_force_open=current.onboarding_force_open,
+            onboarding_dismissed=current.onboarding_dismissed,
             skills=current.skills,
             confirmation_secret=current.confirmation_secret,
         )
