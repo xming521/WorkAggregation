@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Application } from '@/types/application';
-import { buildApplicationSearchCommands, buildPipelineNavigationCommands } from './CommandPalette';
+import { buildApplicationSearchCommands, buildPipelineNavigationCommands, mergeDestinationCommands, matchesCommand } from './CommandPalette';
 import source from './CommandPalette.tsx?raw';
 
 function app(patch: Partial<Application>): Application {
@@ -84,5 +84,19 @@ describe('CommandPalette resume commands', () => {
     expect(navigated).toEqual(['applications-list']);
     commands[4].run();
     expect(navigated).toEqual(['applications-list', 'offers']);
+  });
+});
+
+
+describe('canonical command destinations', () => {
+  it('keeps one action per destination and searches merged aliases', () => {
+    const canonical = { key: 'settings', label: '打开设置', destination: 'settings' as const, run: () => undefined };
+    const commands = mergeDestinationCommands([canonical, { key: 'nav-settings', label: '前往 设置', destination: 'settings', run: () => undefined }]);
+    expect(commands).toHaveLength(1);
+    expect(commands[0].key).toBe('settings');
+    expect(matchesCommand(commands[0], '前往 设置')).toBe(true);
+  });
+  it('does not offer a fake resume create action', () => {
+    expect(source).not.toContain("key: 'new-resume'");
   });
 });
