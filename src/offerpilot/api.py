@@ -48,13 +48,11 @@ from offerpilot.ai.interview_stories import (
     StoryProviderError,
     generate_interview_story_proposal,
 )
-from offerpilot.ai.mock_interview import (
-    MOCK_INTERVIEW_FEEDBACK_SCHEMA,
-    MOCK_INTERVIEW_QUESTION_OUTPUT_SCHEMA,
-    MockInterviewProviderError,
-    MockInterviewUnverifiableError,
-    generate_feedback,
-    generate_question,
+from offerpilot.mock_interview_execution import (
+    APPLICATION_EVENT_EXECUTION,
+    QUICK_PRACTICE_EXECUTION,
+    MockInterviewExecutionError,
+    MockInterviewExecutionService,
 )
 from offerpilot.ai.opportunity_fit_reviews import OpportunityFitModelError, validate_triage
 from offerpilot.ai.resume_structured_import import generate_structured_fields
@@ -62,12 +60,8 @@ from offerpilot.ai.offer_negotiation import (
     OfferNegotiationModelError,
     generate_offer_negotiation_proposal,
 )
-from offerpilot.reliability.policy import recovery_disposition, recovery_error
-from offerpilot.reliability.trace import (
-    MockInterviewTraceEnvelope,
-    hash_idempotency_key,
-    record_mock_interview_trace,
-)
+from offerpilot.reliability.policy import recovery_error
+
 from offerpilot.ai.workflows import (
     JDInput,
     WorkflowError,
@@ -351,7 +345,7 @@ from offerpilot.repositories.mock_interviews import (
     MockInterviewRepository,
     MockInterviewSourceChanged,
     MockInterviewTurnIdempotencyConflict,
-    provider_mock_interview_snapshot,
+    MockInterviewQuestionClaim,
 )
 from offerpilot.repositories.mock_interview_review_drafts import (
     MockInterviewReviewDraftAlreadyConfirmed,
@@ -426,9 +420,6 @@ from offerpilot.chat_transport import (
     outcome_http_response,
     runtime_stream_response,
 )
-
-_MOCK_INTERVIEW_TRACE_RUN_ID = uuid4().hex
-
 
 CHAT_AGENT_TIMEOUT_SECONDS = 120.0
 CHAT_TIMEOUT_MESSAGE = "这次处理时间过长，已停止。你可以重试或换一种问法。"
@@ -1096,164 +1087,6 @@ def _mock_interview_live_turn_json(repository: Any, turn: Any) -> dict[str, Any]
     return _mock_interview_turn_json(turn, turns)
 
 
-def _mock_interview_question_schema_fingerprint() -> str:
-    return (
-        "qschema-"
-        + hashlib.sha256(
-            json.dumps(MOCK_INTERVIEW_QUESTION_OUTPUT_SCHEMA, sort_keys=True).encode("utf-8")
-        ).hexdigest()[:16]
-    )
-
-
-def _mock_interview_feedback_schema_fingerprint() -> str:
-    return (
-        "fschema-"
-        + hashlib.sha256(
-            json.dumps(MOCK_INTERVIEW_FEEDBACK_SCHEMA, sort_keys=True).encode("utf-8")
-        ).hexdigest()[:16]
-    )
-
-
-def _mock_interview_trace_metadata(model: Any, data_dir: Path) -> tuple[str, str, str]:
-    """Sanitized provider/model/capability descriptors for the trace envelope."""
-    if isinstance(model, JSONResponse):
-        model = None
-    provider = type(model).__name__ if model is not None else "none"
-    model_name = str(getattr(model, "model", "") or "")
-    if isinstance(model, ConfiguredAIClient):
-        try:
-            active = load_config(data_dir).active_provider()
-            provider = active.id
-            model_name = active.model
-        except (OSError, ValueError):
-            pass
-    capability = {"supports_json_schema": bool(getattr(model, "supports_json_schema", False))}
-    capability_hash = (
-        "cap-"
-        + hashlib.sha256(json.dumps(capability, sort_keys=True).encode("utf-8")).hexdigest()[:16]
-    )
-    return provider, model_name, capability_hash
-
-
-def _emit_mock_interview_trace(
-    data_dir: Path,
-    *,
-    scenario_id: str,
-    operation_id: str,
-    attempt_id: int | None,
-    generation_revision: int | None,
-    idempotency_key: str,
-    model: Any,
-    input_fingerprint: str,
-    schema_fingerprint: str,
-    started_at: str,
-    elapsed_ms: int,
-    provider_outcome: str,
-    validator_stage: str,
-    failure_category: str,
-    repair_count: int,
-    response_error_code: str,
-) -> None:
-    """Append one sanitized trace envelope; the disposition comes from the contract."""
-    provider, model_name, capability_hash = _mock_interview_trace_metadata(model, data_dir)
-    record_mock_interview_trace(
-        data_dir,
-        MockInterviewTraceEnvelope(
-            run_id=_MOCK_INTERVIEW_TRACE_RUN_ID,
-            scenario_id=scenario_id,
-            operation_id=operation_id,
-            attempt_id=attempt_id,
-            generation_revision=generation_revision,
-            idempotency_key_hash=hash_idempotency_key(idempotency_key),
-            provider=provider,
-            model=model_name,
-            capability_snapshot_hash=capability_hash,
-            input_fingerprint=input_fingerprint[:200],
-            schema_fingerprint=schema_fingerprint[:200],
-            started_at=started_at,
-            # Mock Interview currently uses non-streaming completions, so the
-            # provider abstraction cannot observe first-byte timing honestly.
-            first_byte_ms=None,
-            completed_ms=elapsed_ms,
-            provider_outcome=provider_outcome,
-            validator_stage=validator_stage,
-            failure_category=failure_category[:120],
-            repair_count=int(repair_count),
-            final_disposition="success"
-            if not response_error_code
-            else recovery_disposition(response_error_code),
-            response_error_code=response_error_code,
-        ),
-    )
-
-
-MockInterviewFailureFinalization = Literal["recorded", "stale", "source_conflict"]
-
-
-def _mark_mock_interview_failure_state(
-    callback: Callable[[], Any],
-) -> MockInterviewFailureFinalization:
-    """Finalize an Attempt after a provider call without losing its trace on source drift."""
-    try:
-        result = callback()
-    except MockInterviewSourceChanged:
-        return "source_conflict"
-    return "recorded" if result is not None else "stale"
-
-
-def _mock_interview_failure_response_code(
-    finalization: MockInterviewFailureFinalization,
-    default_error_code: str,
-) -> str:
-    if finalization == "source_conflict":
-        return "mock_interview_source_conflict"
-    if finalization == "stale":
-        return "mock_interview_transcript_conflict"
-    return default_error_code
-
-
-def _mock_interview_failure_message(error_code: str, default_message: str) -> str:
-    if error_code == "mock_interview_source_conflict":
-        return "本次练习使用的冻结资料不可验证。"
-    if error_code == "mock_interview_transcript_conflict":
-        return "生成结果已失去当前写入所有权，请使用原 key 对账。"
-    return default_message
-
-
-def _log_mock_interview_ai_failure(
-    data_dir: Path,
-    *,
-    attempt_id: int,
-    stage: str,
-    kind: str,
-    diagnostic: dict[str, Any] | None,
-) -> None:
-    diagnostic = diagnostic or {}
-    payload = {
-        "attempt_id": attempt_id,
-        "stage": stage,
-        "failure_category": str(diagnostic.get("failure_category") or kind),
-        "repair_attempted": bool(diagnostic.get("repair_attempted", False)),
-        "repair_count": int(diagnostic.get("repair_count") or 0),
-        "elapsed_ms": int(diagnostic.get("elapsed_ms") or 0),
-        "http_status": diagnostic.get("http_status"),
-        "timeout": bool(diagnostic.get("timeout", False)),
-        "correlation_id": str(diagnostic.get("correlation_id") or ""),
-        "provider_request_id": str(diagnostic.get("provider_request_id") or ""),
-    }
-    failure_categories = diagnostic.get("failure_categories")
-    if isinstance(failure_categories, list) and all(
-        isinstance(item, str) for item in failure_categories
-    ):
-        payload["failure_categories"] = failure_categories[:2]
-    append_log_entry(
-        data_dir,
-        "WARNING",
-        f"mock_interview_{kind}_failure "
-        + json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
-    )
-
-
 def create_app(
     data_dir: Optional[Path] = None,
     chat_model: Optional[ChatModel] = None,
@@ -1419,6 +1252,10 @@ def create_app(
     interview_knowledge_capture = InterviewKnowledgeCaptureRepository(session_factory)
     interview_index = InterviewIndexRepository(session_factory)
     mock_interviews = MockInterviewRepository(session_factory)
+    mock_execution = MockInterviewExecutionService(
+        mock_interviews, resolved_data_dir,
+        lambda: _mock_interview_chat_model(chat_model, resolved_data_dir),
+    )
     interview_practice_cases = InterviewPracticeCaseRepository(session_factory)
     mock_interview_review_drafts = MockInterviewReviewDraftRepository(session_factory)
     voice_coaching = VoiceCoachingRepository(session_factory)
@@ -6955,205 +6792,26 @@ def create_app(
                     "turn": _mock_interview_live_turn_json(mock_interviews, result.turn),
                 }
             )
-        revision, provider_token, transcript_fingerprint = result.question_claim
-        operation_id = uuid4().hex
-        trace_started_at = datetime.now(timezone.utc).isoformat()
-        trace_timer = perf_counter()
-        scenario_id = "mock_interview:quick_practice:question"
         try:
-            configured_model = _chat_model(chat_model, resolved_data_dir)
-            if isinstance(configured_model, JSONResponse):
-                raise MockInterviewProviderError("mock_interview_provider_error")
-            question_result, question_diagnostic = generate_question(
-                configured_model,
-                provider_mock_interview_snapshot(result.attempt),
-                [],
+            outcome = mock_execution.question(
+                result.attempt, 1,
+                MockInterviewQuestionClaim(*result.question_claim, turns=()),
+                initial_question_key, QUICK_PRACTICE_EXECUTION, initial=True,
             )
-            completed = mock_interviews.complete_question(
-                result.attempt.id,
-                1,
-                revision,
-                provider_token,
-                transcript_fingerprint,
-                question_result["question"],
-                question_result["evidence_refs"],
-            )
-            if completed is None:
-                _emit_mock_interview_trace(
-                    resolved_data_dir,
-                    scenario_id=scenario_id,
-                    operation_id=operation_id,
-                    attempt_id=result.attempt.id,
-                    generation_revision=revision,
-                    idempotency_key=initial_question_key,
-                    model=configured_model,
-                    input_fingerprint=result.attempt.source_fingerprint,
-                    schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                    started_at=trace_started_at,
-                    elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                    provider_outcome="success",
-                    validator_stage="question",
-                    failure_category="",
-                    repair_count=int(question_diagnostic.get("repair_count") or 0),
-                    response_error_code="mock_interview_transcript_conflict",
-                )
-                return recovery_error(
-                    "mock_interview_transcript_conflict",
-                    "快速练习回答状态已变化。",
-                    details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-                )
-            current = mock_interviews.get_turn(result.attempt.id, 1)
-            assert current is not None
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=completed.id,
-                generation_revision=revision,
-                idempotency_key=initial_question_key,
-                model=configured_model,
-                input_fingerprint=completed.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int(question_diagnostic.get("elapsed_ms") or 0),
-                provider_outcome="success_after_repair"
-                if question_diagnostic.get("repair_count")
-                else "success",
-                validator_stage="question",
-                failure_category="",
-                repair_count=int(question_diagnostic.get("repair_count") or 0),
-                response_error_code="",
-            )
-            return JSONResponse(
-                {
-                    "attempt_id": completed.id,
-                    "attempt_status": completed.attempt_status,
-                    "generation_revision": completed.generation_revision,
-                    "operation_id": operation_id,
-                    **_mock_interview_attempt_context_json(completed),
-                    "turn": _mock_interview_live_turn_json(mock_interviews, current),
-                },
-                status_code=201 if result.created else 200,
-            )
-        except MockInterviewProviderError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=result.attempt.id,
-                stage="question",
-                kind="provider",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_provider_unknown(
-                    result.attempt.id, revision, provider_token, "question"
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_question_result_unknown"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=result.attempt.id,
-                generation_revision=revision,
-                idempotency_key=initial_question_key,
-                model=configured_model,
-                input_fingerprint=result.attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="provider_error",
-                validator_stage="question",
-                failure_category=str(exc.diagnostic.get("failure_category") or "provider_error"),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_question_result_unknown":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_question_result_unknown",
-                "下一题结果待确认，请使用原 key 恢复。",
-                details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-            )
-        except MockInterviewUnverifiableError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=result.attempt.id,
-                stage="question",
-                kind="contract",
-                diagnostic=exc.diagnostic,
-            )
-            contract_failure_category = exc.category
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_contract_failure(
-                    result.attempt.id,
-                    revision,
-                    provider_token,
-                    contract_failure_category,
-                    "contract_failed",
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_unverifiable"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=result.attempt.id,
-                generation_revision=revision,
-                idempotency_key=initial_question_key,
-                model=configured_model,
-                input_fingerprint=result.attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="unverifiable",
-                validator_stage="question",
-                failure_category=str(exc.category),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_unverifiable":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_unverifiable",
-                "AI 输出未通过验证，请重新开始本次练习。",
-                details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-            )
-        except MockInterviewSourceChanged:
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=result.attempt.id,
-                generation_revision=revision,
-                idempotency_key=initial_question_key,
-                model=configured_model,
-                input_fingerprint=result.attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="success",
-                validator_stage="question",
-                failure_category="source_conflict",
-                repair_count=int(question_diagnostic.get("repair_count") or 0),
-                response_error_code="mock_interview_source_conflict",
-            )
-            return recovery_error(
-                "mock_interview_source_conflict",
-                "本次练习使用的冻结资料不可验证。",
-                details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-            )
+        except MockInterviewExecutionError as exc:
+            return recovery_error(exc.code, str(exc), details=exc.details)
+        completed = outcome.attempt
+        return JSONResponse(
+            {
+                "attempt_id": completed.id,
+                "attempt_status": completed.attempt_status,
+                "generation_revision": completed.generation_revision,
+                "operation_id": outcome.operation_id,
+                **_mock_interview_attempt_context_json(completed),
+                "turn": _mock_interview_live_turn_json(mock_interviews, outcome.turn),
+            },
+            status_code=201 if result.created else 200,
+        )
 
     @app.get("/api/interview-practice-cases/{case_id}/mock-interview/attempts/{attempt_id}")
     def get_quick_practice_attempt(case_id: int, attempt_id: int) -> JSONResponse:
@@ -7278,204 +6936,25 @@ def create_app(
                 "turn": _mock_interview_live_turn_json(mock_interviews, result.turn),
             }
             return JSONResponse(response, status_code=200)
-        revision, provider_token, transcript_fingerprint = result.question_claim
-        operation_id = uuid4().hex
-        trace_started_at = datetime.now(timezone.utc).isoformat()
-        trace_timer = perf_counter()
-        scenario_id = "mock_interview:application_event:question"
         try:
-            configured_model = _chat_model(chat_model, resolved_data_dir)
-            if isinstance(configured_model, JSONResponse):
-                raise MockInterviewProviderError("mock_interview_provider_error")
-            question_result, question_diagnostic = generate_question(
-                configured_model,
-                provider_mock_interview_snapshot(result.attempt),
-                [],
+            outcome = mock_execution.question(
+                result.attempt, 1,
+                MockInterviewQuestionClaim(*result.question_claim, turns=()),
+                question_key, APPLICATION_EVENT_EXECUTION, initial=True,
             )
-            completed = mock_interviews.complete_question(
-                result.attempt.id,
-                1,
-                revision,
-                provider_token,
-                transcript_fingerprint,
-                question_result["question"],
-                question_result["evidence_refs"],
-            )
-            if completed is None:
-                _emit_mock_interview_trace(
-                    resolved_data_dir,
-                    scenario_id=scenario_id,
-                    operation_id=operation_id,
-                    attempt_id=result.attempt.id,
-                    generation_revision=revision,
-                    idempotency_key=question_key,
-                    model=configured_model,
-                    input_fingerprint=result.attempt.source_fingerprint,
-                    schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                    started_at=trace_started_at,
-                    elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                    provider_outcome="success",
-                    validator_stage="question",
-                    failure_category="",
-                    repair_count=int(question_diagnostic.get("repair_count") or 0),
-                    response_error_code="mock_interview_transcript_conflict",
-                )
-                return recovery_error(
-                    "mock_interview_transcript_conflict",
-                    "mock interview transcript changed",
-                    details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-                )
-            current = mock_interviews.get_turn(result.attempt.id, 1)
-            assert current is not None
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=completed.id,
-                generation_revision=revision,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=completed.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int(question_diagnostic.get("elapsed_ms") or 0),
-                provider_outcome="success_after_repair"
-                if question_diagnostic.get("repair_count")
-                else "success",
-                validator_stage="question",
-                failure_category="",
-                repair_count=int(question_diagnostic.get("repair_count") or 0),
-                response_error_code="",
-            )
-            return JSONResponse(
-                {
-                    "attempt_id": completed.id,
-                    "attempt_status": completed.attempt_status,
-                    "generation_revision": completed.generation_revision,
-                    "operation_id": operation_id,
-                    "turn": _mock_interview_live_turn_json(mock_interviews, current),
-                },
-                status_code=201 if result.created else 200,
-            )
-        except MockInterviewProviderError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=result.attempt.id,
-                stage="question",
-                kind="provider",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_provider_unknown(
-                    result.attempt.id, revision, provider_token, "question"
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_provider_error"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=result.attempt.id,
-                generation_revision=revision,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=result.attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="provider_error",
-                validator_stage="question",
-                failure_category=str(exc.diagnostic.get("failure_category") or "provider_error"),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_provider_error":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_provider_error",
-                "AI service is temporarily unavailable",
-                details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-            )
-        except MockInterviewUnverifiableError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=result.attempt.id,
-                stage="question",
-                kind="contract",
-                diagnostic=exc.diagnostic,
-            )
-            contract_failure_category = exc.category
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_contract_failure(
-                    result.attempt.id,
-                    revision,
-                    provider_token,
-                    contract_failure_category,
-                    "contract_failed",
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_unverifiable"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=result.attempt.id,
-                generation_revision=revision,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=result.attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="unverifiable",
-                validator_stage="question",
-                failure_category=str(exc.category),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_unverifiable":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_unverifiable",
-                "mock interview output could not be verified; please start a new attempt",
-                details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-            )
-        except MockInterviewSourceChanged:
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=result.attempt.id,
-                generation_revision=revision,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=result.attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="success",
-                validator_stage="question",
-                failure_category="source_conflict",
-                repair_count=int(question_diagnostic.get("repair_count") or 0),
-                response_error_code="mock_interview_source_conflict",
-            )
-            return recovery_error(
-                "mock_interview_source_conflict",
-                "mock interview frozen source changed",
-                details={"attempt_id": result.attempt.id, "operation_id": operation_id},
-            )
+        except MockInterviewExecutionError as exc:
+            return recovery_error(exc.code, str(exc), details=exc.details)
+        completed = outcome.attempt
+        return JSONResponse(
+            {
+                "attempt_id": completed.id,
+                "attempt_status": completed.attempt_status,
+                "generation_revision": completed.generation_revision,
+                "operation_id": outcome.operation_id,
+                "turn": _mock_interview_live_turn_json(mock_interviews, outcome.turn),
+            },
+            status_code=201 if result.created else 200,
+        )
 
     @app.post("/api/interview-practice-cases/{case_id}/mock-interview/attempts/{attempt_id}/turns")
     def answer_quick_practice_turn(
@@ -7555,191 +7034,24 @@ def create_app(
                     },
                     status_code=202,
                 )
-            revision, provider_token, transcript_fingerprint = claim
-            operation_id = uuid4().hex
-            trace_started_at = datetime.now(timezone.utc).isoformat()
-            trace_timer = perf_counter()
-            scenario_id = "mock_interview:quick_practice:question"
-            configured_model = _chat_model(chat_model, resolved_data_dir)
-            if isinstance(configured_model, JSONResponse):
-                raise MockInterviewProviderError("mock_interview_provider_error")
-            question_result, question_diagnostic = generate_question(
-                configured_model, provider_mock_interview_snapshot(attempt), list(claim.turns)
+            outcome = mock_execution.question(
+                attempt, turn_no, claim, question_key, QUICK_PRACTICE_EXECUTION,
             )
-            completed = mock_interviews.complete_question(
-                attempt_id,
-                turn_no,
-                revision,
-                provider_token,
-                transcript_fingerprint,
-                question_result["question"],
-                question_result["evidence_refs"],
-            )
-            if completed is None:
-                _emit_mock_interview_trace(
-                    resolved_data_dir,
-                    scenario_id=scenario_id,
-                    operation_id=operation_id,
-                    attempt_id=attempt_id,
-                    generation_revision=revision,
-                    idempotency_key=question_key,
-                    model=configured_model,
-                    input_fingerprint=attempt.source_fingerprint,
-                    schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                    started_at=trace_started_at,
-                    elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                    provider_outcome="success",
-                    validator_stage="question",
-                    failure_category="",
-                    repair_count=int(question_diagnostic.get("repair_count") or 0),
-                    response_error_code="mock_interview_transcript_conflict",
-                )
-                return recovery_error(
-                    "mock_interview_transcript_conflict",
-                    "下一题写入状态已变化。",
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            current = mock_interviews.get_turn(attempt_id, turn_no)
-            assert current is not None
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=completed.id,
-                generation_revision=revision,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=completed.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int(question_diagnostic.get("elapsed_ms") or 0),
-                provider_outcome="success_after_repair"
-                if question_diagnostic.get("repair_count")
-                else "success",
-                validator_stage="question",
-                failure_category="",
-                repair_count=int(question_diagnostic.get("repair_count") or 0),
-                response_error_code="",
-            )
+            completed = outcome.attempt
             return JSONResponse(
                 {
                     "attempt_id": completed.id,
                     "attempt_status": completed.attempt_status,
-                    "operation_id": operation_id,
+                    "operation_id": outcome.operation_id,
                     **_mock_interview_attempt_context_json(completed),
-                    "turn": _mock_interview_live_turn_json(mock_interviews, current),
+                    "turn": _mock_interview_live_turn_json(mock_interviews, outcome.turn),
                 },
                 status_code=201,
             )
+        except MockInterviewExecutionError as exc:
+            return recovery_error(exc.code, str(exc), details=exc.details)
         except KeyError as exc:
             return recovery_error("mock_interview_invalid_payload", f"missing field: {exc.args[0]}")
-        except MockInterviewProviderError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="question",
-                kind="provider",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_provider_unknown(
-                    attempt_id, revision, provider_token, "question"
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_question_result_unknown"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id="mock_interview:quick_practice:question",
-                operation_id=operation_id if "operation_id" in locals() else uuid4().hex,
-                attempt_id=attempt_id,
-                generation_revision=claim[0] if "claim" in locals() and claim is not None else None,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint if "attempt" in locals() else "",
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at
-                if "trace_started_at" in locals()
-                else datetime.now(timezone.utc).isoformat(),
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000)
-                if "trace_timer" in locals()
-                else 0,
-                provider_outcome="provider_error",
-                validator_stage="question",
-                failure_category=str(exc.diagnostic.get("failure_category") or "provider_error"),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_question_result_unknown":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_question_result_unknown",
-                "下一题结果待确认，请使用原 key 恢复。",
-                details={"attempt_id": attempt_id, "operation_id": operation_id}
-                if "operation_id" in locals()
-                else {"attempt_id": attempt_id},
-            )
-        except MockInterviewUnverifiableError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="question",
-                kind="contract",
-                diagnostic=exc.diagnostic,
-            )
-            contract_failure_category = exc.category
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_contract_failure(
-                    attempt_id,
-                    revision,
-                    provider_token,
-                    contract_failure_category,
-                    "contract_failed",
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_unverifiable"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id="mock_interview:quick_practice:question",
-                operation_id=operation_id if "operation_id" in locals() else uuid4().hex,
-                attempt_id=attempt_id,
-                generation_revision=claim[0] if "claim" in locals() and claim is not None else None,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint if "attempt" in locals() else "",
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at
-                if "trace_started_at" in locals()
-                else datetime.now(timezone.utc).isoformat(),
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000)
-                if "trace_timer" in locals()
-                else 0,
-                provider_outcome="unverifiable",
-                validator_stage="question",
-                failure_category=str(exc.category),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_unverifiable":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_unverifiable",
-                "AI 输出未通过验证，请重新开始本次练习。",
-                details={"attempt_id": attempt_id, "operation_id": operation_id}
-                if "operation_id" in locals()
-                else {"attempt_id": attempt_id},
-            )
         except MockInterviewContractFailed:
             return recovery_error(
                 "mock_interview_unverifiable",
@@ -7751,31 +7063,9 @@ def create_app(
                 "mock_interview_turn_idempotency_conflict", "下一题 key 已对应其他题目。"
             )
         except MockInterviewSourceChanged:
-            details: dict[str, Any] = {"attempt_id": attempt_id}
-            if "operation_id" in locals():
-                _emit_mock_interview_trace(
-                    resolved_data_dir,
-                    scenario_id="mock_interview:quick_practice:question",
-                    operation_id=operation_id,
-                    attempt_id=attempt_id,
-                    generation_revision=revision,
-                    idempotency_key=question_key,
-                    model=configured_model,
-                    input_fingerprint=attempt.source_fingerprint,
-                    schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                    started_at=trace_started_at,
-                    elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                    provider_outcome="success",
-                    validator_stage="question",
-                    failure_category="source_conflict",
-                    repair_count=int(question_diagnostic.get("repair_count") or 0),
-                    response_error_code="mock_interview_source_conflict",
-                )
-                details["operation_id"] = operation_id
             return recovery_error(
-                "mock_interview_source_conflict",
-                "本次练习使用的冻结资料不可验证。",
-                details=details,
+                "mock_interview_source_conflict", "本次练习使用的冻结资料不可验证。",
+                details={"attempt_id": attempt_id},
             )
         except LookupError:
             return recovery_error("mock_interview_context_mismatch", "快速练习尝试不存在。")
@@ -8028,191 +7318,23 @@ def create_app(
                     },
                     status_code=202,
                 )
-            revision, provider_token, transcript_fingerprint = claim
-            operation_id = uuid4().hex
-            trace_started_at = datetime.now(timezone.utc).isoformat()
-            trace_timer = perf_counter()
-            scenario_id = "mock_interview:application_event:question"
-            configured_model = _chat_model(chat_model, resolved_data_dir)
-            if isinstance(configured_model, JSONResponse):
-                raise MockInterviewProviderError("mock_interview_provider_error")
-            snapshot = provider_mock_interview_snapshot(attempt)
-            question_result, question_diagnostic = generate_question(
-                configured_model, snapshot, list(claim.turns)
+            outcome = mock_execution.question(
+                attempt, turn_no, claim, question_key, APPLICATION_EVENT_EXECUTION,
             )
-            completed = mock_interviews.complete_question(
-                attempt_id,
-                turn_no,
-                revision,
-                provider_token,
-                transcript_fingerprint,
-                question_result["question"],
-                question_result["evidence_refs"],
-            )
-            if completed is None:
-                _emit_mock_interview_trace(
-                    resolved_data_dir,
-                    scenario_id=scenario_id,
-                    operation_id=operation_id,
-                    attempt_id=attempt_id,
-                    generation_revision=revision,
-                    idempotency_key=question_key,
-                    model=configured_model,
-                    input_fingerprint=attempt.source_fingerprint,
-                    schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                    started_at=trace_started_at,
-                    elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                    provider_outcome="success",
-                    validator_stage="question",
-                    failure_category="",
-                    repair_count=int(question_diagnostic.get("repair_count") or 0),
-                    response_error_code="mock_interview_transcript_conflict",
-                )
-                return recovery_error(
-                    "mock_interview_transcript_conflict",
-                    "mock interview transcript changed",
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            current = mock_interviews.get_turn(attempt_id, turn_no)
-            assert current is not None
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=completed.id,
-                generation_revision=revision,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=completed.source_fingerprint,
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int(question_diagnostic.get("elapsed_ms") or 0),
-                provider_outcome="success_after_repair"
-                if question_diagnostic.get("repair_count")
-                else "success",
-                validator_stage="question",
-                failure_category="",
-                repair_count=int(question_diagnostic.get("repair_count") or 0),
-                response_error_code="",
-            )
+            completed = outcome.attempt
             return JSONResponse(
                 {
                     "attempt_id": completed.id,
                     "attempt_status": completed.attempt_status,
-                    "operation_id": operation_id,
-                    "turn": _mock_interview_live_turn_json(mock_interviews, current),
+                    "operation_id": outcome.operation_id,
+                    "turn": _mock_interview_live_turn_json(mock_interviews, outcome.turn),
                 },
                 status_code=201,
             )
+        except MockInterviewExecutionError as exc:
+            return recovery_error(exc.code, str(exc), details=exc.details)
         except KeyError as exc:
             return recovery_error("mock_interview_invalid_payload", f"missing field: {exc.args[0]}")
-        except MockInterviewProviderError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="question",
-                kind="provider",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_provider_unknown(
-                    attempt_id, revision, provider_token, "question"
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_provider_error"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id="mock_interview:application_event:question",
-                operation_id=operation_id if "operation_id" in locals() else uuid4().hex,
-                attempt_id=attempt_id,
-                generation_revision=claim[0] if "claim" in locals() and claim is not None else None,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint if "attempt" in locals() else "",
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at
-                if "trace_started_at" in locals()
-                else datetime.now(timezone.utc).isoformat(),
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000)
-                if "trace_timer" in locals()
-                else 0,
-                provider_outcome="provider_error",
-                validator_stage="question",
-                failure_category=str(exc.diagnostic.get("failure_category") or "provider_error"),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_provider_error":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_provider_error",
-                "AI service is temporarily unavailable",
-                details={"attempt_id": attempt_id, "operation_id": operation_id}
-                if "operation_id" in locals()
-                else {"attempt_id": attempt_id},
-            )
-        except MockInterviewUnverifiableError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="question",
-                kind="contract",
-                diagnostic=exc.diagnostic,
-            )
-            contract_failure_category = exc.category
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_contract_failure(
-                    attempt_id,
-                    revision,
-                    provider_token,
-                    contract_failure_category,
-                    "contract_failed",
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_unverifiable"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id="mock_interview:application_event:question",
-                operation_id=operation_id if "operation_id" in locals() else uuid4().hex,
-                attempt_id=attempt_id,
-                generation_revision=claim[0] if "claim" in locals() and claim is not None else None,
-                idempotency_key=question_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint if "attempt" in locals() else "",
-                schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                started_at=trace_started_at
-                if "trace_started_at" in locals()
-                else datetime.now(timezone.utc).isoformat(),
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000)
-                if "trace_timer" in locals()
-                else 0,
-                provider_outcome="unverifiable",
-                validator_stage="question",
-                failure_category=str(exc.category),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_unverifiable":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_unverifiable",
-                "mock interview output could not be verified; please start a new attempt",
-                details={"attempt_id": attempt_id, "operation_id": operation_id}
-                if "operation_id" in locals()
-                else {"attempt_id": attempt_id},
-            )
         except MockInterviewContractFailed:
             return recovery_error(
                 "mock_interview_unverifiable",
@@ -8225,31 +7347,9 @@ def create_app(
                 "mock interview turn key belongs to another question",
             )
         except MockInterviewSourceChanged:
-            details: dict[str, Any] = {"attempt_id": attempt_id}
-            if "operation_id" in locals():
-                _emit_mock_interview_trace(
-                    resolved_data_dir,
-                    scenario_id="mock_interview:application_event:question",
-                    operation_id=operation_id,
-                    attempt_id=attempt_id,
-                    generation_revision=revision,
-                    idempotency_key=question_key,
-                    model=configured_model,
-                    input_fingerprint=attempt.source_fingerprint,
-                    schema_fingerprint=_mock_interview_question_schema_fingerprint(),
-                    started_at=trace_started_at,
-                    elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                    provider_outcome="success",
-                    validator_stage="question",
-                    failure_category="source_conflict",
-                    repair_count=int(question_diagnostic.get("repair_count") or 0),
-                    response_error_code="mock_interview_source_conflict",
-                )
-                details["operation_id"] = operation_id
             return recovery_error(
-                "mock_interview_source_conflict",
-                "mock interview frozen source changed",
-                details=details,
+                "mock_interview_source_conflict", "mock interview frozen source changed",
+                details={"attempt_id": attempt_id},
             )
         except LookupError:
             return recovery_error(
@@ -8338,178 +7438,17 @@ def create_app(
                 },
                 status_code=202,
             )
-        revision, provider_token, transcript_fingerprint = claim
-        operation_id = uuid4().hex
-        trace_started_at = datetime.now(timezone.utc).isoformat()
-        trace_timer = perf_counter()
-        scenario_id = "mock_interview:quick_practice:feedback"
         try:
-            snapshot = provider_mock_interview_snapshot(attempt)
-            configured_model = _chat_model(chat_model, resolved_data_dir)
-            legacy_model: ChatModel | None = (
-                None if isinstance(configured_model, JSONResponse) else configured_model
-            )
-            proposal, diagnostic = generate_feedback(legacy_model, snapshot, list(claim.turns))
-        except MockInterviewUnverifiableError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="feedback",
-                kind="contract",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_contract_failure(
-                    attempt_id,
-                    revision,
-                    provider_token,
-                    "contract_unverifiable",
-                    "contract_failed",
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_unverifiable"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=attempt_id,
-                generation_revision=revision,
-                idempotency_key=feedback_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_feedback_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="unverifiable",
-                validator_stage="feedback",
-                failure_category=str(exc.category),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_unverifiable":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_unverifiable",
-                "AI 输出未通过验证，请重新开始本次练习。",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-        except MockInterviewProviderError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="feedback",
-                kind="provider",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_provider_unknown(
-                    attempt_id, revision, provider_token, "feedback"
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_feedback_result_unknown"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=attempt_id,
-                generation_revision=revision,
-                idempotency_key=feedback_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_feedback_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="provider_error",
-                validator_stage="feedback",
-                failure_category=str(exc.diagnostic.get("failure_category") or "provider_error"),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_feedback_result_unknown":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_feedback_result_unknown",
-                "复盘结果待确认，请使用原 key 恢复。",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-
-        def emit_generated_feedback_trace(response_error_code: str = "") -> None:
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=attempt_id,
-                generation_revision=revision,
-                idempotency_key=feedback_key,
-                model=legacy_model,
-                input_fingerprint=attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_feedback_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome=(
-                    "success_after_repair" if diagnostic.get("repair_count") else "success"
-                ),
-                validator_stage="feedback",
-                failure_category="",
-                repair_count=int(diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-
-        try:
-            record, created = mock_interviews.complete_feedback(
-                attempt_id,
-                feedback_key,
-                revision,
-                provider_token,
-                transcript_fingerprint,
-                proposal,
-                proposal["proposal_status"],
-                str(diagnostic.get("failure_category", "")),
-            )
-        except MockInterviewSourceChanged:
-            emit_generated_feedback_trace("mock_interview_source_conflict")
-            return recovery_error(
-                "mock_interview_source_conflict",
-                "本次练习使用的冻结资料不可验证。",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-        if record is None:
-            replay, _ = mock_interviews.get_feedback(attempt_id, feedback_key)
-            if replay is not None:
-                emit_generated_feedback_trace()
-                return JSONResponse(
-                    {
-                        **_mock_interview_proposal_json(replay),
-                        "operation_id": operation_id,
-                        **_mock_interview_attempt_context_json(attempt),
-                    }
-                )
-            emit_generated_feedback_trace("mock_interview_transcript_conflict")
-            return recovery_error(
-                "mock_interview_transcript_conflict",
-                "复盘写入状态已变化，请使用原 key 对账。",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-        emit_generated_feedback_trace()
+            outcome = mock_execution.feedback(attempt, claim, feedback_key, QUICK_PRACTICE_EXECUTION)
+        except MockInterviewExecutionError as exc:
+            return recovery_error(exc.code, str(exc), details=exc.details)
         return JSONResponse(
             {
-                **_mock_interview_proposal_json(record),
-                "operation_id": operation_id,
+                **_mock_interview_proposal_json(outcome.record),
+                "operation_id": outcome.operation_id,
                 **_mock_interview_attempt_context_json(attempt),
             },
-            status_code=201 if created else 200,
+            status_code=201 if outcome.created else 200,
         )
 
     @app.post(
@@ -8563,172 +7502,16 @@ def create_app(
                 },
                 status_code=202,
             )
-        revision, provider_token, transcript_fingerprint = claim
-        operation_id = uuid4().hex
-        trace_started_at = datetime.now(timezone.utc).isoformat()
-        trace_timer = perf_counter()
-        scenario_id = "mock_interview:application_event:feedback"
         try:
-            snapshot = provider_mock_interview_snapshot(attempt)
-            turn_payload = list(claim.turns)
-            configured_model = _chat_model(chat_model, resolved_data_dir)
-            legacy_model: ChatModel | None = (
-                None if isinstance(configured_model, JSONResponse) else configured_model
-            )
-            proposal, diagnostic = generate_feedback(legacy_model, snapshot, turn_payload)
-        except MockInterviewUnverifiableError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="feedback",
-                kind="contract",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_contract_failure(
-                    attempt_id,
-                    revision,
-                    provider_token,
-                    "contract_unverifiable",
-                    "contract_failed",
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_unverifiable"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=attempt_id,
-                generation_revision=revision,
-                idempotency_key=feedback_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_feedback_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="unverifiable",
-                validator_stage="feedback",
-                failure_category=str(exc.category),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_unverifiable":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_unverifiable",
-                "mock interview output could not be verified; please start a new attempt",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-        except MockInterviewProviderError as exc:
-            _log_mock_interview_ai_failure(
-                resolved_data_dir,
-                attempt_id=attempt_id,
-                stage="feedback",
-                kind="provider",
-                diagnostic=exc.diagnostic,
-            )
-            failure_finalization = _mark_mock_interview_failure_state(
-                lambda: mock_interviews.mark_provider_unknown(
-                    attempt_id, revision, provider_token, "feedback"
-                )
-            )
-            response_error_code = _mock_interview_failure_response_code(
-                failure_finalization, "mock_interview_provider_error"
-            )
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=attempt_id,
-                generation_revision=revision,
-                idempotency_key=feedback_key,
-                model=configured_model,
-                input_fingerprint=attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_feedback_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome="provider_error",
-                validator_stage="feedback",
-                failure_category=str(exc.diagnostic.get("failure_category") or "provider_error"),
-                repair_count=int(exc.diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-            if response_error_code != "mock_interview_provider_error":
-                return recovery_error(
-                    response_error_code,
-                    _mock_interview_failure_message(response_error_code, ""),
-                    details={"attempt_id": attempt_id, "operation_id": operation_id},
-                )
-            return recovery_error(
-                "mock_interview_provider_error",
-                "AI service is temporarily unavailable",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-
-        def emit_generated_feedback_trace(response_error_code: str = "") -> None:
-            _emit_mock_interview_trace(
-                resolved_data_dir,
-                scenario_id=scenario_id,
-                operation_id=operation_id,
-                attempt_id=attempt_id,
-                generation_revision=revision,
-                idempotency_key=feedback_key,
-                model=legacy_model,
-                input_fingerprint=attempt.source_fingerprint,
-                schema_fingerprint=_mock_interview_feedback_schema_fingerprint(),
-                started_at=trace_started_at,
-                elapsed_ms=int((perf_counter() - trace_timer) * 1000),
-                provider_outcome=(
-                    "success_after_repair" if diagnostic.get("repair_count") else "success"
-                ),
-                validator_stage="feedback",
-                failure_category="",
-                repair_count=int(diagnostic.get("repair_count") or 0),
-                response_error_code=response_error_code,
-            )
-
-        try:
-            record, created = mock_interviews.complete_feedback(
-                attempt_id,
-                feedback_key,
-                revision,
-                provider_token,
-                transcript_fingerprint,
-                proposal,
-                proposal["proposal_status"],
-                str(diagnostic.get("failure_category", "")),
-            )
-        except MockInterviewSourceChanged:
-            emit_generated_feedback_trace("mock_interview_source_conflict")
-            return recovery_error(
-                "mock_interview_source_conflict",
-                "mock interview frozen source changed",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-        if record is None:
-            replay, _ = mock_interviews.get_feedback(attempt_id, feedback_key)
-            if replay is not None:
-                emit_generated_feedback_trace()
-                return JSONResponse(
-                    {**_mock_interview_proposal_json(replay), "operation_id": operation_id},
-                    status_code=200,
-                )
-            emit_generated_feedback_trace("mock_interview_transcript_conflict")
-            return recovery_error(
-                "mock_interview_transcript_conflict",
-                "mock interview transcript changed",
-                details={"attempt_id": attempt_id, "operation_id": operation_id},
-            )
-        emit_generated_feedback_trace()
+            outcome = mock_execution.feedback(attempt, claim, feedback_key, APPLICATION_EVENT_EXECUTION)
+        except MockInterviewExecutionError as exc:
+            return recovery_error(exc.code, str(exc), details=exc.details)
         return JSONResponse(
-            {**_mock_interview_proposal_json(record), "operation_id": operation_id},
-            status_code=201 if created else 200,
+            {
+                **_mock_interview_proposal_json(outcome.record),
+                "operation_id": outcome.operation_id,
+            },
+            status_code=201 if outcome.created else 200,
         )
 
     @app.post(
@@ -11153,6 +9936,11 @@ def _chat_model(injected: Optional[ChatModel], data_dir: Path) -> ChatModel | JS
         )
     except ValueError as exc:
         return error_response(503, str(exc))
+
+
+def _mock_interview_chat_model(injected: Optional[ChatModel], data_dir: Path) -> ChatModel | None:
+    model = _chat_model(injected, data_dir)
+    return None if isinstance(model, JSONResponse) else model
 
 
 def _workflow_chat_model(injected: Optional[ChatModel], data_dir: Path) -> ChatModel:

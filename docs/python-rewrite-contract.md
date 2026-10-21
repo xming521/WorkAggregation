@@ -210,6 +210,17 @@ Python schema rules:
 - Add explicit tests that create a legacy-style database and run Python migration on it.
 - Resume upload compatibility must keep relative DB paths like `resumes/<id>_<basename>.pdf`; note that current file write plus DB update is best-effort rather than transactional.
 
+## Current Mock Interview Execution Boundary
+
+Quick practice and application-event interviews share only the finite question/feedback
+execution path in `mock_interview_execution.py`: frozen provider input, validated output,
+claim-fenced commit, and sanitized failure/trace handling. Context selection, admission,
+and replay remain in the HTTP adapters and existing repository; the repository remains
+the sole owner of claims, recovery state, and compare-and-set writes. No automatic provider
+retry is introduced; the existing validator still permits at most one format repair.
+The two contexts retain their error codes, context fields, history, and explicit review
+confirmation. A new JD or archived practice case does not rewrite an existing frozen attempt.
+
 ## CLI Contract
 
 **2026-10-21 current analysis contract:** JD analysis, resume matching, and notes-to-question
