@@ -67,6 +67,29 @@ async function inputIs(locator, expected, description) {
   await locator.waitFor({ state: 'visible' });
   await eventually(async () => await locator.inputValue() === expected, description);
 }
+async function afterPaint(page) {
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+async function settledModalState(dialog) {
+  return dialog.evaluate(async node => {
+    const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const moving = () => {
+      // Only the modal and its ancestors; never the infinite loading spinner.
+      for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+        if (ancestor.getAnimations().some(animation => animation.effect?.getTiming().iterations !== Infinity
+          && (animation.playState === 'running' || animation.pending))) return true;
+      }
+      return false;
+    };
+    await paint();
+    const deadline = performance.now() + 3000;
+    while (moving() && performance.now() < deadline) await paint();
+    return { connected: node.isConnected, visible: node.getClientRects().length > 0
+      && getComputedStyle(node).visibility === 'visible', moving: moving(),
+      leaving: /ant-zoom-leave/.test(node.className), focused: node.contains(document.activeElement),
+      inputDisabled: node.querySelector('#knowledge-note-title')?.disabled === true };
+  });
+}
 async function openAI(page) {
   await textButton(page, '配置 AI').click();
   await page.getByRole('region', { name: 'AI 设置', exact: true }).waitFor();
@@ -187,14 +210,24 @@ try {
     check('Cancelled application did not write', writes(api).length === 0);
     await onboarding.getByRole('button', { name: '稍后再说', exact: true }).click();
     await onboarding.waitFor({ state: 'hidden' });
+    const reloadedOnboarding = page.waitForResponse(response => response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/onboarding');
     await page.reload();
+    await (await reloadedOnboarding).finished();
     await page.getByRole('navigation', { name: '主导航' }).waitFor();
     await eventually(() => counts(api, 'GET', '/api/onboarding').length >= 2, 'Onboarding reload read completed');
+    await page.getByRole('button', { name: '添加第一个投递', exact: true }).waitFor();
+    await afterPaint(page);
     check('Dismissal persists across reload', !(await onboarding.isVisible()) && api.snapshot().onboarding.dismissed);
     await navigate(page, '设置'); await openAI(page);
+    const refreshedOnboarding = page.waitForResponse(response => response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/onboarding');
     await page.getByRole('button', { name: /^保\s*存$/ }).click();
     await page.getByRole('region', { name: 'AI 设置', exact: true }).waitFor({ state: 'hidden' });
     await navigate(page, '今日');
+    await (await refreshedOnboarding).finished();
+    await page.getByRole('button', { name: '添加第一个投递', exact: true }).waitFor();
+    await afterPaint(page);
     check('Unrelated settings save does not reopen onboarding', !(await onboarding.isVisible()) && api.snapshot().onboarding.dismissed);
     await navigate(page, '设置');
     await page.getByRole('button', { name: '重新打开新手引导', exact: true }).click();
@@ -228,10 +261,14 @@ try {
     await eventually(() => counts(api, 'POST', '/api/settings/providers/test').length === 1, 'Draft test dispatched');
     check('Test sends unsaved provider draft without saving settings', counts(api, 'POST', '/api/settings/providers/test')[0].body.provider.model === 'draft-one' && counts(api, 'PUT', '/api/settings').length === 0);
     await textButton(page.getByRole('region', { name: 'AI 设置', exact: true }), '返回设置').click();
+    const testedResponse = page.waitForResponse(response => response.request().method() === 'POST'
+      && new URL(response.url()).pathname === '/api/settings/providers/test');
     release({ status: 200, data: { ok: true, message: 'STALE CONNECTION RESULT MUST NOT REAPPEAR' } });
+    const response = await testedResponse;
+    check('Released connection test response completes in the browser', await response.finished() === null);
     await openAI(page);
     check('Cancel/reopen restores saved provider, not abandoned draft', await page.locator('#model').inputValue() === 'model-one');
-    await page.waitForTimeout(250);
+    await afterPaint(page);
     check('Late test result cannot resurrect after cancel', !(await page.getByText('STALE CONNECTION RESULT MUST NOT REAPPEAR', { exact: true }).isVisible()));
     await page.locator('#model').fill('final-one');
     await page.getByText('多供应商管理（高级）', { exact: true }).click();
@@ -250,14 +287,17 @@ try {
 
   await runCase('commands-and-history', {}, async ({ page, api, check, snap }) => {
     await go(page, 'dashboard');
-    for (const query of ['设置', 'Offer']) {
+    for (const [query, destination] of [['设置', '打开设置'], ['Offer', '打开 Offer 中心']]) {
       await page.getByRole('button', { name: '快速打开', exact: true }).click();
       const input = page.getByRole('combobox'); await input.fill(query);
+      await page.getByRole('option').filter({ has: page.getByText(destination, { exact: true }) }).waitFor();
       check(`${query}: destination appears once`, await page.getByRole('option').count() === 1);
       await input.press('Escape'); await page.getByRole('dialog').waitFor({ state: 'hidden' });
     }
     await page.getByRole('button', { name: '快速打开', exact: true }).click();
-    await page.getByRole('combobox').fill('设置'); await page.getByRole('combobox').press('Enter');
+    await page.getByRole('combobox').fill('设置');
+    await page.getByRole('option').filter({ has: page.getByText('打开设置', { exact: true }) }).waitFor();
+    await page.getByRole('combobox').press('Enter');
     await page.getByRole('combobox', { name: '界面语言', exact: true }).waitFor();
     check('Command Enter navigates once', new URL(page.url()).searchParams.get('view') === 'settings');
     await page.goBack(); await page.getByRole('tab', { name: '概览', exact: true }).waitFor();
@@ -352,14 +392,31 @@ try {
     check('Cancel discards only the knowledge edit and does not save', await page.locator('#knowledge-note-title').inputValue() === knowledgeTitle && writes(api).length === 0);
     await page.locator('#knowledge-note-title').fill('合成确认修订');
     const release = api.holdNext('POST', '/api/knowledge/notes/7/lifecycle');
-    await page.getByRole('button', { name: '确认保存新版本', exact: true }).dblclick();
+    const noteEditor = page.getByRole('dialog', { name: '编辑并确认新版本', exact: true });
+    const saveNote = textButton(noteEditor, '确认保存新版本');
+    await saveNote.dblclick();
     await eventually(() => counts(api, 'POST', '/api/knowledge/notes/7/lifecycle').length === 1, 'Knowledge single flight started');
+    await eventually(async () => await page.locator('#knowledge-note-title').isDisabled()
+      && await noteEditor.evaluate(node => node.contains(document.activeElement)),
+    'Pending knowledge editor is disabled and owns keyboard focus');
     await page.keyboard.press('Escape');
-    check('Pending knowledge save blocks dismissal and repeated submission', await page.locator('#knowledge-note-title').isVisible() && counts(api, 'POST', '/api/knowledge/notes/7/lifecycle').length === 1);
+    const pendingModal = await settledModalState(noteEditor);
+    check('Pending knowledge save blocks dismissal and repeated submission',
+      pendingModal.connected && pendingModal.visible && !pendingModal.moving && !pendingModal.leaving
+      && pendingModal.focused && pendingModal.inputDisabled
+      && counts(api, 'POST', '/api/knowledge/notes/7/lifecycle').length === 1,
+      JSON.stringify(pendingModal));
     release({ status: 503, data: { error_code: 'synthetic_uncertain' } });
     await page.getByRole('dialog').getByText(/操作未确认/).waitFor(); await snap('unknown-save');
     const first = counts(api, 'POST', '/api/knowledge/notes/7/lifecycle')[0].body;
-    await page.getByRole('button', { name: '确认保存新版本', exact: true }).click();
+    // Ant Design can retain a transparent leaving loading icon after busy=false.
+    // Its accessible name is still "loading", so use the complete visible label
+    // and independently require the production busy state to have settled.
+    await eventually(async () => await saveNote.isEnabled()
+      && !(await saveNote.getAttribute('class') || '').split(/\s+/).includes('ant-btn-loading')
+      && await page.locator('#knowledge-note-title').isEnabled(),
+    'Unknown result releases the pending UI before the explicit retry');
+    await saveNote.click();
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const attempts = counts(api, 'POST', '/api/knowledge/notes/7/lifecycle');
     check('Unknown retry preserves exact mutation identity and body', attempts.length === 2 && JSON.stringify(attempts[1].body) === JSON.stringify(first));

@@ -17,7 +17,7 @@ from typing import Any, Callable, Iterator
 
 from scripts.simplification_ai_validation.broker import (
     BASE_URL, MODEL, OPERATIONS, OUTPUT_TOKENS, CONTEXT_TOKENS, PRICE_VALID_UNTIL,
-    REQUEST_SECONDS, Broker, GateError, HTTPSUpstream, encode, serve,
+    REQUEST_SECONDS, Broker, GateError, HTTPSUpstream, encode, serve, require_linux,
 )
 
 KEY_NAME = "OFFERPILOT_SIMPLIFICATION_DEEPSEEK_20261021"
@@ -83,6 +83,7 @@ def write_config(data_dir: Path, base_url: str, token: str) -> None:
 
 def execute(send: Callable[[bytes], tuple[int, bytes]], source_sha: str,
             evidence_dir: Path) -> dict[str, Any]:
+    require_linux()
     # Defer production imports until runtime environment is sanitized by main.
     # Offline callers are protected by pytest's early loopback-only network guard.
     from scripts.simplification_ai_validation.driver import MatrixFailure, run_matrix
@@ -133,6 +134,7 @@ def execute(send: Callable[[bytes], tuple[int, bytes]], source_sha: str,
 
 def main() -> int:
     try:
+        require_linux()
         parser = argparse.ArgumentParser()
         parser.add_argument("--live", action="store_true", required=True)
         parser.add_argument("--admission-file", type=Path, required=True)

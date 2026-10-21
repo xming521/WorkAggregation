@@ -14,6 +14,7 @@ import os
 import secrets
 import ssl
 import stat
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -48,6 +49,12 @@ OPERATIONS = (
 
 class GateError(RuntimeError):
     """Safe error codes only: never stringify upstream errors."""
+
+
+def require_linux() -> None:
+    """This helper requires real Linux journal durability; never emulate it."""
+    if sys.platform != "linux" or os.name != "posix":
+        raise GateError("linux_only_helper")
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -201,6 +208,7 @@ def _expected_repair(operation: str, original: dict[str, Any], category: str) ->
 class HTTPSUpstream:
     """One direct verified TLS connection per attempt; never an SDK/proxy opener."""
     def __init__(self, key: str):
+        require_linux()
         if not key or any(c.isspace() for c in key):
             raise GateError("credential_missing")
         self._key = key
@@ -263,6 +271,7 @@ class HTTPSUpstream:
 class Broker:
     def __init__(self, journal_path: Path, send: Callable[[bytes], tuple[int, bytes]],
                  source_sha: str):
+        require_linux()
         if len(source_sha) != 40 or any(c not in "0123456789abcdef" for c in source_sha):
             raise GateError("source_sha")
         self._lock = threading.Lock()

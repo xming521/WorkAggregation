@@ -31,9 +31,18 @@ jobs:
         run: uv sync --frozen
       - name: Test fake upstream, budget failures, genuine CLI and loopback API
         run: |
-          uv run pytest -q tests/test_simplification_ai_*.py
-          uv run ruff check scripts/simplification_ai_validation tests/test_simplification_ai_*.py
-          uv run mypy scripts/simplification_ai_validation --follow-imports=silent --explicit-package-bases
+          uv run --frozen python -m scripts.simplification_ai_validation.offline --output artifacts/simplification-offline/results.json
+          uv run --frozen pytest -q tests/test_simplification_ai_platform.py
+          uv run --frozen ruff check scripts/simplification_ai_validation tests/test_simplification_ai_platform.py
+          uv run --frozen mypy scripts/simplification_ai_validation --exclude /tests/ --follow-imports=silent --explicit-package-bases
+      - name: Preserve exact Linux safety node evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: simplification-offline-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/simplification-offline/results.json
+          if-no-files-found: error
+          retention-days: 14
   preflight:
     name: Simplification request preflight
     needs: offline

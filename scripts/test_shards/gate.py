@@ -25,6 +25,18 @@ PARTITION_STRATEGY = "duration-lpt-v1"
 DURATION_HISTORY_PATH = Path(__file__).with_name("durations-v1.json")
 # SHA256 of the checked-in history with checkout CRLF normalized to LF.
 DURATION_HISTORY_SHA256 = "ced3340e064ca8a5fffb1621d2b4a07593f9dd1095c2595d02873c78ff62fe77"
+# pytest exports each node plus a phase suffix in PYTEST_CURRENT_TEST. Leave
+# headroom below Windows' 32767 UTF-16-unit environment value limit.
+MAX_NODE_ID_UTF16_UNITS = 32700
+
+
+def validate_node_id(node):
+    if len(node.encode("utf-16-le")) // 2 > MAX_NODE_ID_UTF16_UNITS:
+        # Parameter values can contain enormous or sensitive fixture content.
+        # Identify the test function, never echo the offending parameter body.
+        function = node.split("[", 1)[0][:200]
+        raise ValueError(f"{function}: pytest node ID exceeds the portable Windows limit; "
+                         "use explicit short parameter ids")
 
 
 def validate_split_fixture(item, name, definition, scope):
@@ -182,6 +194,8 @@ def _partition(nodes, count, history):
 def validate_manifest(manifest):
     if manifest["version"] != MANIFEST_VERSION:
         raise ValueError("Unsupported manifest")
+    for node in manifest["nodes"]:
+        validate_node_id(node)
     history = load_duration_history()
     if manifest.get("partition") != partition_policy(history):
         raise ValueError("Manifest duration policy differs from the frozen input")
@@ -268,6 +282,7 @@ def worker(args):
         def pytest_collection_modifyitems(self, session, config, items):
             for item in items:
                 try:
+                    validate_node_id(item.nodeid)
                     validate_split_fixture_scope(item)
                 except ValueError as exc:
                     raise pytest.UsageError(str(exc)) from exc

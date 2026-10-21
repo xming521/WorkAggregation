@@ -248,7 +248,7 @@ def test_independent_text_preserves_original_without_inventing_link(entrypoint, 
         "[]",
         '{"summary":"a","summary":"secret-key"}',
         '{"summary":NaN}',
-        '{"summary":"' + "x" * (128 * 1024) + '"}',
+        pytest.param('{"summary":"' + "x" * (128 * 1024) + '"}', id="oversized-json"),
     ],
 )
 def test_invalid_model_output_is_bounded_safe_and_not_persisted(entrypoint, operation, reply):

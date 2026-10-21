@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
+from scripts.simplification_ai_validation.broker import require_linux
+
 import httpx
 from sqlalchemy import select
 
@@ -500,6 +502,7 @@ def run_matrix(data_dir: Path, stage: Stage) -> dict[str, Any]:
     ``data_dir`` must be a new empty directory owned by this run.  The caller
     deletes it afterwards; only this function's bounded summary is an artifact.
     """
+    require_linux()
     _require(not data_dir.is_symlink(), "matrix", "data_dir_symlink")
     data_dir = data_dir.resolve()
     _require(data_dir.is_dir() and not any(data_dir.iterdir()), "matrix", "data_dir_not_empty")

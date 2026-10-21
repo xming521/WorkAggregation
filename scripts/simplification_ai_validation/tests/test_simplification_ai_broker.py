@@ -114,7 +114,10 @@ def test_invalid_request_cannot_reach_upstream(tmp_path, change):
     broker.close()
 
 
-@pytest.mark.parametrize("raw", [b'{"x":1,"x":2}', b'{"x":NaN}', b'[]', b'{}' * 100000])
+@pytest.mark.parametrize("raw", [
+    b'{"x":1,"x":2}', b'{"x":NaN}', b'[]',
+    pytest.param(b'{}' * 100000, id="oversized-body"),
+])
 def test_bad_json_never_sends(tmp_path, raw):
     broker, fake = make(tmp_path)
     token = broker.begin_stage("cli_analyze")

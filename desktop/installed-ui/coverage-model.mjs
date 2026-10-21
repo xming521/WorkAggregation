@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 
 export const WIDTHS = Object.freeze([900, 1008, 1280, 1440]);
 export const ROOTS = Object.freeze([
-  ['R01', 'dashboard', '今日', '概览'], ['R02', 'reminders', '今日', '提醒'],
+  ['R01', 'dashboard', '今日', '概览'], ['R02', 'reminders', '今日', '今日待办'],
   ['R03', 'calendar', '今日', '日历'], ['R04', 'board', '投递', '看板'],
   ['R05', 'applications-list', '投递', '列表'], ['R06', 'interview', '面试', '面试'],
   ['R07', 'questions', '面试', '刷题'], ['R08', 'offers', 'Offer', null],
-  ['R09', 'resumes', '素材库', '简历'], ['R10', 'reviews', '素材库', '经历素材'],
-  ['R11', 'knowledge', '素材库', '参考资料'], ['R12', 'pilot', null, null],
+  ['R09', 'resumes', '素材库', '简历'], ['R10', 'reviews', '素材库', '我的经历'],
+  ['R11', 'knowledge', '素材库', '参考知识'], ['R12', 'pilot', null, null],
   ['R13', 'settings', '设置', null],
 ].map(([id, view, module, tab]) => Object.freeze({ id, view, module, tab })));
 export const ROOT_STATES = Object.freeze(['empty-before-fixtures', 'populated-to-supported-extent']);

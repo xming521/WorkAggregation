@@ -6,7 +6,9 @@ import pytest
 
 from scripts.simplification_ai_validation import broker as gate
 from scripts.simplification_ai_validation import run
-from tests.test_simplification_ai_driver import fake_completion
+from scripts.simplification_ai_validation.tests.test_simplification_ai_driver import (
+    fake_completion,
+)
 
 
 @pytest.fixture
@@ -112,7 +114,7 @@ def test_genuine_cli_and_http_matrix_through_actual_budget_broker(tmp_path, monk
 
 
 def test_workflow_has_one_secret_step_and_no_pr_or_write_path():
-    path = Path(__file__).resolve().parents[1] / ".github/workflows/simplification-real-ai.yml"
+    path = Path(__file__).resolve().parents[3] / ".github/workflows/simplification-real-ai.yml"
     workflow = path.read_text()
     assert workflow.count("${{ secrets.OFFERPILOT_SIMPLIFICATION_DEEPSEEK_20261021 }}") == 1
     assert "  workflow_dispatch:" not in workflow
