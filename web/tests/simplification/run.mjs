@@ -57,8 +57,18 @@ async function go(page, view) {
 async function navigate(page, name) {
   await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name, exact: true }).click();
 }
+// Ant Design icons contribute accessible names (e.g. "setting 配置 AI").
+// Match the complete visible button label, not an incomplete accessible name.
+function textButton(scope, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return scope.getByRole('button').filter({ hasText: new RegExp(`^${escaped}$`) });
+}
+async function inputIs(locator, expected, description) {
+  await locator.waitFor({ state: 'visible' });
+  await eventually(async () => await locator.inputValue() === expected, description);
+}
 async function openAI(page) {
-  await page.getByRole('button', { name: '配置 AI', exact: true }).click();
+  await textButton(page, '配置 AI').click();
   await page.getByRole('region', { name: 'AI 设置', exact: true }).waitFor();
   await eventually(async () => (await page.locator('#model').inputValue()).length > 0, 'AI provider fields initialize');
 }
@@ -207,15 +217,17 @@ try {
     check('Advanced provider list starts collapsed', !(await page.getByTestId('ai-provider-list').isVisible()));
     await page.locator('#model').fill('draft-one');
     await page.getByText('多供应商管理（高级）', { exact: true }).click();
-    await page.getByRole('button', { name: '编辑供应商', exact: true }).nth(1).click();
+    await textButton(page.getByTestId('ai-provider-list'), '编辑供应商').nth(1).click();
+    await inputIs(page.locator('#model'), 'model-two', 'Second provider form is committed before editing');
     await page.locator('#model').fill('draft-two');
-    await page.getByRole('button', { name: '编辑供应商', exact: true }).nth(0).click();
+    await textButton(page.getByTestId('ai-provider-list'), '编辑供应商').nth(0).click();
+    await inputIs(page.locator('#model'), 'draft-one', 'First provider draft restored after switching');
     check('Switching providers retains both drafts', await page.locator('#model').inputValue() === 'draft-one');
     const release = api.holdNext('POST', '/api/settings/providers/test');
-    await page.getByRole('button', { name: '测试连接', exact: true }).click();
+    await textButton(page.getByRole('region', { name: 'AI 设置', exact: true }), '测试连接').click();
     await eventually(() => counts(api, 'POST', '/api/settings/providers/test').length === 1, 'Draft test dispatched');
     check('Test sends unsaved provider draft without saving settings', counts(api, 'POST', '/api/settings/providers/test')[0].body.provider.model === 'draft-one' && counts(api, 'PUT', '/api/settings').length === 0);
-    await page.getByRole('button', { name: '返回设置', exact: true }).click();
+    await textButton(page.getByRole('region', { name: 'AI 设置', exact: true }), '返回设置').click();
     release({ status: 200, data: { ok: true, message: 'STALE CONNECTION RESULT MUST NOT REAPPEAR' } });
     await openAI(page);
     check('Cancel/reopen restores saved provider, not abandoned draft', await page.locator('#model').inputValue() === 'model-one');
@@ -223,7 +235,8 @@ try {
     check('Late test result cannot resurrect after cancel', !(await page.getByText('STALE CONNECTION RESULT MUST NOT REAPPEAR', { exact: true }).isVisible()));
     await page.locator('#model').fill('final-one');
     await page.getByText('多供应商管理（高级）', { exact: true }).click();
-    await page.getByRole('button', { name: '编辑供应商', exact: true }).nth(1).click();
+    await textButton(page.getByTestId('ai-provider-list'), '编辑供应商').nth(1).click();
+    await inputIs(page.locator('#model'), 'model-two', 'Cancelled second-provider draft was discarded');
     await page.locator('#model').fill('final-two');
     await snap('two-provider-drafts');
     await page.getByRole('button', { name: /^保\s*存$/ }).click();
@@ -258,21 +271,29 @@ try {
   await runCase('today-inbox-and-history', { today: true }, async ({ page, api, check, snap }) => {
     await go(page, 'reminders');
     await page.getByText('Interview invitation', { exact: true }).waitFor();
-    await page.getByText('合成待查看准备草稿', { exact: true }).waitFor();
+    const proactive = page.getByRole('region', { name: '主动任务', exact: true });
+    const resultCard = text => proactive.getByRole('article', { includeHidden: true }).filter({ hasText: text });
+    const draft = resultCard('合成待查看准备草稿');
+    await draft.waitFor({ state: 'visible' });
+    check('Ready draft renders its exact body with the unsent boundary',
+      (await draft.innerText()).split('\n').map(line => line.trim()).includes('合成待查看准备草稿')
+      && await draft.getByText('自动准备草稿 · 未发送', { exact: true }).isVisible());
     await page.getByText('需要检查', { exact: true }).waitFor();
     await page.getByText(/合成笔试公司/).first().waitFor();
     check('Mail, candidate and actionable proactive results are co-located', true);
-    check('Same successful reminder is not duplicated', !(await page.getByText('合成重复提醒不应再显示', { exact: true }).isVisible()));
-    check('Published non-current reminder starts hidden in history', !(await page.getByText('合成历史提醒', { exact: true }).isVisible()));
+    check('Same successful reminder is not duplicated', await resultCard('合成重复提醒不应再显示').count() === 0);
+    const historical = resultCard('合成历史提醒');
+    check('Published non-current reminder exists but starts hidden in history', await historical.count() === 1 && !(await historical.isVisible()));
     await page.getByText('已发布提醒历史（1）', { exact: true }).click();
-    await page.getByText('合成历史提醒', { exact: true }).waitFor();
+    await historical.waitFor({ state: 'visible' });
+    check('Expanded history renders the exact published body', (await historical.innerText()).split('\n').map(line => line.trim()).includes('合成历史提醒'));
     await snap('combined-inbox');
     await page.getByText('Interview invitation', { exact: true }).click();
     await page.getByRole('button', { name: '预览最终变更', exact: true }).waitFor();
     await snap('mail-review-no-write');
     await page.keyboard.press('Escape'); await page.getByRole('dialog').waitFor({ state: 'hidden' });
     await navigate(page, '设置');
-    check('Settings no longer owns mail review or proactive results', !(await page.getByText('Interview invitation', { exact: true }).isVisible()) && !(await page.getByText('合成待查看准备草稿', { exact: true }).isVisible()));
+    check('Settings no longer owns mail review or proactive results', !(await page.getByText('Interview invitation', { exact: true }).isVisible()) && !(await resultCard('合成待查看准备草稿').isVisible()));
     check('Inbox navigation/review opening never writes', writes(api).length === 0);
   });
 
@@ -312,6 +333,8 @@ try {
     await page.getByRole('dialog').getByRole('button', { name: /^取\s*消$/ }).click();
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     await notes.getByRole('button', { name: /^编\s*辑$/ }).click();
+    await page.getByRole('dialog', { name: '编辑并确认新版本', exact: true }).waitFor({ state: 'visible' });
+    await inputIs(page.locator('#knowledge-note-title'), knowledgeTitle, 'Reopened knowledge form restores the confirmed title');
     check('Cancel discards only the knowledge edit and does not save', await page.locator('#knowledge-note-title').inputValue() === knowledgeTitle && writes(api).length === 0);
     await page.locator('#knowledge-note-title').fill('合成确认修订');
     const release = api.holdNext('POST', '/api/knowledge/notes/7/lifecycle');
