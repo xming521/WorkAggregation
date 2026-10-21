@@ -204,7 +204,8 @@ describe('AppShell source contract', () => {
   });
 
   it('keeps UI and Pilot negotiation drafts separate inside the shared ApplicationDetail owner', () => {
-    expect(source).toContain('offerNegotiationPilotDraftsRef');
+    expect(source).toContain('useOfferNegotiationOwnerDrafts');
+    expect(source).toContain('pilotDrafts: offerNegotiationPilotDrafts');
     expect(source).toContain("offerNegotiationEntryPoint === 'pilot'");
     expect(source).toContain('offerNegotiationDrafts={');
     expect(source).toContain('onOfferNegotiationDraftChange={');

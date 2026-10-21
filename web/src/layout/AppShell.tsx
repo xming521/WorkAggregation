@@ -1,7 +1,11 @@
 import { liveText } from '@/i18n/liveText';
 import { t, useLocale, getLocale } from '@/i18n';
 import { getJobMailPendingCount, JOB_MAIL_COUNT_KEY } from '@/services/jobMail';
-import { applicationJdBaselineForOpen, desktopUpdateTaskGuard, retainedWorkSafety, type ApplicationJdDraftBaseline } from '@/features/desktopUpdates/retainedWorkSafety';
+import { desktopUpdateTaskGuard } from '@/features/desktopUpdates/retainedWorkSafety';
+import { readRetainedOwnerSafety } from '@/features/coreTaskSurface/registry';
+import { useApplicationJdOwnerDrafts } from '@/features/applicationTasks/useApplicationJdOwnerDrafts';
+import { useOfferNegotiationOwnerDrafts } from '@/features/offerNegotiation/useOfferNegotiationOwnerDrafts';
+import { useInterviewOwnerDrafts } from '@/features/interviewEvents/useInterviewOwnerDrafts';
 import { readDesktopUpdateSafety } from '@/features/desktopUpdates/installSafety';
 import { useDesktopUpdateSafety } from '@/features/desktopUpdates/useDesktopUpdateSafety';
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -40,7 +44,6 @@ import InterviewStoryDrawer, {
   type InterviewStoryDraft,
   type InterviewStoryDraftChangeContext,
 } from '@/components/InterviewStoryDrawer';
-import { type OfferNegotiationDraft } from '@/components/OfferNegotiationDrawer';
 import {
   buildOfferNegotiationPilotDraft,
   type OfferNegotiationPilotBrief,
@@ -60,7 +63,6 @@ import {
   type PipelineInsight,
 } from '@/lib/pipelineInsights';
 import { getPracticeStats } from '@/services/questions';
-import type { ApplicationJdDraft } from '@/types/applicationJdVersion';
 import type { AdaptivePracticeFocus, AdaptivePracticeOwnerDraft } from '@/types/adaptiveInterviewPractice';
 import {
   isReviewReadinessDraftPending,
@@ -1072,8 +1074,15 @@ function AppShellContent() {
   );
   const [adaptivePracticeFocus, setAdaptivePracticeFocus] = useState<AdaptivePracticeFocus | undefined>();
   const adaptivePracticeFocusRef = useRef<AdaptivePracticeFocus | undefined>();
-  const [adaptivePracticeDrafts, setAdaptivePracticeDrafts] = useState<Record<string, AdaptivePracticeOwnerDraft>>({});
-  const adaptivePracticeDraftsRef = useRef<Record<string, AdaptivePracticeOwnerDraft>>({});
+  const jdOwner = useApplicationJdOwnerDrafts();
+  const { drafts: applicationJdDrafts, updateDraft: updateApplicationJdDraft } = jdOwner;
+  const negotiationOwner = useOfferNegotiationOwnerDrafts();
+  const {
+    drafts: offerNegotiationDrafts, pilotDrafts: offerNegotiationPilotDrafts,
+    updateDraft: updateOfferNegotiationDraft, updatePilotDraft: handleOfferNegotiationDrawerDraftChange,
+  } = negotiationOwner;
+  const interviewOwner = useInterviewOwnerDrafts();
+  const { adaptivePracticeDrafts, setAdaptivePracticeDrafts, adaptivePracticeDraftsRef, interviewReviewProposalAttempts, setInterviewReviewProposalAttempts, reviewReadinessDrafts, setReviewReadinessDrafts, reviewReadinessDraftsRef, interviewKnowledgeCaptureDrafts, setInterviewKnowledgeCaptureDrafts, interviewPreparationAttempts, setInterviewPreparationAttempts, interviewPreparationDrafts, setInterviewPreparationDrafts, interviewStoryDraftsRef, interviewStoryDrafts, setInterviewStoryDrafts } = interviewOwner;
   const [addOpen, setAddOpen] = useState(false);
   const [resumeUploadRequestToken, setResumeUploadRequestToken] = useState(0);
   const [offerCreateRequestToken, setOfferCreateRequestToken] = useState(0);
@@ -1111,30 +1120,15 @@ function AppShellContent() {
       setInterviewPreparationSelection(null);
     }
   }, [coreTaskSurfaceState.active, interviewPreparationSelection]);
-  const offerNegotiationDraftsRef = useRef(new Map<number, OfferNegotiationDraft>());
-  const [offerNegotiationDrafts, setOfferNegotiationDrafts] = useState<Record<number, OfferNegotiationDraft>>({});
-  const offerNegotiationPilotDraftsRef = useRef(new Map<number, OfferNegotiationDraft>());
-  const [offerNegotiationPilotDrafts, setOfferNegotiationPilotDrafts] = useState<Record<number, OfferNegotiationDraft>>({});
   const [resumeOnboardingFocusToken, setResumeOnboardingFocusToken] = useState(0);
   const [pilotOnboardingFocusToken, setPilotOnboardingFocusToken] = useState(0);
   const nextPilotOnboardingFocusToken = useRef(0);
   const [selected, setSelected] = useState<Application | null>(null);
   const [intakeApplicationId, setIntakeApplicationId] = useState<number | null>(null);
-  const applicationJdDraftsRef = useRef(new Map<number, ApplicationJdDraft>());
-  const applicationJdBaselinesRef = useRef(new Map<number, ApplicationJdDraftBaseline>());
-  const [applicationJdDrafts, setApplicationJdDrafts] = useState<Record<number, ApplicationJdDraft>>({});
-  const [interviewReviewProposalAttempts, setInterviewReviewProposalAttempts] = useState<Record<number, InterviewReviewProposalAttemptState>>({});
-  const [reviewReadinessDrafts, setReviewReadinessDrafts] = useState<Record<string, ReviewReadinessOwnerDraft>>({});
-  const reviewReadinessDraftsRef = useRef<Record<string, ReviewReadinessOwnerDraft>>({});
-  const [interviewKnowledgeCaptureDrafts, setInterviewKnowledgeCaptureDrafts] = useState<Record<number, InterviewKnowledgeCaptureDraft>>({});
-  const [interviewPreparationAttempts, setInterviewPreparationAttempts] = useState<Record<string, InterviewPreparationAttemptState>>({});
-  const [interviewPreparationDrafts, setInterviewPreparationDrafts] = useState<Record<string, InterviewPreparationDraft>>({});
   const [interviewStoryLibraryOpen, setInterviewStoryLibraryOpen] = useState(false);
   const [voiceCoachingGrowthOpen, setVoiceCoachingGrowthOpen] = useState(false);
   const [interviewStoryDrawerOpen, setInterviewStoryDrawerOpen] = useState(false);
   const [interviewStoryLibraryRevision, setInterviewStoryLibraryRevision] = useState(0);
-  const interviewStoryDraftsRef = useRef(new Map<string, InterviewStoryDraft>());
-  const [interviewStoryDrafts, setInterviewStoryDrafts] = useState<Record<string, InterviewStoryDraft>>({});
   const [activeInterviewStoryDraftScope, setActiveInterviewStoryDraftScope] = useState<string | null>(null);
   const [evidenceFocus, setEvidenceFocus] = useState<Exclude<EvidenceTarget, { kind: 'application' }> | null>(null);
   const [coachOfferId, setCoachOfferId] = useState<number | undefined>(undefined);
@@ -1161,13 +1155,10 @@ function AppShellContent() {
   );
   const { addAttachment: addAttachmentToKey, createNewDraftWithAttachment, drafts: pilotAttachmentDrafts } = usePilotAttachmentStore();
   const readDesktopUpdateInput = () => {
-    const retained = retainedWorkSafety({
-      adaptivePractice: adaptivePracticeDrafts, applicationJd: applicationJdDrafts,
-      applicationJdBaselines: applicationJdBaselinesRef.current,
-      offerNegotiation: offerNegotiationDrafts, offerNegotiationPilot: offerNegotiationPilotDrafts,
-      reviewReadiness: reviewReadinessDrafts, knowledgeCapture: interviewKnowledgeCaptureDrafts,
-      interviewPreparation: interviewPreparationDrafts, interviewStory: interviewStoryDrafts,
-      preparationAttempts: interviewPreparationAttempts, reviewAttempts: interviewReviewProposalAttempts,
+    const retained = readRetainedOwnerSafety({
+      'application.jd': jdOwner.readSafety,
+      'application.offer_review': negotiationOwner.readSafety,
+      'interview.retained': interviewOwner.readSafety,
     });
     return {
       pilot: pilotControllerRef.current,
@@ -1300,32 +1291,6 @@ function AppShellContent() {
     });
   };
 
-  const updateApplicationJdDraft = useCallback((applicationId: number, patch: Partial<ApplicationJdDraft> | null) => {
-    const previous = applicationJdDraftsRef.current.get(applicationId);
-    const current = previous ?? {
-      jdText: '',
-      sourceUrl: '',
-      expectedCurrentVersionId: null,
-      idempotencyKey: null,
-      resultUnknown: false,
-      pendingOperation: null,
-    };
-    if (patch === null) {
-      applicationJdDraftsRef.current.delete(applicationId);
-      applicationJdBaselinesRef.current.delete(applicationId);
-      setApplicationJdDrafts((state) => {
-        const next = { ...state };
-        delete next[applicationId];
-        return next;
-      });
-      return;
-    }
-    const baseline = applicationJdBaselineForOpen(previous, patch);
-    if (baseline) applicationJdBaselinesRef.current.set(applicationId, baseline);
-    const next = { ...current, ...patch };
-    applicationJdDraftsRef.current.set(applicationId, next);
-    setApplicationJdDrafts((state) => ({ ...state, [applicationId]: next }));
-  }, []);
 
   const qc = useQueryClient();
   const refreshWorkspaceData = () => {
@@ -2103,33 +2068,6 @@ function AppShellContent() {
     return true;
   };
 
-  const updateOfferNegotiationDraft = useCallback((offerId: number, draft: OfferNegotiationDraft | null) => {
-    if (draft) {
-      offerNegotiationDraftsRef.current.set(offerId, draft);
-      setOfferNegotiationDrafts((current) => ({ ...current, [offerId]: draft }));
-    } else {
-      offerNegotiationDraftsRef.current.delete(offerId);
-      setOfferNegotiationDrafts((current) => {
-        const next = { ...current };
-        delete next[offerId];
-        return next;
-      });
-    }
-  }, []);
-
-  const handleOfferNegotiationDrawerDraftChange = useCallback((offerId: number, draft: OfferNegotiationDraft | null) => {
-    if (draft) {
-      offerNegotiationPilotDraftsRef.current.set(offerId, draft);
-      setOfferNegotiationPilotDrafts((current) => ({ ...current, [offerId]: draft }));
-    } else {
-      offerNegotiationPilotDraftsRef.current.delete(offerId);
-      setOfferNegotiationPilotDrafts((current) => {
-        const next = { ...current };
-        delete next[offerId];
-        return next;
-      });
-    }
-  }, []);
 
   const clearEvidenceFocus = (target: EvidenceTarget) => {
     setEvidenceFocus((current) => (current === target ? null : current));
@@ -2291,14 +2229,13 @@ function AppShellContent() {
     setInterviewStoryLibraryOpen(true);
     setActiveInterviewStoryDraftScope(scope);
     setInterviewStoryDrafts((current) => {
-      const existing = interviewStoryDraftsRef.current.get(scope);
+      const existing = interviewStoryDraftsRef.current[scope];
       const next = existing ?? createInterviewStoryDraft(input.entrypoint, input.reviewNoteId, {
         applicationId: input.applicationId,
         targetStoryId: input.targetStoryId,
         expectedCurrentVersionId: input.expectedCurrentVersionId,
         expectedStoryRevision: input.expectedStoryRevision,
       });
-      interviewStoryDraftsRef.current.set(scope, next);
       return { ...current, [scope]: next };
     });
     setInterviewStoryDrawerOpen(true);
@@ -2320,11 +2257,9 @@ function AppShellContent() {
   ) => {
     const scope = activeInterviewStoryDraftScope;
     if (!scope) return false;
-    const currentDraft = interviewStoryDraftsRef.current.get(scope);
+    const currentDraft = interviewStoryDraftsRef.current[scope];
     if (!authorizeInterviewStoryDraftUpdate(currentDraft, draft, context)) return false;
     if (draft === null) setInterviewStoryLibraryRevision((current) => current + 1);
-    if (draft === null) interviewStoryDraftsRef.current.delete(scope);
-    else interviewStoryDraftsRef.current.set(scope, draft);
     setInterviewStoryDrafts((current) => {
       const next = { ...current };
       if (draft === null) {
