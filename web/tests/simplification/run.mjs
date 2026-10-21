@@ -289,9 +289,23 @@ try {
     check('Expanded history renders the exact published body', (await historical.innerText()).split('\n').map(line => line.trim()).includes('合成历史提醒'));
     await snap('combined-inbox');
     await page.getByText('Interview invitation', { exact: true }).click();
-    await page.getByRole('button', { name: '预览最终变更', exact: true }).waitFor();
+    const mailReview = page.getByRole('dialog', { name: '核对邮件建议', exact: true });
+    await mailReview.getByRole('button', { name: '预览最终变更', exact: true }).waitFor();
+    // rc-dialog focuses its content after the opening motion. A visible child
+    // is not proof that an immediate page-level Escape reaches the dialog.
+    // Observe natural focus; do not force focus or disable production motion.
+    await eventually(() => mailReview.evaluate(dialog =>
+      dialog.contains(document.activeElement)
+      && !/ant-zoom-(appear|enter)/.test(dialog.className)),
+    'Mail review finishes opening and acquires keyboard focus');
     await snap('mail-review-no-write');
-    await page.keyboard.press('Escape'); await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    await page.keyboard.press('Escape'); await mailReview.waitFor({ state: 'hidden' });
+    check('Escape closes the focused mail review without writing', writes(api).length === 0);
+    await page.getByText('Interview invitation', { exact: true }).click();
+    await mailReview.getByRole('button', { name: '暂不处理，保留待核对', exact: true }).click();
+    await mailReview.waitFor({ state: 'hidden' });
+    await page.getByText('Interview invitation', { exact: true }).waitFor();
+    check('Explicit cancellation preserves the pending suggestion without writing', writes(api).length === 0);
     await navigate(page, '设置');
     check('Settings no longer owns mail review or proactive results', !(await page.getByText('Interview invitation', { exact: true }).isVisible()) && !(await resultCard('合成待查看准备草稿').isVisible()));
     check('Inbox navigation/review opening never writes', writes(api).length === 0);
