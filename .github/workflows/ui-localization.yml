@@ -2,7 +2,7 @@ name: UI localization synthetic browser QA
 on:
   workflow_dispatch:
   push:
-    branches: [feat/20261019-localization-integration, test/20261019-localization-browser-review]
+    branches: [feat/20261019-localization-integration, test/20261019-localization-browser-review, feat/20261021-product-simplification]
     paths: ['web/**', '.github/workflows/ui-localization.yml']
 permissions:
   contents: read
@@ -35,11 +35,17 @@ jobs:
         env:
           LOCALIZATION_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/ui-localization
         run: npm run test:localization --prefix web
+      - name: Product simplification synthetic browser acceptance
+        env:
+          SIMPLIFICATION_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/simplification
+        run: npm run test:simplification --prefix web
       - name: Upload browser report, request log and bilingual screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ui-localization-${{ github.sha }}
-          path: artifacts/ui-localization
+          path: |
+            artifacts/ui-localization
+            artifacts/simplification
           if-no-files-found: warn
           retention-days: 14

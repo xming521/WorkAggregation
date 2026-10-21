@@ -3,7 +3,7 @@ name: Windows desktop localization (unsigned)
 # Independent, focused validation of a NEW build. Never reuses an installer PIN.
 on:
   push:
-    branches: [feat/20261019-localization-integration]
+    branches: [feat/20261019-localization-integration, feat/20261021-product-simplification]
     paths:
       - 'desktop/*.cjs'
       - 'desktop/*.py'
