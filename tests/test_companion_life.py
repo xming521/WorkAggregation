@@ -1,6 +1,7 @@
 """Companion lifecycle correctness, identity fencing and factual separation."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 
 from offerpilot.companion.api import register_companion_routes
+from offerpilot.companion.chat import CompanionChatService, erase_chat_evidence, freeze_chat_command
 from offerpilot.companion.contracts import (
     CompanionEventCommand, CompanionPolicy, CompanionPresenceCommand,
     CompanionResetCommand, CompanionSettingsCommand,
@@ -18,12 +20,16 @@ from offerpilot.companion.models import (
 )
 from offerpilot.companion.repository import (
     CompanionConflict, CompanionRepository, IDLE_COOLDOWN_SECONDS, MIN_STEP_SECONDS,
+    TEMPLATES,
     companion_client_active, companion_policy, companion_presence, companion_publish_guard,
     companion_source, mark_companion_published,
 )
 from offerpilot.db import init_database
 from offerpilot.models import Application, Conversation, MockInterviewAttempt, PilotExecution, PilotTurnRecord
+from offerpilot.pilot_control import PilotControlRepository
+from offerpilot.pilot_timeline import PilotTimelineRepository
 from offerpilot.proactive.models import ProactiveJob
+from offerpilot.proactive.repository import ProactiveRepository
 
 NOW = datetime(2026, 10, 21, 4, tzinfo=timezone.utc).timestamp()
 
@@ -72,11 +78,192 @@ def test_reads_and_heartbeats_do_not_advance_and_restart_continues(life):
     assert event(rebooted, now=NOW + MIN_STEP_SECONDS)["state"]["activity"]["step_index"] == 1
 
 
+def test_wish_only_appears_when_its_step_is_reached_in_the_same_event(life):
+    sessions, repo = life
+    started = event(repo)
+    assert started["state"]["wish"] is None
+    assert not started["state"]["activity"]["wish_offered"]
+    assert not event(repo, now=NOW + MIN_STEP_SECONDS - 1)["changed"]
+    _, client = present(repo)
+    for elapsed in (MIN_STEP_SECONDS - 1, 86400, 86400 * 30):
+        present(repo, NOW + elapsed, client_id=client, sequence=elapsed)
+        assert repo.read(NOW + elapsed)["state"] == started["state"]
+    progressed = event(repo, now=NOW + 86400 * 30)
+    activity = progressed["state"]["activity"]
+    wish = progressed["state"]["wish"]
+    assert activity["step_index"] == 1 and activity["wish_offered"]
+    assert wish["activity_id"] == activity["id"]
+    assert progressed["revision"] == started["revision"] + 1
+    assert [item["event_type"] for item in progressed["recent_events"]] == [
+        "activity_progressed", "activity_started",
+    ]
+    with sessions() as session:
+        source = companion_source(session)[1]
+        assert source["event_id"] == progressed["recent_events"][0]["id"]
+        assert source["wish"] == wish
+        assert session.scalar(select(func.count()).select_from(CompanionEvent)) == 2
+        assert session.scalar(select(func.count()).select_from(ProactiveJob)) == 0
+    queue = ProactiveRepository(sessions)
+    published_at = NOW + 86400 * 30
+    assert queue.discover_companion(published_at) == 1
+    assert queue.discover_companion(published_at) == 0
+    bid = queue.take_companion_bid(progressed["identity"], progressed["revision"], client, published_at)
+    assert bid["source_event_type"] == "activity_progressed"
+    assert bid["source_revision"] == progressed["revision"]
+    assert queue.take_companion_bid(progressed["identity"], progressed["revision"], client, published_at) is None
+    assert repo.read(published_at)["state"] == progressed["state"]
+    assert repo.read(published_at)["revision"] == progressed["revision"]
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(CompanionEvent)) == 2
+        assert session.scalar(select(func.count()).select_from(ProactiveJob)) == 1
+
+
+@pytest.mark.parametrize("template", TEMPLATES, ids=lambda template: template["id"])
+def test_template_controls_optional_wish_timing(life, template):
+    _, repo = life
+    now = NOW
+    while True:
+        started = event(repo, now=now)
+        if started["state"]["activity"]["template_id"] == template["id"]:
+            break
+        activity_event(repo, "abandon", now + 1)
+        now += 1 + IDLE_COOLDOWN_SECONDS
+    assert started["state"]["wish"] is None
+    offered = None
+    for step in range(1, len(template["steps"]) + 1):
+        current = event(repo, now=now + step * MIN_STEP_SECONDS)
+        wish = current["state"]["wish"]
+        if step == len(template["steps"]):
+            assert current["state"]["activity"]["status"] == "completed"
+            assert wish is None
+        elif template["wish_at_step"] is not None and step >= template["wish_at_step"]:
+            assert wish is not None
+            offered = offered or wish
+            assert wish == offered
+            assert current["state"]["activity"]["wish_offered"]
+        else:
+            assert wish is None
+            assert not current["state"]["activity"]["wish_offered"]
+    assert (offered is None) == (template["wish_at_step"] is None)
+
+
+def test_at_least_one_template_never_invites():
+    assert any(template["wish_at_step"] is None for template in TEMPLATES)
+
+
+def test_wish_creation_retry_keeps_one_id_and_one_progress_event(life):
+    sessions, repo = life
+    started = event(repo)
+    command = CompanionEventCommand(**fence(repo), event="chat_end")
+    offered = repo.apply_event(command, NOW + MIN_STEP_SECONDS)
+    wish = offered["state"]["wish"]
+    assert wish is not None
+    assert repo.apply_event(command, NOW + 86400) == offered
+    assert repo.read(NOW)["revision"] == started["revision"] + 1
+    assert repo.read(NOW)["state"]["wish"] == wish
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(CompanionEvent)) == 2
+
+
+def test_declined_wish_stays_gone_after_restart_and_later_days(life):
+    sessions, repo = life
+    event(repo)
+    offered = event(repo, now=NOW + MIN_STEP_SECONDS)
+    declined = activity_event(repo, "decline_wish", NOW + MIN_STEP_SECONDS + 1,
+                              wish_id=offered["state"]["wish"]["id"])
+    assert declined["state"]["wish"] is None
+    assert declined["state"]["activity"]["wish_offered"]
+    restarted = CompanionRepository(sessions)
+    assert restarted.read(NOW)["state"] == declined["state"]
+    for day in (1, 2):
+        current = event(restarted, now=NOW + day * 86400)
+        assert current["state"]["activity"]["id"] == offered["state"]["activity"]["id"]
+        assert current["state"]["wish"] is None
+        assert current["state"]["activity"]["wish_offered"]
+    assert current["state"]["activity"]["status"] == "completed"
+
+
+def test_join_before_wish_step_prevents_any_later_invitation(life):
+    sessions, repo = life
+    event(repo)
+    joined = activity_event(repo, "join", NOW + 1)
+    assert joined["state"]["wish"] is None
+    assert joined["state"]["activity"]["wish_offered"]
+    assert not event(repo, now=NOW + 86400)["changed"]
+    completed = activity_event(repo, "complete_shared", NOW + 86401)
+    restarted = CompanionRepository(sessions)
+    assert restarted.read(NOW)["state"] == completed["state"]
+    for step in range(1, 4):
+        current = event(restarted, now=NOW + 86401 + MIN_STEP_SECONDS * step)
+        assert current["state"]["wish"] is None
+        assert current["state"]["activity"]["wish_offered"]
+    assert current["state"]["activity"]["status"] == "completed"
+
+
+def test_accepting_wish_keeps_its_offer_consumed_after_shared_step(life):
+    _, repo = life
+    event(repo)
+    offered = event(repo, now=NOW + MIN_STEP_SECONDS)
+    accepted = activity_event(repo, "accept_wish", NOW + MIN_STEP_SECONDS + 1,
+                              wish_id=offered["state"]["wish"]["id"])
+    assert accepted["state"]["wish"] is None
+    assert accepted["state"]["activity"]["status"] == "waiting_shared"
+    assert accepted["state"]["activity"]["wish_offered"]
+    activity_event(repo, "complete_shared", NOW + MIN_STEP_SECONDS + 2)
+    progressed = event(repo, now=NOW + 2 * MIN_STEP_SECONDS + 2)
+    assert progressed["state"]["activity"]["step_index"] == 2
+    assert progressed["state"]["wish"] is None
+
+
+@pytest.mark.parametrize("erase_source", [False, True])
+def test_actual_chat_participation_never_reinvites_even_after_source_erasure(life, erase_source):
+    sessions, repo = life
+    event(repo)
+    service = CompanionChatService(sessions)
+    timeline = PilotTimelineRepository(sessions)
+    controls = PilotControlRepository(sessions)
+
+    def chat(message, now, conversation_id=0):
+        request = SimpleNamespace(message=message, attachments=(), pilot_action=None)
+        leases = []
+        admission = timeline.admit(str(uuid4()), {"message": message, "conversation_id": conversation_id},
+            freeze_sources=lambda session, conversation: freeze_chat_command(session, conversation, request),
+            on_admitted=lambda session, turn: leases.append(controls.claim_start_in_session(session, turn.id)))
+        with controls.execution_scope(leases[0]):
+            service.execute(admission.user_message_id, message, admission.conversation_id, now=now)
+        controls.finish(leases[0], "completed")
+        return admission.conversation_id
+
+    conversation_id = chat("等我回来一起选颜色", NOW + 1)
+    joined = repo.read(NOW)
+    assert joined["state"]["activity"]["wish_offered"]
+    assert joined["state"]["wish"] is None
+    assert not event(repo, now=NOW + 86400)["changed"]
+    if erase_source:
+        with sessions() as session:
+            erase_chat_evidence(session, conversation_id)
+            session.commit()
+        erased = repo.read(NOW)
+        assert erased["state"]["activity"]["participants"] == ["companion"]
+        assert erased["shared_participation"] == []
+        assert erased["state"]["activity"]["status"] == "paused"
+        activity_event(repo, "resume", NOW + 86401)
+    else:
+        chat("蓝色", NOW + 86401, conversation_id)
+        assert repo.read(NOW)["shared_participation"][0]["status"] == "completed"
+    restarted = CompanionRepository(sessions)
+    progressed = event(restarted, now=NOW + 86401 + MIN_STEP_SECONDS)
+    assert progressed["state"]["activity"]["step_index"] == 1
+    assert progressed["state"]["activity"]["wish_offered"]
+    assert progressed["state"]["wish"] is None
+
+
 def test_day_gap_one_step_no_backlog_and_terminal_has_idle_cooldown(life):
     _, repo = life
     event(repo)
     after_gap = event(repo, now=NOW + 86400 * 30)
     assert after_gap["state"]["activity"]["step_index"] == 1
+    assert after_gap["state"]["wish"] is not None
     assert len(after_gap["recent_events"]) == 2
     assert not event(repo, now=NOW + 86400 * 30 + 1)["changed"]
     now = NOW + 86400 * 30 + 300
@@ -115,6 +302,8 @@ def test_simultaneous_windows_cannot_both_advance(life):
         results = list(workers.map(run, commands))
     assert sorted(results, key=str) == [True, "conflict"]
     assert repo.read(NOW)["state"]["activity"]["step_index"] == 1
+    assert repo.read(NOW)["state"]["wish"] is not None
+    assert len(repo.read(NOW)["recent_events"]) == 2
 
 
 def test_stale_advance_after_pause_fails_and_resume_resets_elapsed(life):
@@ -127,7 +316,10 @@ def test_stale_advance_after_pause_fails_and_resume_resets_elapsed(life):
     assert not event(repo, now=NOW + 86400)["changed"]
     resumed = activity_event(repo, "resume", NOW + 86400)
     assert resumed["state"]["activity"]["id"] == started["state"]["activity"]["id"]
+    assert resumed["state"]["wish"] is None
+    assert not resumed["state"]["activity"]["wish_offered"]
     assert not event(repo, now=NOW + 86401)["changed"]
+    assert event(repo, now=NOW + 86400 + MIN_STEP_SECONDS)["state"]["wish"] is not None
 
 
 def test_shared_step_never_completes_passively_or_claims_user_work(life):
@@ -153,13 +345,14 @@ def test_shared_step_never_completes_passively_or_claims_user_work(life):
 def test_wish_decline_and_stale_activity_id_cannot_mutate_new_activity(life):
     _, repo = life
     started = event(repo)
-    wish = started["state"]["wish"]
-    declined = activity_event(repo, "decline_wish", NOW + 1, wish_id=wish["id"])
+    offered_at = NOW + MIN_STEP_SECONDS
+    wish = event(repo, now=offered_at)["state"]["wish"]
+    declined = activity_event(repo, "decline_wish", offered_at + 1, wish_id=wish["id"])
     assert declined["state"]["wish"] is None
     with pytest.raises(CompanionConflict, match="wish_identity_conflict"):
-        activity_event(repo, "accept_wish", NOW + 2, wish_id=wish["id"])
-    activity_event(repo, "abandon", NOW + 3)
-    newer = event(repo, now=NOW + IDLE_COOLDOWN_SECONDS + 3)
+        activity_event(repo, "accept_wish", offered_at + 2, wish_id=wish["id"])
+    activity_event(repo, "abandon", offered_at + 3)
+    newer = event(repo, now=offered_at + IDLE_COOLDOWN_SECONDS + 3)
     assert newer["state"]["activity"]["id"] != started["state"]["activity"]["id"]
     with pytest.raises(CompanionConflict, match="activity_identity_conflict"):
         event(repo, "pause", NOW + 3000, activity_id=started["state"]["activity"]["id"])

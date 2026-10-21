@@ -36,11 +36,11 @@ WAKE_EVENTS = frozenset(("app_open", "chat_end", "work_completed", "user_interac
 NOTIFIABLE_EVENTS = frozenset(("activity_started", "activity_progressed", "activity_completed"))
 TEMPLATES: tuple[dict[str, Any], ...] = (
     {"id": "paper_boat", "title": "折一只纸小船", "steps": ["挑一张想象中的彩纸", "折好船身", "给小船画一面旗"],
-     "wish": "一起给纸小船起个名字", "promise": "等你一起给纸小船起名字"},
+     "wish_at_step": 1, "wish": "一起给纸小船起个名字", "promise": "等你一起给纸小船起名字"},
     {"id": "cloud_catalog", "title": "收集云朵的奇怪名字", "steps": ["想象一朵软乎乎的云", "画下云朵的轮廓", "为云朵编一个小名字"],
-     "wish": "一起给一朵云起个怪名字", "promise": "等你一起给云朵起名字"},
+     "wish_at_step": None, "wish": "一起给一朵云起个怪名字", "promise": "等你一起给云朵起名字"},
     {"id": "paper_stars", "title": "做一串纸星星", "steps": ["挑几张想象中的星星纸", "折出一颗胖星星", "把星星串成小挂饰"],
-     "wish": "一起挑一颗幸运星", "promise": "等你一起挑一颗幸运星"},
+     "wish_at_step": 2, "wish": "一起挑一颗幸运星", "promise": "等你一起挑一颗幸运星"},
 )
 
 
@@ -204,9 +204,22 @@ class CompanionRepository:
                     persona_version=PERSONA_VERSION, settings_json=CompanionPolicy().model_dump_json(),
                     life_json=_json(_empty_life()), latest_event_id=None, sequence=0, updated_at=0))
             state = session.get(CompanionState, 1)
-            if state is not None and state.persona_version != PERSONA_VERSION:
+            if state is not None:
+                changed = state.persona_version != PERSONA_VERSION
                 state.persona_version = PERSONA_VERSION
-                state.revision += 1
+                life = json.loads(state.life_json)
+                activity = life.get("activity")
+                if activity is not None and "wish_offered" not in activity:
+                    # Earlier versions offered on creation. Missing history is
+                    # not permission to re-offer a declined or accepted wish.
+                    # Preserve any still-pending wish exactly as it was.
+                    activity["wish_offered"] = True
+                    state.life_json = _json(life)
+                    changed = True
+                if changed:
+                    # One startup normalization, one fence, including persona
+                    # upgrades. A second initializer must remain a pure no-op.
+                    state.revision += 1
             if session.get(CompanionUsageSession, 1) is None:
                 session.add(CompanionUsageSession(id=1, session_id=str(uuid4()), last_seen_at=0, unanswered=False, session_quiet=False))
             session.commit()
@@ -286,6 +299,11 @@ class CompanionRepository:
     @staticmethod
     def _event(session: Session, row: CompanionState, life: dict[str, Any], now: float,
                event_type: str, message: str, *, actual: bool = False) -> None:
+        activity = life.get("activity")
+        if actual and activity is not None and "user" in activity["participants"]:
+            # Both card commands and sourced chat participation use this write
+            # path. Keep a content-free latch even if chat evidence is erased.
+            activity["wish_offered"] = True
         row.revision += 1
         row.updated_at = now
         row.life_json = _json(life)
@@ -346,9 +364,9 @@ class CompanionRepository:
             activity = {"id": str(uuid4()), "template_id": template["id"], "title": template["title"],
                 "status": "active", "step_index": 0, "step_count": len(template["steps"]),
                 "step_title": template["steps"][0], "started_at": now, "updated_at": now,
-                "participants": ["companion"], "promise": None}
+                "participants": ["companion"], "promise": None, "wish_offered": False}
             life["activity"] = activity
-            life["wish"] = {"id": str(uuid4()), "activity_id": activity["id"], "text": template["wish"]}
+            life["wish"] = None
             self._event(session, row, life, now, "activity_started", ("在自己的小世界里，开始" if row.sequence % 2 else "在想象的小角落里，打算") + template["title"])
             return True
         template = next(item for item in TEMPLATES if item["id"] == activity["template_id"])
@@ -360,6 +378,13 @@ class CompanionRepository:
         else:
             activity["step_index"] += 1
             activity["step_title"] = template["steps"][activity["step_index"]]
+            if (activity["step_index"] == template["wish_at_step"]
+                    and not activity.get("wish_offered", True)
+                    and "user" not in activity["participants"] and life.get("wish") is None):
+                # The invitation belongs to this actual progress event, not a
+                # timer, heartbeat, read or separate queue-triggered advance.
+                activity["wish_offered"] = True
+                life["wish"] = {"id": str(uuid4()), "activity_id": activity["id"], "text": template["wish"]}
             self._event(session, row, life, now, "activity_progressed", ("在自己的小世界里，正在" if row.sequence % 2 else "在想象的小角落里，试着") + activity["step_title"])
         return True
 
@@ -374,6 +399,7 @@ class CompanionRepository:
             if not wish or str(command.wish_id) != wish["id"]:
                 raise CompanionConflict("wish_identity_conflict")
             life["wish"] = None
+            activity["wish_offered"] = True
             if event == "decline_wish":
                 self._event(session, row, life, now, "wish_declined", "用户略过了这个小心愿", actual=True)
                 return True

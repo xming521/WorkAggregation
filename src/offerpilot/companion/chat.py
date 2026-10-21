@@ -267,6 +267,18 @@ def erase_chat_evidence(session: Session, conversation_id: int) -> None:
         return
     part_ids = {row.participation_id for row in records if row.participation_id}
     event_ids = {row.event_id for row in records if row.event_id}
+    # A resume in another conversation can quote this promise in its receipt.
+    # Its frozen participation is a dependency, not ownership: deleting that
+    # other conversation must never delete the original participant's source.
+    dependent_receipts = set()
+    if part_ids:
+        for evidence, turn in session.execute(select(CompanionChatEvidence, PilotTurnRecord).join(
+            PilotTurnRecord, PilotTurnRecord.id == CompanionChatEvidence.turn_id,
+        ).where(CompanionChatEvidence.action == 'resume',
+                CompanionChatEvidence.conversation_id != conversation_id)):
+            frozen = json.loads(json.loads(turn.source_versions_json).get(SOURCE_KEY, '{}'))
+            if frozen.get('participation_id') in part_ids:
+                dependent_receipts.add(evidence.command_id)
     command_ids = {row.command_id for row in records}
     session.execute(delete(CompanionChatEvidence).where(CompanionChatEvidence.conversation_id == conversation_id))
     session.execute(delete(CompanionCommandReceipt).where(CompanionCommandReceipt.command_id.in_(command_ids)))
@@ -306,3 +318,6 @@ def erase_chat_evidence(session: Session, conversation_id: int) -> None:
             if 'state' in payload:
                 receipt.response_json = _json({**sanitized, 'changed': False, 'redacted': True,
                     'receipt': {'command_id': receipt.command_id, 'revision': state.revision}})
+            elif receipt.command_id in dependent_receipts:
+                receipt.response_json = _json({'message': '这条历史日常操作的来源已变化，请查看当前状态。',
+                                               'redacted': True})

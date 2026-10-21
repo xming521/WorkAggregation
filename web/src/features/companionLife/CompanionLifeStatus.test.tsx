@@ -2,8 +2,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
-import { setLocale } from '@/i18n';
+import { setLocale, t } from '@/i18n';
 import { localizedModal } from '@/i18n/modal';
+import { companionLifeExpression } from './copy';
+import { companionMirror } from './model';
 import CompanionLifeStatus from './CompanionLifeStatus';
 import CompanionLifeSettings from './CompanionLifeSettings';
 import { CompanionLifeContext, type CompanionLifeController } from './useCompanionLife';
@@ -76,4 +78,44 @@ it('shows the persisted chat promise across refresh without treating opening as 
   expect(document.body.textContent).toContain('等你一起选颜色');
   await setLocale('en-US'); await render();
   expect(document.body.textContent).toContain('Waiting to choose a color with you');
+});
+
+it('shares the wish invitation with the owner mirror without repeating it in static status or details', async () => {
+  life.bid = { id: 'bid', kind: 'companion_life', result_text: 'Backend prose must not replace committed facts', source_event_type: 'activity_completed', source_identity: 'one', source_revision: 4 };
+  for (const locale of ['zh-CN', 'en-US'] as const) {
+    life.bid.source_revision = life.snapshot!.revision;
+    await act(async () => { await setLocale(locale); }); await render();
+    const expected = companionLifeExpression(life.snapshot!.state.activity, t);
+    const invitation = companionLifeExpression(life.snapshot!.state.activity, t, life.snapshot!.state.wish);
+    expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).toBe(invitation);
+    expect(companionMirror(life.snapshot, life.signals, life.bid)?.detail).toBe(invitation);
+    expect(host.querySelector('[data-companion-life] button[aria-expanded]')?.textContent).toContain(expected);
+    expect(host.querySelector('[data-companion-life] button[aria-expanded]')?.textContent).not.toContain(invitation);
+    expect(companionMirror(life.snapshot, life.signals)?.detail).toBe(expected);
+    expect(host.textContent).not.toContain(life.bid.result_text);
+    await click(t('查看 Haru 的虚拟日常'));
+    expect(document.querySelector('section[aria-label="' + t('Haru 的虚拟日常') + '"]')?.textContent).toContain(expected);
+    await click(t('关闭日常详情'));
+    const refreshed = structuredClone(life.snapshot!);
+    refreshed.revision += 1; refreshed.settings.proactivity = 'less';
+    life.snapshot = refreshed; await render();
+    expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).toBe(expected);
+  }
+});
+
+it('does not revive a declined wish in a later bid or invite from a paused activity', async () => {
+  life.bid = { id: 'bid', kind: 'companion_life', result_text: '', source_identity: 'one', source_revision: 4 };
+  await render();
+  expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).toMatch(/小心愿/);
+  await click('查看 Haru 的虚拟日常'); await click('这次先不了');
+  expect(life.event).toHaveBeenLastCalledWith('decline_wish', true);
+  life.snapshot!.state.wish = null; life.snapshot!.revision += 1;
+  life.bid = { ...life.bid, id: 'later-bid', source_revision: life.snapshot!.revision };
+  await render();
+  const plain = companionLifeExpression(life.snapshot!.state.activity, t);
+  expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).toBe(plain);
+  life.snapshot!.state.wish = structuredClone(state.state.wish);
+  life.snapshot!.state.activity!.status = 'paused'; await render();
+  expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).toBe(companionLifeExpression(life.snapshot!.state.activity, t));
+  expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).not.toMatch(/小心愿/);
 });

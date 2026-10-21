@@ -1,9 +1,15 @@
 """Additive initialization preserves pre-companion business records."""
+import json
 import sqlite3
+from uuid import uuid4
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import func, select
 
-from offerpilot.companion.repository import CompanionRepository
+from offerpilot.companion.contracts import CompanionEventCommand
+from offerpilot.companion.models import CompanionEvent, CompanionState
+from offerpilot.companion.persona import PERSONA_VERSION
+from offerpilot.companion.repository import CompanionConflict, CompanionRepository, MIN_STEP_SECONDS
 from offerpilot.db import init_database
 from offerpilot.models import Application
 
@@ -41,10 +47,6 @@ def test_old_database_upgrade_is_additive_and_restart_preserves_identity(tmp_pat
 
 
 def test_v11_adds_user_chat_provenance_without_replacing_v1_state(tmp_path):
-    from offerpilot.companion.contracts import CompanionEventCommand
-    from offerpilot.companion.models import CompanionState
-    from uuid import uuid4
-
     path = tmp_path / 'old-v1.db'
     sessions = init_database(path)
     repo = CompanionRepository(sessions)
@@ -62,7 +64,52 @@ def test_v11_adds_user_chat_provenance_without_replacing_v1_state(tmp_path):
     assert restored['identity'] == first['identity']
     assert restored['state'] == started['state']
     assert restored['revision'] == started['revision'] + 1
-    assert restored['persona_version'] == 'companion-v1.1'
+    assert restored['persona_version'] == PERSONA_VERSION
     with upgraded() as session:
         assert session.get(CompanionState, 1).identity == first['identity']
     assert CompanionRepository(upgraded).read()['revision'] == restored['revision']
+
+
+@pytest.mark.parametrize('previous_persona', ['companion-v1', 'companion-v1.1', PERSONA_VERSION])
+@pytest.mark.parametrize('pending_wish', [False, True])
+def test_old_activity_wish_backfill_is_conservative_preserves_pending_and_fences_once(
+    tmp_path, previous_persona, pending_wish,
+):
+    sessions = init_database(tmp_path / 'old-wishes.db')
+    repo = CompanionRepository(sessions)
+    initial = repo.read(1000)
+    started = repo.apply_event(CompanionEventCommand(identity=initial['identity'],
+        expected_revision=initial['revision'], command_id=uuid4(), event='app_open'), 1000)
+    old_life = started['state']
+    old_life['activity'].pop('wish_offered')
+    if pending_wish:
+        old_life['wish'] = {'id': str(uuid4()), 'activity_id': old_life['activity']['id'],
+                           'text': '一起给纸小船起个名字'}
+    with sessions() as session:
+        state = session.get(CompanionState, 1)
+        state.life_json = json.dumps(old_life, ensure_ascii=False)
+        state.persona_version = previous_persona
+        session.commit()
+    stale = CompanionEventCommand(identity=started['identity'], expected_revision=started['revision'],
+                                  command_id=uuid4(), event='chat_end')
+    restored_repo = CompanionRepository(sessions)
+    restored = restored_repo.read(1000)
+    assert restored['identity'] == started['identity']
+    assert restored['persona_version'] == PERSONA_VERSION
+    assert restored['revision'] == started['revision'] + 1
+    assert restored['recent_events'] == started['recent_events']
+    assert restored['state'] == {**old_life, 'activity': {**old_life['activity'], 'wish_offered': True}}
+    assert restored['state']['wish'] == old_life['wish']
+    assert CompanionRepository(sessions).read(1000) == restored
+    with pytest.raises(CompanionConflict, match='revision_conflict'):
+        restored_repo.apply_event(stale, 1000 + MIN_STEP_SECONDS)
+    for day in (1, 2):
+        snapshot = restored_repo.read(1000)
+        current = restored_repo.apply_event(CompanionEventCommand(identity=snapshot['identity'],
+            expected_revision=snapshot['revision'], command_id=uuid4(), event='chat_end'), 1000 + day * 86400)
+        assert current['state']['wish'] == old_life['wish']
+        assert current['state']['activity']['wish_offered']
+        assert current['state']['activity']['step_index'] == day
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(CompanionEvent)) == 3
+        assert session.get(CompanionState, 1).sequence == 1

@@ -10893,7 +10893,9 @@ def _load_chat_source_messages(
                     (record_id,),
                 )
             attachment_rows.append((kind, raw_id, row))
-        companion = read_companion_context(connection, query, context_type=scope.context_type) if not attachments and not pending_tool_call_id else None
+        companion = read_companion_context(
+            connection, query, context_type=scope.context_type, conversation_id=scope.conversation_id,
+        ) if not attachments and not pending_tool_call_id and scope.mode == "general" else None
         return history_rows, context_row, tuple(attachment_rows), companion
 
     def freeze(raw: tuple[Any, Any, Any, Any]) -> _FrozenChatSourceMessages:

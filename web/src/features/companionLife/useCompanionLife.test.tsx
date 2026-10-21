@@ -2,6 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { t } from '@/i18n';
+import { companionLifeExpression } from './copy';
 import { getCompanion, sendCompanionCommand, reportCompanionPresence, claimCompanionBid } from '@/services/companion';
 import { useCompanionLifeController, type CompanionLifeController } from './useCompanionLife';
 import type { CompanionSnapshot } from './contracts';
@@ -168,4 +170,26 @@ it('refreshes a background lifecycle conflict after chat without replaying or al
   expect(life.snapshot?.state.activity?.promise).toBe('等你一起选颜色');
   expect(life.error).toBe(''); expect(life.uncertain).toBe(false);
   expect(sendCompanionCommand).toHaveBeenCalledTimes(2);
+});
+
+it('projects a pending wish only while the existing eligible bid is shown and never revives it after decline', async () => {
+  const current: CompanionSnapshot = { ...state, state: { ...state.state, wish: { id: 'wish', activity_id: 'activity', text: '一起给纸小船起个名字' } } };
+  vi.mocked(getCompanion).mockResolvedValue(current);
+  vi.mocked(sendCompanionCommand).mockResolvedValue(current);
+  vi.mocked(claimCompanionBid).mockResolvedValue({ id: 'bid', kind: 'companion_life', source_event_type: 'activity_progressed', result_text: 'backend prose', source_identity: 'one', source_revision: 4 });
+  await render();
+  await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+  expect(life.bid).not.toBeNull();
+  expect(life.mirror?.detail).toBe(companionLifeExpression(current.state.activity, t, current.state.wish));
+  act(() => life.dismissBid());
+  expect(life.bid).toBeNull();
+  expect(life.mirror?.detail).toBe(companionLifeExpression(current.state.activity, t));
+  const declined = { ...current, revision: 5, state: { ...current.state, wish: null } };
+  vi.mocked(sendCompanionCommand).mockResolvedValue(declined);
+  vi.mocked(getCompanion).mockResolvedValue(declined);
+  await act(async () => { await life.event('decline_wish', true); });
+  vi.mocked(claimCompanionBid).mockResolvedValue({ id: 'later-bid', kind: 'companion_life', source_event_type: 'activity_progressed', result_text: 'backend prose', source_identity: 'one', source_revision: 5 });
+  await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+  expect(life.bid).not.toBeNull();
+  expect(life.mirror?.detail).toBe(companionLifeExpression(declined.state.activity, t));
 });

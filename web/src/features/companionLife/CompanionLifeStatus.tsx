@@ -1,10 +1,10 @@
-import { companionInvitation } from './copy';
+import { companionLifeExpression } from './copy';
 import { useEffect, useState } from 'react';
 import { Button, Popover, Space } from 'antd';
 import { t, useLocale } from '@/i18n';
 import type { PilotMascotRect } from '@/features/pilotMascot/pilotMascotPreference';
 import { useCompanionLife } from './useCompanionLife';
-import { blocksCompanion } from './model';
+import { blocksCompanion, companionMirror } from './model';
 import styles from './companionLife.module.css';
 const STATUS = { active: '进行中', paused: '已暂停', waiting_shared: '等你有空一起', completed: '这件小事完成了', abandoned: '先放下了' };
 export function CompanionLifeDetails({ onClose }: { onClose?: () => void }) {
@@ -18,8 +18,8 @@ export function CompanionLifeDetails({ onClose }: { onClose?: () => void }) {
   return <section className={styles.content} aria-label={t('Haru 的虚拟日常')} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose?.(); } }}>
     <header><strong>{t(activity?.title ?? 'Haru 的虚拟日常')}</strong>{onClose && <Button size="small" type="text" aria-label={t('关闭日常详情')} onClick={onClose}>{t('关闭')}</Button>}</header>
     <p className={styles.explanation}>{t('这是 Haru 的虚拟日常，不代表现实经历。你可以随时离开，不必回应。')}</p>
-    {activity ? <><p>{t(activity.step_title)}</p><small>{t(STATUS[activity.status])} · {t('第 {step} / {total} 步', { step: Math.min(activity.step_index + 1, activity.step_count), total: activity.step_count })}</small></> : <p>{t('有空时，看看 Haru 在做什么。')}</p>}
-    {activity?.promise && <p>{t(activity.promise)}</p>}
+    {activity ? <><p>{companionLifeExpression(activity, t)}</p><small>{t(STATUS[activity.status])} · {t('第 {step} / {total} 步', { step: Math.min(activity.step_index + 1, activity.step_count), total: activity.step_count })}</small></> : <p>{companionLifeExpression(activity, t)}</p>}
+    {activity?.promise && activity.status !== 'waiting_shared' && <p>{t(activity.promise)}</p>}
     {activity?.status === 'waiting_shared' && <p>{t('共同的小事会留在这里，等你在聊天里回应或确认这一步；不倒计时，也不会催促。')}</p>}
     {wish && <p>{t(wish.text)}</p>}
     <Space wrap>
@@ -45,14 +45,15 @@ export default function CompanionLifeStatus({ anchorRect, inline = false, suppre
   if (!life || !snapshot?.settings.enabled || snapshot.settings.hide_status || suppressed
     || (blocksCompanion(life.signals) && !(open && life.uncertain && !hardBlocked)) || (snapshot.presence.blocked && !open)) return null;
   const activity = snapshot.state.activity;
+  const invitation = life.bid ? companionMirror(snapshot, life.signals, life.bid) : undefined;
   const changeOpen = (value: boolean) => { setOpen(value); if (value) void life.event('user_interaction', true); };
   const content = <CompanionLifeDetails onClose={() => setOpen(false)} />;
   const style = !inline && anchorRect ? { left: Math.max(12, Math.min(anchorRect.left, window.innerWidth - 260)), bottom: Math.max(12, window.innerHeight - anchorRect.top + 8) } : undefined;
   return <div className={inline ? styles.inline : styles.anchor} style={style} data-companion-life="status">
-    {life.bid && <div className={styles.bid} role="status"><span>{companionInvitation(life.bid.source_event_type, activity?.title ?? '', activity?.step_title ?? '')}</span><button type="button" aria-label={t('收起日常邀请')} onClick={life.dismissBid}>×</button></div>}
+    {life.bid && invitation && <div className={styles.bid} role="status"><span>{invitation.detail}</span><button type="button" aria-label={t('收起日常邀请')} onClick={life.dismissBid}>×</button></div>}
     <Popover content={content} trigger="click" open={open} onOpenChange={changeOpen} placement="topRight" destroyTooltipOnHide>
       <button type="button" className={styles.status} aria-expanded={open} aria-label={t('查看 Haru 的虚拟日常')}>
-        <span aria-hidden="true">·</span> {t(activity?.title ?? 'Haru 的虚拟日常')}{activity ? <small>{t('虚拟日常')} · {t(STATUS[activity.status])}</small> : null}
+        <span aria-hidden="true">·</span> {companionLifeExpression(activity, t)}{activity ? <small>{t('虚拟日常')} · {t(STATUS[activity.status])}</small> : null}
       </button>
     </Popover>
   </div>;

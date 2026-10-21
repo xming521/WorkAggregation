@@ -167,7 +167,7 @@ export function useCompanionLifeController(controller: PilotConversationControll
     void heartbeat();
   }, [signalKey, heartbeat]);
   const shownBid = canShow && bid && canPresentBid(bid, snapshot, signals) ? bid : null;
-  const mirror = companionMirror(snapshot, signals);
+  const mirror = companionMirror(snapshot, signals, shownBid);
   return { snapshot, signals, busy, error, uncertain, bid: shownBid,
     mirror: mirror ? { ...mirror, ...(shownBid?.source_event_type ? { invitation: shownBid.source_event_type } : {}) } : undefined, event, updateSettings, reset, retry, quiet, setQuiet, setMockInterview, setPresentationAvailable,
     dismissBid: () => setBid(null) };
