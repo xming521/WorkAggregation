@@ -63,6 +63,7 @@ import {
   type PipelineInsight,
 } from '@/lib/pipelineInsights';
 import { getPracticeStats } from '@/services/questions';
+import { useReminderCandidates, REMINDER_CANDIDATES_QUERY_KEY } from '@/lib/useReminderCandidates';
 import type { AdaptivePracticeFocus, AdaptivePracticeOwnerDraft } from '@/types/adaptiveInterviewPractice';
 import {
   isReviewReadinessDraftPending,
@@ -1125,7 +1126,8 @@ function AppShellContent() {
   const nextPilotOnboardingFocusToken = useRef(0);
   const [selected, setSelected] = useState<Application | null>(null);
   const [intakeApplicationId, setIntakeApplicationId] = useState<number | null>(null);
-  const [interviewStoryLibraryOpen, setInterviewStoryLibraryOpen] = useState(false);
+  const [materialsReturnView, setMaterialsReturnView] = useState<ViewMode>('resumes');
+  const [interviewPracticeMode, setInterviewPracticeMode] = useState<'quick' | 'review'>('quick');
   const [voiceCoachingGrowthOpen, setVoiceCoachingGrowthOpen] = useState(false);
   const [interviewStoryDrawerOpen, setInterviewStoryDrawerOpen] = useState(false);
   const [interviewStoryLibraryRevision, setInterviewStoryLibraryRevision] = useState(0);
@@ -1360,9 +1362,11 @@ function AppShellContent() {
     pushWorkspaceView(view);
   }, [view]);
 
+  const reminderCandidatesQ = useReminderCandidates();
   const pipelineActions = useMemo(
-    () => derivePipelineInsights({ apps, events: evs, offers: ofrs, practiceStats, weeklyTarget: 6, now }),
-    [apps, evs, ofrs, practiceStats, now, getLocale()]
+    () => derivePipelineInsights({ apps, events: evs, offers: ofrs, practiceStats,
+      reminderCandidates: reminderCandidatesQ.isError ? [] : reminderCandidatesQ.data, now }),
+    [apps, evs, ofrs, practiceStats, reminderCandidatesQ.data, reminderCandidatesQ.isError, now, getLocale()]
   );
   const actions = useMemo(() => toLegacyActionItems(pipelineActions), [pipelineActions]);
 
@@ -1718,6 +1722,7 @@ function AppShellContent() {
       else delete next[key];
       return next;
     });
+    if (state === null) void qc.invalidateQueries({ queryKey: REMINDER_CANDIDATES_QUERY_KEY });
   };
 
   const updateInterviewPreparationDraft = (
@@ -1852,7 +1857,6 @@ function AppShellContent() {
         setInterviewPreparationSelection(null);
         setSelected(null);
         setVoiceCoachingGrowthOpen(false);
-        setInterviewStoryLibraryOpen(false);
         setView('interview');
       }
       return result;
@@ -1905,17 +1909,17 @@ function AppShellContent() {
     return result;
   };
 
-  const openFreePractice = (): CoreTaskLaunchResult => {
+  const openFreePractice = (mode: 'quick' | 'review' = 'quick'): CoreTaskLaunchResult => {
     const result = launchAdaptivePracticeOwner(undefined, {
       ref: { taskId: 'interview.free_practice' },
       source: 'deep_link',
       focus: 'current',
     });
     if (result.kind !== 'launched' && result.kind !== 'focused_existing') return result;
+    setInterviewPracticeMode(mode);
     setSelected(null);
     setEvidenceFocus(null);
     setVoiceCoachingGrowthOpen(false);
-    setInterviewStoryLibraryOpen(false);
     setView('interview');
     return result;
   };
@@ -1980,7 +1984,6 @@ function AppShellContent() {
     setSelected(null);
     setEvidenceFocus(null);
     setVoiceCoachingGrowthOpen(false);
-    setInterviewStoryLibraryOpen(false);
     setView('interview');
     return result;
   };
@@ -2224,9 +2227,11 @@ function AppShellContent() {
     { preserveView = false }: { preserveView?: boolean } = {},
   ) => {
     const scope = interviewStoryDraftScope(input);
-    if (!preserveView) setView('interview');
+    if (!preserveView) {
+      if (view !== 'reviews') setMaterialsReturnView(view);
+      navigateToView('reviews');
+    }
     setVoiceCoachingGrowthOpen(false);
-    setInterviewStoryLibraryOpen(true);
     setActiveInterviewStoryDraftScope(scope);
     setInterviewStoryDrafts((current) => {
       const existing = interviewStoryDraftsRef.current[scope];
@@ -2243,7 +2248,6 @@ function AppShellContent() {
 
   const openVoiceCoachingGrowth = () => {
     setView('interview');
-    setInterviewStoryLibraryOpen(false);
     setVoiceCoachingGrowthOpen(true);
   };
 
@@ -2440,7 +2444,7 @@ function AppShellContent() {
           {view === 'reviews' && (
             <ExperienceMaterialsView
               key={interviewStoryLibraryRevision}
-              onBack={() => setView('resumes')}
+              onBack={() => navigateToView(materialsReturnView)}
               onOpenDraft={openInterviewStoryDraft}
               confirmedCaptures={confirmedInterviewKnowledgeNotes}
               confirmedCapturesLoading={confirmedInterviewKnowledgeNotesLoading}
@@ -2455,15 +2459,6 @@ function AppShellContent() {
                 setVoiceCoachingGrowthOpen(false);
                 openFreePractice();
               }}
-            />
-          ) : interviewStoryLibraryOpen ? (
-            <ExperienceMaterialsView
-              key={interviewStoryLibraryRevision}
-              onBack={() => setInterviewStoryLibraryOpen(false)}
-              onOpenDraft={openInterviewStoryDraft}
-              confirmedCaptures={confirmedInterviewKnowledgeNotes}
-              confirmedCapturesLoading={confirmedInterviewKnowledgeNotesLoading}
-              confirmedCapturesError={confirmedInterviewKnowledgeNotesError}
             />
           ) : activeInterviewPreparation ? (
             <InterviewReadinessCenter
@@ -2489,6 +2484,7 @@ function AppShellContent() {
             />
           ) : coreTaskSurfaceState.active?.ref.taskId === 'interview.free_practice' ? (
             <InterviewPracticeView
+              initialMode={interviewPracticeMode}
               adaptiveFocus={adaptivePracticeFocus}
               adaptiveOwnerGeneration={coreTaskSurfaceState.active.generation}
               recoveryOwnerGeneration={coreTaskSurfaceState.active.recoveryGeneration}
@@ -2522,14 +2518,23 @@ function AppShellContent() {
               }}
               onOpenEventEditor={openInterviewEventEditor}
               onOpenFreePractice={openFreePractice}
+              onOpenReadinessPractice={(focus) => openReadinessPractice({ ...focus, ownerGeneration: 0 })}
+              onOpenQuestionPractice={() => {
+                navigateToView('questions');
+                setQuestionPracticeRequestToken((current) => current + 1);
+              }}
+              practiceStats={practiceStats}
+              practiceLoading={practiceLoading}
+              practiceError={practiceError}
               events={evs}
               eventsLoading={eventsLoading}
               eventsError={eventsError}
               onRetryEvents={() => void qc.invalidateQueries({ queryKey: ['events'] })}
               onOpenStoryLibrary={(reviewNoteId) => {
                 setVoiceCoachingGrowthOpen(false);
-                setInterviewStoryLibraryOpen(true);
+                setMaterialsReturnView('interview');
                 if (reviewNoteId) openInterviewStoryDraft({ entrypoint: 'ui', reviewNoteId });
+                else navigateToView('reviews');
               }}
               onOpenVoiceCoachingGrowth={openVoiceCoachingGrowth}
             />

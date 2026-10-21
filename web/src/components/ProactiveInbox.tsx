@@ -139,6 +139,14 @@ export function isRepresentedReminder(job: ProactiveJob, candidateIds: readonly 
     && Boolean(job.candidate_id && candidateIds.includes(job.candidate_id));
 }
 
+export function partitionProactiveJobs(allJobs: readonly ProactiveJob[], candidateIds: readonly string[]) {
+  const isPublishedReminder = (job: ProactiveJob) => job.state === 'succeeded' && job.kind !== 'interview_draft';
+  return {
+    current: allJobs.filter((job) => !isPublishedReminder(job)),
+    history: allJobs.filter((job) => isPublishedReminder(job) && !isRepresentedReminder(job, candidateIds)),
+  };
+}
+
 export default function ProactiveInbox({ representedCandidateIds = [] }: { representedCandidateIds?: readonly string[] }) {
   useLocale();
   const queryClient = useQueryClient();
@@ -201,7 +209,7 @@ export default function ProactiveInbox({ representedCandidateIds = [] }: { repre
   }
 
   const allJobs = jobsQuery.data ?? [];
-  const jobs = allJobs.filter((job) => !isRepresentedReminder(job, representedCandidateIds));
+  const { current: jobs, history } = partitionProactiveJobs(allJobs, representedCandidateIds);
 
   return (
     <section className={styles.panel} aria-labelledby={titleId}>
@@ -247,6 +255,15 @@ export default function ProactiveInbox({ representedCandidateIds = [] }: { repre
           ))}
         </div>
       )}
+      {history.length > 0 && <details>
+        <summary>{t('已发布提醒历史（{count}）', { count: history.length })}</summary>
+        <p>{t('以下是过去发布的内容，不代表当前仍需处理；当前提醒以待办列表为准。')}</p>
+        <div className={styles.list} aria-label={t('历史提醒列表')}>
+          {history.map((job) => <JobCard key={job.id} job={job}
+            application={applicationsById.get(job.application_id)} timezone={settingsQuery.data?.settings.timezone}
+            cancelling={false} onCancel={() => undefined} />)}
+        </div>
+      </details>}
     </section>
   );
 }

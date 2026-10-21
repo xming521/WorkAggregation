@@ -75,6 +75,8 @@ describe('shared reminder candidate presentation', () => {
 });
 
 describe('explicit goal opt-in', () => {
+  const now = '2026-07-01T12:00:00';
+  const makeApplication = (overrides: Partial<Application>): Application => ({ ...application, ...overrides });
   it.each([undefined, 0])('does not create a target gap when absent or paused (%s)', (weeklyTarget) => {
     const input = { apps: [], events: [], offers: [], weeklyTarget, now };
     expect(derivePipelineInsights(input).some((item) => item.kind === 'weekly_goal_gap')).toBe(false);

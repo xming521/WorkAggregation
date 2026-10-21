@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import source from './ProactiveInbox.tsx?raw';
 import type { ProactiveJob } from '@/types/proactive';
-import { formatProactiveTimestamp, isRepresentedReminder } from './ProactiveInbox';
+import { formatProactiveTimestamp, isRepresentedReminder, partitionProactiveJobs } from './ProactiveInbox';
 
 describe('ProactiveInbox', () => {
   it('interprets backend timestamps as UTC Unix seconds', () => {
@@ -35,4 +35,15 @@ describe('today reminder deduplication', () => {
       expect(isRepresentedReminder({ ...job, state }, [job.candidate_id!])).toBe(false);
     }
   });
+});
+
+
+it('moves unrepresented published reminders to explicit history instead of resurrecting a current task', () => {
+  const published = { id: 'past', candidate_id: 'application_event:1:deadline', kind: 'deadline', state: 'succeeded' } as ProactiveJob;
+  const unknown = { ...published, id: 'unknown', state: 'result_unknown' } as ProactiveJob;
+  const draft = { ...published, id: 'draft', kind: 'interview_draft' } as ProactiveJob;
+  expect(partitionProactiveJobs([published, unknown, draft], [published.candidate_id!])).toEqual({ current: [unknown, draft], history: [] });
+  expect(partitionProactiveJobs([published, unknown, draft], [])).toEqual({ current: [unknown, draft], history: [published] });
+  expect(source).toContain('<details>');
+  expect(source).toContain('不代表当前仍需处理');
 });

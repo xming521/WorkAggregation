@@ -60,7 +60,7 @@ export const MODULE_NAV: ModuleNavItem[] = [
 export const MODULE_TABS: Record<ModuleKey, ModuleTabItem[]> = {
   today: [
     { view: 'dashboard', get label() { return t("概览"); } },
-    { view: 'reminders', get label() { return t("提醒"); } },
+    { view: 'reminders', get label() { return t("今日待办"); } },
     { view: 'calendar', get label() { return t("日历"); } },
   ],
   applications: [

@@ -12,13 +12,20 @@ export function useReminderCandidates() {
   useEffect(() => client.getQueryCache().subscribe((event) => {
     if (event.type === 'updated' && SOURCE_QUERY_ROOTS.has(String(event.query.queryKey[0]))
       && (event.action.type === 'invalidate' || event.action.type === 'success')) {
-      void client.invalidateQueries({ queryKey: REMINDER_CANDIDATES_QUERY_KEY }, { cancelRefetch: false });
+      // Explicit cancellation also fences an initial request with no cached data.
+      // invalidateQueries alone coalesces that request and can accept its stale result.
+      void client.cancelQueries({ queryKey: REMINDER_CANDIDATES_QUERY_KEY }).then(() =>
+        client.invalidateQueries({ queryKey: REMINDER_CANDIDATES_QUERY_KEY }));
     }
   }), [client]);
-  return useQuery({
+  const query = useQuery({
     queryKey: [...REMINDER_CANDIDATES_QUERY_KEY, timezone],
-    queryFn: () => listReminderCandidates(timezone),
+    queryFn: ({ signal }) => listReminderCandidates(timezone, signal),
     refetchInterval: 60_000,
     retry: false,
   });
+  // While revalidating, cached candidates are not proof of current source facts.
+  // Keep loading/error distinct from a successfully empty day on every surface.
+  return { ...query, data: query.isFetching || query.isError ? undefined : query.data,
+    isPending: query.isPending || query.isFetching };
 }
