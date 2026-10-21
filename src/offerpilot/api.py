@@ -68,6 +68,17 @@ from offerpilot.reliability.trace import (
     hash_idempotency_key,
     record_mock_interview_trace,
 )
+from offerpilot.ai.workflows import (
+    JDInput,
+    WorkflowError,
+    analyze_jd as analyze_jd_workflow,
+    complete_json as _complete_json,
+    generate_questions as generate_questions_workflow,
+    match_resume as match_resume_workflow,
+    normalize_difficulty as _normalize_difficulty,
+    structured_ai_system as _structured_ai_system,
+    truncate_for_prompt as _truncate_for_prompt,
+)
 from offerpilot.ai.client import ConfiguredAIClient
 from offerpilot.job_mail.api import job_mail_origin_guard_response, register_job_mail_routes
 from offerpilot.job_mail.transport import MailTransport
@@ -274,7 +285,7 @@ from offerpilot.repositories.evidence_bundles import (
     EvidenceBundleValidationError,
     EvidenceBundlesRepository,
 )
-from offerpilot.repositories.jd import JDAnalysesRepository, JDAnalysisCreate
+from offerpilot.repositories.jd import JDAnalysesRepository
 from offerpilot.repositories.material_kits import (
     MaterialKitCreate,
     MaterialKitSourceConflict,
@@ -370,8 +381,8 @@ from offerpilot.repositories.offer_negotiation import (
     OfferNegotiationRepository,
 )
 from offerpilot.repositories.json_contract import canonical_json, sha256_text
-from offerpilot.repositories.questions import QuestionCreate, QuestionsRepository, question_hash
-from offerpilot.repositories.resumes import ResumeCreate, ResumeMatchCreate, ResumesRepository
+from offerpilot.repositories.questions import QuestionCreate, QuestionsRepository
+from offerpilot.repositories.resumes import ResumeCreate, ResumesRepository
 from offerpilot.repositories.wakeups import WakeupCreate, WakeupsRepository, wakeup_payload
 from offerpilot.resume_structured_import import (
     ResumeStructureError,
@@ -4603,79 +4614,16 @@ def create_app(
 
     @app.post("/api/jd/analyze", status_code=201)
     def analyze_jd(payload: dict[str, Any] = Body(...)) -> JSONResponse:
-        application_id = (
-            int(payload["application_id"]) if payload.get("application_id") is not None else None
-        )
-        jd_version_id: int | None = None
-        if application_id is not None:
-            if "jd_text" in payload or type(payload.get("jd_version_id")) is not int:
-                return error_response(
-                    422,
-                    "请使用当前岗位资料版本",
-                    code="application_jd_version_required",
-                )
-            try:
-                frozen_jd = application_jd_versions.require_current_version(
-                    application_id, payload["jd_version_id"]
-                )
-            except JDVersionValidationError:
-                return error_response(
-                    422, "岗位资料版本无效", code="application_jd_version_required"
-                )
-            except JDVersionError:
-                return error_response(
-                    409, "岗位资料已变化，请重新加载", code="application_jd_source_conflict"
-                )
-            jd_text = frozen_jd.jd_text
-            jd_version_id = frozen_jd.id
-        else:
-            jd_text = str(payload.get("jd_text") or "")
-        if payload.get("jd_url"):
-            if not jd_text.strip():
-                return error_response(422, "jd_text is required", code="jd_text_required")
-            return error_response(422, "jd_url is record-only", code="jd_url_not_supported")
-        if not jd_text.strip():
-            return error_response(422, "jd_text is required", code="jd_text_required")
-        jd_source = "text"
-        model = _chat_model(chat_model, resolved_data_dir)
-        if isinstance(model, JSONResponse):
-            return model
         try:
-            result = _complete_json(
-                model,
-                system=_structured_ai_system(),
-                user=_jd_analysis_prompt(jd_text),
+            result = analyze_jd_workflow(
+                lambda: _workflow_chat_model(chat_model, resolved_data_dir),
+                jd_analyses, application_jd_versions, JDInput.from_payload(payload),
             )
-        except RuntimeError as exc:
-            return error_response(502, str(exc))
-        result_json = json.dumps(result, ensure_ascii=False)
-        try:
-            analysis = jd_analyses.create_for_current(
-                JDAnalysisCreate(
-                    application_id=application_id,
-                    jd_source=jd_source,
-                    jd_text=jd_text,
-                    result=result_json,
-                    jd_version_id=jd_version_id,
-                )
-            )
-        except JDVersionValidationError:
-            return error_response(
-                422, "JD version is invalid.", code="application_jd_version_required"
-            )
-        except JDVersionError:
-            return error_response(
-                409,
-                "JD source changed while the provider was running.",
-                code="application_jd_source_conflict",
-            )
+        except WorkflowError as exc:
+            return error_response(exc.status_code, str(exc), code=exc.code)
         return JSONResponse(
-            {
-                "id": analysis.id,
-                "application_id": application_id,
-                "jd_source": jd_source,
-                "result": result,
-            },
+            {"id": result.id, "application_id": result.application_id,
+             "jd_source": result.jd_source, "result": result.result},
             status_code=201,
         )
 
@@ -4717,46 +4665,20 @@ def create_app(
 
     @app.post("/api/questions/generate", status_code=201)
     def generate_questions(payload: dict[str, Any] = Body(...)) -> JSONResponse:
-        source = str(payload.get("source") or "notes").strip() or "notes"
-        application_id: int | None = None
-        if source == "notes":
-            raw_app = int(payload.get("application_id") or 0)
-            note_rows = notes.list(application_id=raw_app) if raw_app > 0 else notes.list()
-            label = "面试复盘真题"
-            context_text = "\n\n".join(
-                note.questions.strip() for note in note_rows if note.questions.strip()
-            )
-            source_type = "ai_notes"
-            application_id = raw_app if raw_app > 0 else None
-        else:
-            return error_response(400, "不支持的来源类型")
-        if not context_text.strip():
-            return error_response(400, "所选来源没有可用于生成题目的内容")
-        model = _chat_model(chat_model, resolved_data_dir)
-        if isinstance(model, JSONResponse):
-            return model
-        count = _clamp_question_count(int(payload.get("count") or 8))
         try:
-            result = _complete_json(
-                model,
-                system=_structured_ai_system(),
-                user=_questions_prompt(label, context_text, count),
+            result = generate_questions_workflow(
+                lambda: _workflow_chat_model(chat_model, resolved_data_dir),
+                questions, notes,
+                source=str(payload.get("source") or "notes"),
+                application_id=0 if payload.get("application_id") is None else payload["application_id"],
+                count=8 if payload.get("count") is None else payload["count"],
+                topic=str(payload.get("topic") or ""),
             )
-        except RuntimeError as exc:
-            return error_response(502, str(exc))
-        saved, skipped = _persist_generated_questions(
-            questions,
-            result.get("questions", []),
-            source_type=source_type,
-            application_id=application_id,
-            topic=str(payload.get("topic") or ""),
-        )
+        except WorkflowError as exc:
+            return error_response(exc.status_code, str(exc), code=exc.code)
         return JSONResponse(
-            {
-                "count": len(saved),
-                "skipped": skipped,
-                "questions": [_question_json(q) for q in saved],
-            },
+            {"count": result.count, "skipped": result.skipped,
+             "questions": [_question_json(q) for q in result.questions]},
             status_code=201,
         )
 
@@ -5053,85 +4975,16 @@ def create_app(
 
     @app.post("/api/resumes/{resume_id}/match", status_code=201)
     def match_resume(resume_id: int, payload: dict[str, Any] = Body(...)) -> JSONResponse:
-        resume = resumes.get(resume_id)
-        if resume is None:
-            return error_response(404, "Resume not found")
-        if not resume.parsed_data:
-            return error_response(400, "Resume has no text content")
-
-        application_id = (
-            int(payload["application_id"]) if payload.get("application_id") is not None else None
-        )
-        jd_version_id: int | None = None
-        if application_id is not None:
-            if "jd_text" in payload or type(payload.get("jd_version_id")) is not int:
-                return error_response(
-                    422,
-                    "请使用当前岗位资料版本",
-                    code="application_jd_version_required",
-                )
-            try:
-                frozen_jd = application_jd_versions.require_current_version(
-                    application_id, payload["jd_version_id"]
-                )
-            except JDVersionValidationError:
-                return error_response(
-                    422, "岗位资料版本无效", code="application_jd_version_required"
-                )
-            except JDVersionError:
-                return error_response(
-                    409, "岗位资料已变化，请重新加载", code="application_jd_source_conflict"
-                )
-            jd_text = frozen_jd.jd_text
-            jd_version_id = frozen_jd.id
-        else:
-            jd_text = str(payload.get("jd_text") or "")
-        if payload.get("jd_url"):
-            if not jd_text.strip():
-                return error_response(422, "jd_text is required", code="jd_text_required")
-            return error_response(422, "jd_url is record-only", code="jd_url_not_supported")
-        if not jd_text.strip():
-            return error_response(422, "jd_text is required", code="jd_text_required")
-
-        model = _chat_model(chat_model, resolved_data_dir)
-        if isinstance(model, JSONResponse):
-            return model
         try:
-            result = _complete_json(
-                model,
-                system=_structured_ai_system(),
-                user=_resume_match_prompt(resume.parsed_data, jd_text),
+            result = match_resume_workflow(
+                lambda: _workflow_chat_model(chat_model, resolved_data_dir),
+                resumes, application_jd_versions, resume_id, JDInput.from_payload(payload),
             )
-        except RuntimeError as exc:
-            return error_response(502, str(exc))
-        result_json = json.dumps(result, ensure_ascii=False)
-        try:
-            match = resumes.create_match_for_current(
-                ResumeMatchCreate(
-                    resume_id=resume_id,
-                    application_id=application_id,
-                    jd_text=jd_text,
-                    result=result_json,
-                    jd_version_id=jd_version_id,
-                )
-            )
-        except JDVersionValidationError:
-            return error_response(
-                422, "JD version is invalid.", code="application_jd_version_required"
-            )
-        except JDVersionError:
-            return error_response(
-                409,
-                "JD source changed while the provider was running.",
-                code="application_jd_source_conflict",
-            )
+        except WorkflowError as exc:
+            return error_response(exc.status_code, str(exc), code=exc.code)
         return JSONResponse(
-            {
-                "id": match.id,
-                "resume_id": resume_id,
-                "application_id": application_id,
-                "result": result,
-            },
+            {"id": result.id, "resume_id": result.resume_id,
+             "application_id": result.application_id, "result": result.result},
             status_code=201,
         )
 
@@ -11302,6 +11155,13 @@ def _chat_model(injected: Optional[ChatModel], data_dir: Path) -> ChatModel | JS
         return error_response(503, str(exc))
 
 
+def _workflow_chat_model(injected: Optional[ChatModel], data_dir: Path) -> ChatModel:
+    model = _chat_model(injected, data_dir)
+    if isinstance(model, JSONResponse):
+        raise WorkflowError(str(json.loads(bytes(model.body))["error"]), model.status_code)
+    return model
+
+
 def _find_static_dir() -> Path | None:
     candidates = [
         Path.cwd() / "web" / "dist",
@@ -13059,46 +12919,6 @@ def _extract_pdf_text(data: bytes) -> str:
     return "\n".join(page_text).strip()
 
 
-def _structured_ai_system() -> str:
-    return (
-        "你是一名专业的招聘求职分析师。只输出 JSON，不要使用 markdown 代码块。"
-        "所有文字使用简体中文，数组字段为空时返回 []。"
-    )
-
-
-def _jd_analysis_prompt(jd_text: str) -> str:
-    return f"""请分析以下岗位描述（JD），输出如下 JSON：
-{{
-  "summary": "一句话总结这个岗位",
-  "requirements": ["关键要求点，每条一句话"],
-  "tech_stack": ["涉及的技术栈/工具"],
-  "experience_years": "要求的年限，如 3-5 年，无要求填 不限",
-  "education": "学历要求，如 本科及以上，无要求填 不限",
-  "highlights": ["这个岗位吸引人的亮点"],
-  "suggestions": ["针对求职者的准备建议，每条一句话"]
-}}
-
-JD 内容：
-{_truncate_for_prompt(jd_text)}"""
-
-
-def _resume_match_prompt(resume_text: str, jd_text: str) -> str:
-    return f"""请对比以下简历和岗位 JD，评估匹配度，输出如下 JSON：
-{{
-  "match_score": 0到100的整数匹配度,
-  "matched": ["简历中与 JD 匹配的点"],
-  "gaps": ["简历中相对 JD 缺失或薄弱的点"],
-  "suggestions": ["针对这份 JD 该如何优化简历/补足能力的建议"],
-  "summary": "一句话总评"
-}}
-
-简历内容：
-{_truncate_for_prompt(resume_text)}
-
-JD 内容：
-{_truncate_for_prompt(jd_text)}"""
-
-
 def _material_kit_prompt(company: str, position: str, resume_text: str, jd_text: str) -> str:
     return f"""Create an application material kit for this role. Return only JSON with:
 {{
@@ -13127,116 +12947,8 @@ JD:
 {_truncate_for_prompt(jd_text)}"""
 
 
-def _questions_prompt(source_label: str, context_text: str, count: int) -> str:
-    return f"""你是一名资深技术面试官。请基于以下【{source_label}】设计 {count} 道面试题。
-严格输出如下 JSON，不要输出多余文字：
-{{
-  "questions": [
-    {{
-      "category": "分类",
-      "difficulty": "easy|medium|hard",
-      "question": "题目",
-      "reference_answer": "参考答案要点",
-      "tags": ["关键词"]
-    }}
-  ]
-}}
-
-材料内容：
-{_truncate_for_prompt(context_text)}"""
-
-
-def _persist_generated_questions(
-    repo: QuestionsRepository,
-    generated: Any,
-    source_type: str,
-    application_id: int | None,
-    topic: str = "",
-) -> tuple[list[Any], int]:
-    if not isinstance(generated, list):
-        return [], 0
-    existing = repo.hashes()
-    seen = set(existing)
-    to_create: list[QuestionCreate] = []
-    skipped = 0
-    for item in generated:
-        if not isinstance(item, dict):
-            continue
-        text = str(item.get("question") or "").strip()
-        if not text:
-            continue
-        digest = question_hash(text)
-        if digest in seen:
-            skipped += 1
-            continue
-        seen.add(digest)
-        tags_value = item.get("tags") or []
-        tags = [str(tag) for tag in tags_value] if isinstance(tags_value, list) else []
-        to_create.append(
-            QuestionCreate(
-                application_id=application_id,
-                topic=topic,
-                category=str(item.get("category") or "").strip(),
-                difficulty=_normalize_difficulty(str(item.get("difficulty") or "medium")),
-                question=text,
-                reference_answer=str(item.get("reference_answer") or "").strip(),
-                tags=tags,
-                source_type=source_type,
-                status="new",
-            )
-        )
-    return repo.bulk_create(to_create), skipped
-
-
-def _normalize_difficulty(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"easy", "简单"}:
-        return "easy"
-    if normalized in {"hard", "困难", "难"}:
-        return "hard"
-    return "medium"
-
-
-def _clamp_question_count(count: int) -> int:
-    if count <= 0:
-        return 8
-    return min(count, 20)
-
-
-def _complete_json(model: ChatModel, system: str, user: str) -> dict[str, Any]:
-    try:
-        assistant = model.complete(
-            [Message(role="system", content=system), Message(role="user", content=user)],
-            [],
-        )
-        return _parse_json_reply(assistant.content)
-    except Exception as exc:
-        raise RuntimeError(str(exc)) from exc
-
-
-def _parse_json_reply(reply: str) -> dict[str, Any]:
-    text = reply.strip()
-    if text.startswith("```"):
-        first_newline = text.find("\n")
-        if first_newline >= 0:
-            text = text[first_newline + 1 :].strip()
-        fence = text.rfind("```")
-        if fence >= 0:
-            text = text[:fence].strip()
-    value = json.loads(text)
-    if not isinstance(value, dict):
-        raise RuntimeError("AI response must be a JSON object")
-    return value
-
-
 def _compact_json_value(value: Any) -> str:
     try:
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     except TypeError as exc:
         raise ValueError("invalid json") from exc
-
-
-def _truncate_for_prompt(value: str, max_chars: int = 12000) -> str:
-    if len(value) <= max_chars:
-        return value
-    return value[:max_chars] + "\n...(已截断)"
