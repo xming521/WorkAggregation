@@ -22,9 +22,9 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Requ
 REPOSITORY = "offercontext/offerPilot"
 BRANCH = "feat/20261021-product-simplification"
 WORKFLOW = ".github/workflows/simplification-real-ai.yml"
-# Populated only after the first offline-only publication returns the real ID.
-# Zero intentionally makes all paid preflights fail closed until that review.
-WORKFLOW_ID = 0
+# Registered by the first offline-only publication on 2026-10-21.
+# A deleted/recreated workflow must not silently reset this one-shot budget.
+WORKFLOW_ID = 391853346
 ENVIRONMENT = "offerpilot-simplification-ai-20261021"
 ENVIRONMENT_ID = 24929248876
 BRANCH_POLICY_ID = 63850625
