@@ -470,35 +470,12 @@ def _v2_require_non_empty_string(value: Any, label: str) -> str:
     return result
 
 
-def generate_triage(model: ChatModel, snapshot: dict[str, Any]) -> ValidatedOpportunityOutput:
-    return _generate(
-        model,
-        _triage_system(),
-        _triage_prompt(snapshot),
-        lambda payload: validate_triage(payload, snapshot),
-    )
-
-
-def generate_deep_review(
-    model: ChatModel,
-    snapshot: dict[str, Any],
-    triage: dict[str, Any],
-) -> ValidatedOpportunityOutput:
-    return _generate(
-        model,
-        _deep_review_system(),
-        _deep_review_prompt(snapshot, triage),
-        lambda payload: validate_deep_review(payload, snapshot),
-    )
-
-
 def generate_triage_v2(model: ChatModel, snapshot: dict[str, Any]) -> ValidatedOpportunityOutput:
     return _generate(
         model,
         _v2_system("triage"),
         _v2_prompt(snapshot, None),
         lambda payload: validate_triage_v2(payload, snapshot),
-        v2=True,
     )
 
 
@@ -512,7 +489,6 @@ def generate_deep_review_v2(
         _v2_system("deep_review"),
         _v2_prompt(snapshot, triage),
         lambda payload: validate_deep_review_v2(payload, snapshot),
-        v2=True,
     )
 
 
@@ -521,29 +497,19 @@ def _generate(
     system: str,
     prompt: str,
     validator: Callable[[dict[str, Any]], ValidatedOpportunityOutput],
-    *,
-    v2: bool = False,
 ) -> ValidatedOpportunityOutput:
-    repair_category = "invalid_json" if v2 else "invalid_change_shape"
+    repair_category = "invalid_json"
     for attempt in range(2):
         user = prompt
         if attempt == 1:
-            if v2:
-                repair_instruction = (
-                    "Return only raw JSON matching the contract. Do not return Markdown, explanations, "
-                    "the previous response, or new facts. Use only the same frozen snapshot. "
-                    f"{_V2_REPAIR_INSTRUCTIONS.get(repair_category, _V2_REPAIR_INSTRUCTIONS['semantic_invalid'])} "
-                    f"If evidence is insufficient, use the fixed safe-empty response: summary.text must be "
-                    f"{json.dumps(_V2_SAFE_EMPTY_TEXT, ensure_ascii=False)}, summary.rationale must be "
-                    f"{json.dumps(_V2_SAFE_EMPTY_RATIONALE, ensure_ascii=False)}, and all arrays must be empty."
-                )
-            else:
-                repair_instruction = (
-                    "Return only raw JSON matching the contract. Do not return Markdown, explanations, "
-                    "the previous response, or new facts. If evidence is insufficient, use unknown or "
-                    "an empty array. Never use JD evidence as a candidate fact and never put a JD "
-                    "reference in fit_signals."
-                )
+            repair_instruction = (
+                "Return only raw JSON matching the contract. Do not return Markdown, explanations, "
+                "the previous response, or new facts. Use only the same frozen snapshot. "
+                f"{_V2_REPAIR_INSTRUCTIONS.get(repair_category, _V2_REPAIR_INSTRUCTIONS['semantic_invalid'])} "
+                f"If evidence is insufficient, use the fixed safe-empty response: summary.text must be "
+                f"{json.dumps(_V2_SAFE_EMPTY_TEXT, ensure_ascii=False)}, summary.rationale must be "
+                f"{json.dumps(_V2_SAFE_EMPTY_RATIONALE, ensure_ascii=False)}, and all arrays must be empty."
+            )
             user = f"{prompt}\n\nRepair category: {repair_category}. {repair_instruction}"
         try:
             assistant = model.complete(
@@ -563,7 +529,7 @@ def _generate(
                 reject_duplicate_keys=True,
             )
         except Exception as exc:
-            repair_category = _json_failure_category(exc) if v2 else "invalid_change_shape"
+            repair_category = _json_failure_category(exc)
             if attempt == 0:
                 continue
             raise OpportunityFitModelError(
@@ -736,35 +702,6 @@ def _require_string_list(value: Any, label: str) -> list[str]:
     return value
 
 
-def _triage_system() -> str:
-    return (
-        "You are a job opportunity decision analyst. Return raw JSON only: no Markdown, "
-        "explanation, scores, probabilities, URLs, or platform claims. The exact top-level "
-        "schema is {recommendation:advance|hold|decline, "
-        "hard_constraints:array, fit_signals:array, gaps:array, deadline:object, "
-        "next_questions:array}; do not add fields. Each hard constraint is exactly "
-        "{id:string, requirement:string, status:met|unmet|unknown, explanation:string, evidence_refs:array}. "
-        "Each fit signal is exactly {id:string, statement:string, evidence_refs:array}. "
-        "Each gap is exactly {id:string, requirement:string, kind:required|preferred, "
-        "candidate_status:met|unmet|unknown, evidence_refs:array}. Deadline is exactly "
-        "{status:stated|not_stated, text:string, evidence_refs:array}. "
-        "Each evidence ref is exactly {source:jd|resume|user_assertion, path:string, excerpt:string}. "
-        "For source jd, path must be exactly /text and excerpt must equal the entire frozen JD text; "
-        "do not use /jd/text. For source resume, "
-        "path is relative to resume content_json and must not start with /content_json. "
-        "JD is only a job requirement and analysis direction; never use it as candidate fact. "
-        "Candidate facts require exact resume or user_assertion refs. User assertions must be "
-        "treated as user-provided and not externally verified. Excerpts must be copied exactly "
-        "from the frozen snapshot. Every hard constraint and gap must include at least one JD "
-        "ref for the role requirement; when its candidate status is known, also include a "
-        "resume or user_assertion ref. Use empty evidence_refs only for unresolved questions "
-        "that are not stated as constraints or gaps. If there is no safe candidate evidence, "
-        "use unknown rather than inventing a candidate fact. The server derives the visible "
-        "summary from these validated, referenced entries; do not return a summary field. "
-        "If unsure, return empty fit_signals rather than citing JD as candidate evidence."
-    )
-
-
 def _v2_system(stage: str) -> str:
     return (
         f"You are an evidence-gated opportunity fit analyst for the {stage} stage. "
@@ -802,77 +739,3 @@ def _v2_prompt(snapshot: dict[str, Any], triage: dict[str, Any] | None) -> str:
         "Do not use old AI recommendations, outside pages, or hidden context. "
         f"Snapshot: {json.dumps(snapshot, ensure_ascii=False, sort_keys=True)}{parent}"
     )
-
-
-def _deep_review_system() -> str:
-    return (
-        "You are a job opportunity deep-review analyst. Return raw JSON only: no Markdown, "
-        "explanation, scores, probabilities, URLs, or platform claims. Use only the supplied "
-        "frozen Triage and source snapshot; never introduce facts. The exact top-level schema is "
-        "{strengths:array, gaps_to_address:array, questions_to_clarify:array, "
-        "recommended_path:prepare_materials|clarify_first|do_not_pursue, next_actions:array}; "
-        "do not add fields. Every review item is exactly {id:string, statement:string, "
-        "evidence_refs:array}; every action is exactly {id:string, label:string, "
-        "kind:open_material_kit|add_assertion|record_deadline}. Each evidence ref is exactly "
-        "{source:jd|resume|user_assertion, path:string, excerpt:string}; excerpts must match "
-        "the frozen snapshot exactly. JD refs must use path /text and are not candidate evidence; it may appear in a "
-        "gaps_to_address must contain at least one evidence ref; a JD ref may only restate a "
-        "job requirement. User assertions remain user-provided and not externally verified."
-    )
-
-
-def _triage_prompt(snapshot: dict[str, Any]) -> str:
-    paths = _editable_snapshot_paths(snapshot)
-    return (
-        "Analyze this frozen source snapshot. Keep candidate facts separate from job requirements. "
-        "When no candidate evidence supports a conclusion, use unknown or an empty array. The "
-        "server derives the visible summary from validated evidence; do not return a summary field. "
-        "A valid uncertain result has this shape (replace only with snapshot-backed values): "
-        '{"recommendation":"hold","hard_constraints":[],"fit_signals":[],"gaps":[],"deadline":{"status":"not_stated","text":"","evidence_refs":[]},"next_questions":["..."]}.\n'
-        f"Snapshot: {json.dumps(snapshot, ensure_ascii=False, sort_keys=True)}\n"
-        f"Available evidence paths: {json.dumps(paths, ensure_ascii=False)}"
-    )
-
-
-def _deep_review_prompt(snapshot: dict[str, Any], triage: dict[str, Any]) -> str:
-    return (
-        "Deep-review the existing Triage using only the frozen snapshot. If there is no safe "
-        "candidate-backed strength, return an empty strengths array. A gap_to_address may cite "
-        "JD only to restate a job requirement and must not claim a candidate fact. A valid empty review has this "
-        'shape: {"strengths":[],"gaps_to_address":[],"questions_to_clarify":[],"recommended_path":"clarify_first","next_actions":[]}.\n'
-        f"Snapshot: {json.dumps(snapshot, ensure_ascii=False, sort_keys=True)}\n"
-        f"Triage: {json.dumps(triage, ensure_ascii=False, sort_keys=True)}"
-    )
-
-
-def _editable_snapshot_paths(snapshot: dict[str, Any]) -> list[str]:
-    result: list[str] = []
-    resume = snapshot.get("resume")
-    content = resume.get("content_json") if isinstance(resume, dict) else None
-    if isinstance(content, dict):
-        result.extend(_walk_string_paths(content))
-    jd = snapshot.get("jd")
-    if isinstance(jd, dict) and isinstance(jd.get("text"), str):
-        result.append("/jd/text")
-    assertions = snapshot.get("candidate_assertions")
-    if isinstance(assertions, list):
-        result.extend(
-            f"/user_assertions/{index}/text"
-            for index, item in enumerate(assertions)
-            if isinstance(item, dict) and isinstance(item.get("text"), str)
-        )
-    return result
-
-
-def _walk_string_paths(value: Any, prefix: str = "") -> list[str]:
-    if isinstance(value, dict):
-        paths: list[str] = []
-        for key, child in value.items():
-            paths.extend(_walk_string_paths(child, f"{prefix}/{key}"))
-        return paths
-    if isinstance(value, list):
-        paths = []
-        for index, child in enumerate(value):
-            paths.extend(_walk_string_paths(child, f"{prefix}/{index}"))
-        return paths
-    return [prefix] if isinstance(value, str) else []
