@@ -49,7 +49,7 @@ async function until(name, predicate, timeout = 8000) {
 async function go(page, view = 'dashboard') {
   await page.goto(`${ORIGIN}/?view=${view}`);
   if (view === 'pilot') await page.getByRole('button', { name: /^(退出沉浸模式，返回原页面|Exit immersive mode and return to the previous page)$/ }).waitFor();
-  else await page.getByText('OfferPilot', { exact: true }).first().waitFor();
+  else await page.locator('#root').waitFor({ state: 'visible' });
 }
 async function openDetails(page) {
   await status(page).click(); await details(page).waitFor();
@@ -66,20 +66,24 @@ async function capture(page, name) {
   report.captures.push({ name, screenshot: png, dom, accessibility });
 }
 async function lifeLayout(page, label) {
-  const geometry = await details(page).evaluate(node => ({ width: innerWidth,
-    bounds: node.getBoundingClientRect().toJSON(), buttons: [...node.querySelectorAll('button')].map(button => button.getBoundingClientRect().toJSON()) }));
-  check(`${label}: life details and controls fit the viewport`, geometry.bounds.left >= -1 && geometry.bounds.right <= geometry.width + 1
+  const geometry = await details(page).evaluate(node => ({ width: innerWidth, height: innerHeight,
+    header: node.querySelector('header').getBoundingClientRect().toJSON(),
+    close: node.querySelector('header button').getBoundingClientRect().toJSON(), bounds: node.getBoundingClientRect().toJSON(), buttons: [...node.querySelectorAll('button')].map(button => button.getBoundingClientRect().toJSON()) }));
+  check(`${label}: life details and controls fit the horizontal viewport`, geometry.bounds.left >= -1 && geometry.bounds.right <= geometry.width + 1
     && geometry.buttons.every(rect => rect.left >= -1 && rect.right <= geometry.width + 1), JSON.stringify(geometry));
+  check(`${label}: detail, title and close fit the vertical viewport`, geometry.bounds.top >= -1
+    && geometry.bounds.bottom <= geometry.height + 1 && geometry.header.top >= -1
+    && geometry.close.top >= -1 && geometry.close.bottom <= geometry.height + 1, JSON.stringify(geometry));
 }
 
-async function runCase(name, { width = 1280, locale = 'en-US' } = {}, test) {
-  const api = createCompanionFixture(), scenario = { name, width, height: 900, locale, status: 'running' };
+async function runCase(name, { width = 1280, height = 900, locale = 'en-US' } = {}, test) {
+  const api = createCompanionFixture(), scenario = { name, width, height, locale, status: 'running' };
   report.scenarios.push(scenario);
   const errorsBefore = report.pageErrors.length, networkBefore = report.networkViolations.length;
   let context; const held = [];
   const release = () => { while (held.length) held.shift()(); };
   try {
-    context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block', reducedMotion: 'reduce' });
+    context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', reducedMotion: 'reduce' });
     await context.exposeBinding('__recordFixtureCspViolation', (_, violation) => report.networkViolations.push({ scenario: name, ...violation }));
     await context.addInitScript(({ locale, origin }) => {
       if (location.origin !== origin) return;
@@ -179,6 +183,28 @@ try {
     });
   }
 
+  for (const [width, height] of [[390, 480], [900, 360]]) {
+    await runCase(`short-viewport-scroll-${width}-${height}`, { width, height }, async ({ page, api }) => {
+      await go(page); await openDetails(page); const before = api.snapshot();
+      await lifeLayout(page, `${width}x${height}`);
+      const box = await details(page).boundingBox();
+      check('short viewport requires internal scrolling', await details(page).evaluate(node => node.scrollHeight > node.clientHeight));
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, 1000);
+      await until('wheel scrolls the detail internally', () => details(page).evaluate(node => node.scrollTop > 0));
+      await lifeLayout(page, `${width}x${height} scrolled`);
+      await until('last controls remain reachable inside viewport and scrolling content', async () => {
+        const footer = await details(page).locator('footer').boundingBox();
+        const content = await details(page).boundingBox();
+        return footer.y >= Math.max(0, content.y) - 1
+          && footer.y + footer.height <= Math.min(height, content.y + content.height) + 1;
+      });
+      await capture(page, `short-scrolled-${width}-${height}`);
+      await button(page, 'close').click(); await details(page).waitFor({ state: 'hidden' });
+      equal('small viewport scrolling and closing never changes life', api.snapshot().state, before.state);
+    });
+  }
+
   await runCase('controls-repeat-loss-withdraw', {}, async ({ page, api, release }) => {
     await go(page); await openDetails(page); const before = api.snapshot();
     api.permit('pause'); api.holdNextResponse('pause');
@@ -212,6 +238,7 @@ try {
     equal('withdrawal retains prior actual record', after.shared_participation[0], before.shared_participation[0]);
     equal('withdrawal never sends completion', commands(api, 'complete_shared').length, 0);
     equal('repeat clicks still only one first pause plus the explicit second pause', commands(api, 'pause').length, 2);
+    check('paused withdrawal is entirely localized', !(await details(page).innerText()).match(/\p{Script=Han}/u));
     await capture(page, 'paused-withdrawal');
   });
 

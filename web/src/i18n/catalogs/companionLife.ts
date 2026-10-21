@@ -67,6 +67,7 @@ export default {
   '日常状态已变化，请核对后再操作。': 'Daily life has changed. Review the latest state before trying again.',
   '操作结果暂未确认。重试会核对同一次操作，不会重复提交。': 'The result is not confirmed. Retry checks the same operation without submitting it twice.',
   '虚拟日常暂时不可用，请稍后重试。': 'Virtual daily life is unavailable. Please try again later.',
+  '已暂停': 'Paused',
   '等你有空一起': 'Ready whenever you are',
   '这件小事完成了': 'This little activity is complete',
   '先放下了': 'Set aside for now',

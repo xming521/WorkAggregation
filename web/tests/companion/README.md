@@ -24,7 +24,9 @@ provider, secret, deployment environment, dispatch or release step.
 ## What the gate checks
 
 - Chinese at 1280×900 and English at 900×900: open status/details, close, Escape,
-  and refresh never complete a shared step; life controls fit the viewport.
+  and refresh never complete a shared step; details/title/close fit both viewport axes.
+  At 390×480 and 900×360, real wheel input scrolls bounded content while the
+  sticky title/close remain reachable and the final controls can be reached.
 - Pause/resume, three rapid real pointer clicks, a deliberately lost committed
   response, exact-envelope/receipt retry, and withdrawal while paused.
 - Real chat focus/draft and read-only synthetic execution/approval recovery enter

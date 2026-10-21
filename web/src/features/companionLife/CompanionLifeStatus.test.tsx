@@ -148,3 +148,12 @@ it('does not revive a declined wish in a later bid or invite from a paused activ
   expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).toBe(companionLifeExpression(life.snapshot!.state.activity, t));
   expect(host.querySelector('[data-companion-life] [role="status"] span')?.textContent).not.toMatch(/小心愿/);
 });
+
+
+it.each(['active', 'paused', 'waiting_shared', 'completed', 'abandoned'] as const)('localizes every English life status including %s', async status => {
+  life.snapshot!.state.activity!.status = status;
+  life.snapshot!.state.wish = null;
+  if (status === 'paused') life.snapshot!.state.activity!.paused_from = 'active';
+  await setLocale('en-US'); await render(); await click("View Haru's virtual daily life");
+  expect(document.body.textContent).not.toMatch(/\p{Script=Han}/u);
+});

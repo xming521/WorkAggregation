@@ -54,7 +54,7 @@ export default function CompanionLifeStatus({ anchorRect, inline = false, suppre
   const style = !inline && anchorRect ? { left: Math.max(12, Math.min(anchorRect.left, window.innerWidth - 260)), bottom: Math.max(12, window.innerHeight - anchorRect.top + 8) } : undefined;
   return <div className={inline ? styles.inline : styles.anchor} style={style} data-companion-life="status">
     {life.bid && invitation && <div className={styles.bid} role="status"><span>{invitation.detail}</span><button type="button" aria-label={t('收起日常邀请')} onClick={life.dismissBid}>×</button></div>}
-    <Popover content={content} trigger="click" open={open} onOpenChange={changeOpen} placement="topRight" destroyTooltipOnHide>
+    <Popover content={content} trigger="click" open={open} onOpenChange={changeOpen} placement="top" destroyTooltipOnHide>
       <button type="button" className={styles.status} aria-expanded={open} aria-label={t('查看 Haru 的虚拟日常')}>
         <span aria-hidden="true">·</span> {companionLifeExpression(activity, t)}{activity ? <small>{t('虚拟日常')} · {t(STATUS[activity.status])}</small> : null}
       </button>
