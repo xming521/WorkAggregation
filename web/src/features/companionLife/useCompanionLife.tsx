@@ -53,7 +53,7 @@ export function useCompanionLifeController(controller: PilotConversationControll
     if (readEpoch === epoch.current) apply(next);
     return next;
   }, [apply]);
-  const execute = useCallback(async (command: CompanionCommand) => {
+  const execute = useCallback(async (command: CompanionCommand, reportConflict = true) => {
     if (!mounted.current || locked.current) return;
     locked.current = true; setBusy(true); setError('');
     try {
@@ -73,7 +73,7 @@ export function useCompanionLifeController(controller: PilotConversationControll
       if (status === 409 || status === 422 || status === 400) {
         if (command.kind === 'event' && (command.body.event === 'quiet_session' || command.body.event === 'resume_session')) setOptimisticQuiet(false);
         unresolved.current = null; setUncertain(false);
-        setError('日常状态已变化，请核对后再操作。');
+        if (reportConflict) setError('日常状态已变化，请核对后再操作。');
         try { await refresh(); } catch { setNetworkFailure(true); }
       } else {
         // A lost response may already have committed. Only retry this exact
@@ -90,7 +90,7 @@ export function useCompanionLifeController(controller: PilotConversationControll
     const wish_id = state.state.wish?.id;
     if (explicit) setBid(null);
     return execute({ kind: 'event', body: { identity: state.identity, expected_revision: state.revision, command_id: crypto.randomUUID(), event,
-      ...(activity_id ? { activity_id } : {}), ...(wish_id ? { wish_id } : {}) } });
+      ...(activity_id ? { activity_id } : {}), ...(wish_id ? { wish_id } : {}) } }, explicit);
   }, [execute]);
   const setQuiet = useCallback((value: boolean) => {
     if (!current.current || locked.current || unresolved.current) return;

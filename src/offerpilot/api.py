@@ -25,6 +25,7 @@ from pypdf import PdfReader
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
+from offerpilot.companion.chat import freeze_chat_command
 from offerpilot.ai.agent_contracts import ChatModel, PendingAction
 from offerpilot.presentation import AgentActionPresentationBuilder, build_conversation_presentation
 from offerpilot.pilot_timeline import (
@@ -5282,6 +5283,7 @@ def create_app(
             )
             frozen_source.append(source)
             return {
+                **freeze_chat_command(session, conversation, request),
                 "conversation_scope": str(source.scope_revision),
                 "current_scope": (
                     source.context_message.surface_revision or "absent"
@@ -5845,6 +5847,7 @@ def create_app(
                     refs.append(context_ref)
                 metadata["source_refs_json"] = json.dumps(refs, ensure_ascii=False, separators=(",", ":"))
             return {
+                **freeze_chat_command(session, conversation, request),
                 "conversation_scope": str(source.scope_revision),
                 "current_scope": (
                     source.context_message.surface_revision or "absent"

@@ -1,7 +1,7 @@
 """Isolated companion storage; no business or confirmed-memory foreign keys."""
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, Index, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from offerpilot.models import Base
@@ -41,6 +41,7 @@ class CompanionParticipation(Base):
     activity_id: Mapped[str] = mapped_column(String(36), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     promise: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="control", server_default="control")
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     completed_at: Mapped[float | None] = mapped_column(Float, nullable=True)
 
@@ -71,3 +72,19 @@ class CompanionUsageSession(Base):
     last_seen_at: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     unanswered: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     session_quiet: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class CompanionChatEvidence(Base):
+    """Only actual admitted user instructions, never model-authored state."""
+    __tablename__ = "companion_chat_evidence"
+    command_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    identity: Mapped[str] = mapped_column(String(36), nullable=False)
+    activity_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    participation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    message_id: Mapped[int] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    turn_id: Mapped[str] = mapped_column(ForeignKey("pilot_turns.id", ondelete="CASCADE"), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    step_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    value: Mapped[str | None] = mapped_column(String(40), nullable=True)

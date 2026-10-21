@@ -157,3 +157,15 @@ describe('single companion life controller', () => {
     expect(sendCompanionCommand).not.toHaveBeenCalled();
   });
 });
+
+it('refreshes a background lifecycle conflict after chat without replaying or alarming the user', async () => {
+  await render();
+  vi.mocked(sendCompanionCommand).mockRejectedValueOnce({ response: { status: 409 } });
+  const waiting = structuredClone(state); waiting.revision = 5;
+  waiting.state.activity!.status = 'waiting_shared'; waiting.state.activity!.promise = '等你一起选颜色';
+  vi.mocked(getCompanion).mockResolvedValueOnce(waiting);
+  await act(async () => { await life.event('work_completed'); });
+  expect(life.snapshot?.state.activity?.promise).toBe('等你一起选颜色');
+  expect(life.error).toBe(''); expect(life.uncertain).toBe(false);
+  expect(sendCompanionCommand).toHaveBeenCalledTimes(2);
+});

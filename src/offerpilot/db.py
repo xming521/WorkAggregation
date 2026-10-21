@@ -78,6 +78,8 @@ def init_database(db_path: Path) -> SessionFactory:
     Base.metadata.create_all(engine)
     _record_migration(engine, "0033_job_mail_review", "Add isolated mail evidence, proposals, previews and atomic receipts")
     _record_migration(engine, "0034_companion_life", "Add isolated virtual life, sourced participation and idempotent commands")
+    _ensure_column(engine, "companion_participation", "origin", "TEXT NOT NULL DEFAULT 'control'")
+    _record_migration(engine, "0035_companion_chat", "Ground bounded companion chat actions in actual admitted user messages")
     runtime_columns_changed = [
         _ensure_column(engine, "pilot_executions", "protocol", "TEXT NOT NULL DEFAULT 'legacy'"),
         _ensure_column(engine, "pilot_executions", "runtime_epoch", "TEXT"),

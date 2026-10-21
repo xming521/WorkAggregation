@@ -36,7 +36,7 @@ it('keeps a shared step waiting until explicit completion and supports decline',
   life.snapshot!.state.activity!.status = 'waiting_shared'; life.snapshot!.state.wish = null; await render();
   expect(document.body.textContent).toContain('不倒计时，也不会催促');
   await click('关闭日常详情'); expect(vi.mocked(life.event).mock.calls.some(call => call[0] === 'complete_shared')).toBe(false);
-  await click('查看 Haru 的虚拟日常'); await click('这次一起完成了'); expect(life.event).toHaveBeenLastCalledWith('complete_shared', true);
+  await click('查看 Haru 的虚拟日常'); await click('约好的一步完成了'); expect(life.event).toHaveBeenLastCalledWith('complete_shared', true);
 });
 it('suspends and closes the popover while typing, without reopening it afterward', async () => {
   await render(); await click('查看 Haru 的虚拟日常');
@@ -63,4 +63,17 @@ it('uses English authored life labels and hides the status when disabled', async
   await setLocale('en-US'); await render(); await click("View Haru's virtual daily life");
   expect(document.body.textContent).toContain('Fold a little paper boat'); expect(document.body.textContent).not.toMatch(/\p{Script=Han}/u);
   life.snapshot!.settings.enabled = false; await render(); expect(host.querySelector('[data-companion-life]')).toBeNull();
+});
+
+it('shows the persisted chat promise across refresh without treating opening as completion', async () => {
+  life.snapshot!.state.activity!.status = 'waiting_shared';
+  life.snapshot!.state.activity!.promise = '等你一起选颜色';
+  await render(); await click('查看 Haru 的虚拟日常');
+  expect(document.body.textContent).toContain('等你一起选颜色');
+  expect(document.body.textContent).toContain('在聊天里回应');
+  expect(vi.mocked(life.event).mock.calls.some(call => call[0] === 'complete_shared')).toBe(false);
+  await click('关闭日常详情'); await click('查看 Haru 的虚拟日常');
+  expect(document.body.textContent).toContain('等你一起选颜色');
+  await setLocale('en-US'); await render();
+  expect(document.body.textContent).toContain('Waiting to choose a color with you');
 });

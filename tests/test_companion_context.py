@@ -151,7 +151,8 @@ def test_disabled_life_is_omitted_without_disabling_shared_persona(companion):
     assert PERSONA_VERSION in policy
     assert "用户当前请求与求职工作优先" in policy
     assert "不因用户离开、拒绝、暂停或不回复" in policy
-    assert "不得声称聊天已修改活动、保存共同约定或完成参与" in policy
+    assert "没有已保存来源或系统执行回执时，不得声称已修改活动" in policy
+    assert "普通聊天生成不能修改活动" in policy
 
 
 def test_proactive_off_does_not_hide_explicitly_requested_state(companion):

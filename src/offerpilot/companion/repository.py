@@ -20,7 +20,7 @@ from .contracts import (
     CompanionResetCommand, CompanionSettingsCommand,
 )
 from .models import (
-    CompanionCommandReceipt, CompanionEvent, CompanionParticipation, CompanionPresence,
+    CompanionChatEvidence, CompanionCommandReceipt, CompanionEvent, CompanionParticipation, CompanionPresence,
     CompanionState, CompanionUsageSession,
 )
 
@@ -203,6 +203,10 @@ class CompanionRepository:
                 session.add(CompanionState(id=1, identity=str(uuid4()), revision=0,
                     persona_version=PERSONA_VERSION, settings_json=CompanionPolicy().model_dump_json(),
                     life_json=_json(_empty_life()), latest_event_id=None, sequence=0, updated_at=0))
+            state = session.get(CompanionState, 1)
+            if state is not None and state.persona_version != PERSONA_VERSION:
+                state.persona_version = PERSONA_VERSION
+                state.revision += 1
             if session.get(CompanionUsageSession, 1) is None:
                 session.add(CompanionUsageSession(id=1, session_id=str(uuid4()), last_seen_at=0, unanswered=False, session_quiet=False))
             session.commit()
@@ -389,6 +393,7 @@ class CompanionRepository:
             if status not in ("active", "waiting_shared", "paused"):
                 raise CompanionConflict("activity_already_terminal")
             activity["status"], activity["promise"] = "abandoned", None
+            activity.pop("shared_step", None)
             activity.pop("paused_from", None)
             life["wish"] = None
             for abandoned_part in session.scalars(select(CompanionParticipation).where(
@@ -417,6 +422,7 @@ class CompanionRepository:
                 raise CompanionConflict("participation_missing")
             part.status, part.completed_at = "completed", now
             activity["status"], activity["promise"] = "active", None
+            activity.pop("shared_step", None)
             kind, message = "shared_completed", "用户明确确认完成了约好的一步"
         else:
             raise CompanionConflict("unsupported_event")
@@ -449,7 +455,7 @@ class CompanionRepository:
             digest, receipt = self._check(session, row, command, "reset")
             if receipt is not None:
                 return receipt
-            for model in (CompanionEvent, CompanionParticipation, CompanionPresence, CompanionCommandReceipt):
+            for model in (CompanionChatEvidence, CompanionEvent, CompanionParticipation, CompanionPresence, CompanionCommandReceipt):
                 session.execute(delete(model))
             # Erase old virtual prose from the shared queue, retaining only the
             # publication timestamps/identities needed to prevent budget bypass.

@@ -172,7 +172,7 @@ def read_companion_context(
             raise ProjectionError("companion_source_invalid")
         data["virtual_wish"] = {"text": _short_text(wish.get("text"), 120)}
     participation = connection.execute(
-        "SELECT id, status, promise, created_at, completed_at FROM companion_participation "
+        "SELECT id, status, promise, created_at, completed_at, origin FROM companion_participation "
         "WHERE identity = ? AND activity_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
         (identity, activity_id),
     ).fetchone()
@@ -182,6 +182,14 @@ def read_companion_context(
             raise ProjectionError("companion_source_invalid")
         if (part_status == "completed") != (participation[4] is not None):
             raise ProjectionError("companion_source_invalid")
+        evidence = connection.execute(
+            "SELECT e.message_id, e.conversation_id, e.turn_id, e.action, e.step_kind, e.value "
+            "FROM companion_chat_evidence e JOIN chat_messages m ON m.id=e.message_id "
+            "WHERE e.participation_id=? AND e.identity=? AND m.role='user' "
+            "ORDER BY e.message_id DESC LIMIT 1", (participation[0], identity),
+        ).fetchone()
+        if participation[5] == "chat" and evidence is None:
+            return data
         data["actual_user_participation"] = {
             "record_id": _short_text(participation[0], 36),
             "source": "companion_participation:user_command",
@@ -191,4 +199,12 @@ def read_companion_context(
             "created_at": participation[3],
             "completed_at": participation[4],
         }
+        if evidence is not None:
+            participation_data = data["actual_user_participation"]
+            assert isinstance(participation_data, dict)
+            participation_data.update(
+                source="companion_participation:user_chat", source_message_id=evidence[0],
+                source_conversation_id=evidence[1], source_turn_id=evidence[2],
+                action=evidence[3], step_kind=evidence[4], user_reply=evidence[5],
+            )
     return data
