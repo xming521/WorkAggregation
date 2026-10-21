@@ -144,3 +144,17 @@ describe('derivePipelineInsights', () => {
     expect(health.weeklyTarget).toBe(6);
   });
 });
+
+describe('explicit goal opt-in', () => {
+  it.each([undefined, 0])('does not create a target gap when absent or paused (%s)', (weeklyTarget) => {
+    const input = { apps: [], events: [], offers: [], weeklyTarget, now };
+    expect(derivePipelineInsights(input).some((item) => item.kind === 'weekly_goal_gap')).toBe(false);
+    expect(summarizePipelineHealth([], [], weeklyTarget, now).label).toBe('healthy');
+  });
+  it('uses the calendar week for an explicit target, matching weekly mission metrics', () => {
+    const apps = [makeApplication({ id: 1, applied_at: '2026-06-27' }), makeApplication({ id: 2, applied_at: '2026-06-28' }), makeApplication({ id: 3, applied_at: '2026-07-05' })];
+    const health = summarizePipelineHealth(apps, [], 4, now);
+    expect(health.weeklyApplications).toBe(1);
+    expect(health.weeklyGap).toBe(3);
+  });
+});

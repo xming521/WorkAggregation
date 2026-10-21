@@ -347,7 +347,7 @@ export function summarizePipelineHealth(
   const current = dayjs(now);
   const weeklyApplications = apps.filter((app) => {
     const appliedAt = parseStrictDate(app.applied_at);
-    return Boolean(appliedAt && current.diff(appliedAt, 'day') < 7);
+    return Boolean(appliedAt && !appliedAt.isBefore(current.locale('en').startOf('week')) && !appliedAt.isAfter(current.locale('en').endOf('week')));
   }).length;
   const dueQuestions = insights.reduce((total, insight) => total + (insight.questionCount ?? 0), 0);
   const p0 = insights.filter((insight) => insight.priority === 'p0').length;

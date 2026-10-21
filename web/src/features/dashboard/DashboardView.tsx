@@ -30,6 +30,7 @@ import {
   getOnboarding,
   ONBOARDING_QUERY_KEY,
   setOnboardingForceOpen,
+  shouldShowOnboarding,
 } from '@/services/onboarding';
 import { deriveTodayWorkspace, deriveWeeklyCompletedHighlight } from './todayWorkspace';
 import type { Application } from '@/types/application';
@@ -125,10 +126,10 @@ export default function DashboardView({
   const funnel = useMemo(() => computeFunnel(apps), [apps, getLocale()]);
   const momentum = useMemo(() => computeMomentum(apps, 4, now), [apps, now, getLocale()]);
   const insights = useMemo(
-    () => deriveActionHints({ apps, events, offers, practiceStats, weeklyTarget: 6, now }),
+    () => deriveActionHints({ apps, events, offers, practiceStats, now }),
     [apps, events, offers, practiceStats, now, getLocale()],
   );
-  const health = useMemo(() => summarizePipelineHealth(apps, insights, 6, now), [apps, insights, now]);
+  const health = useMemo(() => summarizePipelineHealth(apps, insights, undefined, now), [apps, insights, now]);
   const mission = useMemo(
     () =>
       deriveMissionControl({
@@ -139,7 +140,6 @@ export default function DashboardView({
         practiceStats,
         insights,
         healthLabel: health.label,
-        weeklyTarget: 6,
         now,
       }),
     [apps, events, offers, missionMaterialKits, practiceStats, insights, health.label, now, getLocale()],
@@ -196,13 +196,15 @@ export default function DashboardView({
       action={<Button onClick={() => onboardingQ.refetch()}>{t("重试")}</Button>}
       style={{ marginBottom: 16 }}
     />
-  ) : onboardingQ.data && (!onboardingQ.data.is_complete || onboardingQ.data.force_open) ? (
+  ) : onboardingQ.data && shouldShowOnboarding(onboardingQ.data) ? (
     <div style={{ marginBottom: 16 }}>
       <OnboardingChecklist
         status={onboardingQ.data}
+        collapsing={collapseOnboarding.isPending}
         onCollapse={() => collapseOnboarding.mutate()}
         onAction={onOnboardingAction}
       />
+      {collapseOnboarding.isError && <Alert type="warning" showIcon message={t("未能收起引导，请重试。")} />}
     </div>
   ) : null;
 
