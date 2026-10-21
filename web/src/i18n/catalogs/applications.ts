@@ -1,4 +1,10 @@
 const applications: Record<string, string> = {
+  "相关提醒已合并到待办列表": "Related reminders are included in the to-do list",
+  "正在加载提醒": "Loading reminders",
+  "提醒加载失败，请重试": "Reminders could not be loaded. Please retry.",
+  "面试临近，可提前准备": "Your interview is approaching. You can prepare in advance.",
+  "投递截止时间临近": "The application deadline is approaching.",
+  "面试结束，可记录复盘": "The interview is complete. You can record a review.",
   " 跟进与安排": " Follow-ups and events",
   "历史未绑定 Offer 仅支持只读查看": "Legacy offers without an application are read-only",
   "引用的记录已不存在": "The referenced record no longer exists",

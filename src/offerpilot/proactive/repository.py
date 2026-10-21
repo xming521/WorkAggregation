@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -10,12 +9,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from offerpilot.models import Application, ApplicationEvent, Conversation, InterviewNote, InterviewPreparationProposal
+from offerpilot.models import Application, ApplicationEvent, Conversation
+from .candidates import DAY, list_display_candidates, reminder_source, source_candidate, subject
 from .contracts import ProactivePolicy, ProactivePolicyUpdate
 from .models import ProactiveJob, ProactiveSettings
 
 ACTIVE = ("pending", "leased", "running")
-DAY = 86400
 MAX_QUEUE = 100
 MAX_RETAINED_JOBS = 2000
 REASONS = {"deadline": "投递截止时间临近", "interview_preparation": "面试临近，可提前准备",
@@ -25,10 +24,6 @@ REASONS = {"deadline": "投递截止时间临近", "interview_preparation": "面
 
 class ProactiveConflict(ValueError):
     pass
-
-
-def timestamp(value: datetime) -> float:
-    return value.replace(tzinfo=timezone.utc).timestamp() if value.tzinfo is None else value.timestamp()
 
 
 def quiet(policy: ProactivePolicy, now: float) -> bool:
@@ -48,49 +43,23 @@ def _allowed(policy: ProactivePolicy, kind: str, application_id: int) -> bool:
 
 
 def _source(session: Session, application_id: int, event_id: int | None, kind: str) -> tuple[str, dict[str, Any]] | None:
-    app = session.get(Application, application_id)
-    if app is None or app.deleted_at is not None or app.closed_at is not None or app.status == "closed":
-        return None
-    value: dict[str, Any] = {"application_id": app.id, "company": app.company_name[:200],
-        "position": app.position_name[:200], "status": app.status, "updated_at": app.updated_at.isoformat()}
-    if event_id is not None:
-        event = session.get(ApplicationEvent, event_id)
-        if event is None or event.application_id != app.id or event.scheduled_at is None:
-            return None
-        if kind == "review":
-            if event.event_type != "interview" or event.status != "done":
-                return None
-            if session.scalar(select(InterviewNote.id).where(InterviewNote.application_event_id == event.id).limit(1)):
-                return None
-        elif event.status != "todo" or event.event_type != ("deadline" if kind == "deadline" else "interview"):
-            return None
-        if kind in {"interview_preparation", "interview_draft"} and session.scalar(select(InterviewPreparationProposal.id).where(
-            InterviewPreparationProposal.application_event_id == event.id,
-            InterviewPreparationProposal.attempt_status == "ready",
-            InterviewPreparationProposal.proposal_status == "normal").limit(1)):
-            return None
-        value.update(event_id=event.id, event_type=event.event_type, subtype=event.subtype,
-                     scheduled_at=event.scheduled_at.isoformat(), status=event.status, round=event.round,
-                     remind_at=event.remind_at.isoformat() if event.remind_at else None)
-        if kind == "interview_draft":
-            _, policy = _policy(session)
-            scheduled = datetime.fromtimestamp(timestamp(event.scheduled_at), timezone.utc)
-            # Timezone is part of the frozen source, so changing it fences an
-            # in-flight draft just like changing the event time itself.
-            value.update(scheduled_at=scheduled.isoformat(), timezone=policy.timezone,
-                scheduled_at_local=scheduled.astimezone(ZoneInfo(policy.timezone)).isoformat())
-    raw = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return sha256(raw.encode()).hexdigest(), value
+    _, policy = _policy(session)
+    return reminder_source(session, application_id, event_id, kind, draft_timezone=policy.timezone)
 
 
 def _view(row: ProactiveJob) -> dict[str, Any]:
-    return {key: getattr(row, key) for key in ("id", "kind", "application_id", "event_id", "state", "reason",
-        "due_at", "created_at", "published_at", "result_text", "turn_id", "execution_generation", "error_code")}
+    return {**{key: getattr(row, key) for key in ("id", "kind", "application_id", "event_id", "state", "reason",
+        "due_at", "created_at", "published_at", "result_text", "turn_id", "execution_generation", "error_code")},
+        **subject(row.application_id, row.event_id, row.kind), "source_revision": row.source_digest}
 
 
 class ProactiveRepository:
     def __init__(self, sessions: sessionmaker[Session]):
         self.sessions = sessions
+
+    def reminder_candidates(self, now: float, timezone_name: str = "UTC") -> list[dict[str, Any]]:
+        with self.sessions() as session:
+            return list_display_candidates(session, now, timezone_name)
 
     def settings(self) -> dict[str, Any]:
         with self.sessions() as session:
@@ -185,21 +154,18 @@ class ProactiveRepository:
                 ))
                 .order_by(func.coalesce(ApplicationEvent.remind_at, ApplicationEvent.scheduled_at), ApplicationEvent.id)
                 .limit(100)).all()
-            for event in events:
-                when = timestamp(event.scheduled_at)  # type: ignore[arg-type]
-                if event.event_type == "deadline":
-                    candidates.append((event.application_id, event.id, "deadline", timestamp(event.remind_at) if event.remind_at else when - DAY, when))
-                elif event.status == "done":
-                    candidates.append((event.application_id, event.id, "review", when, when + DAY))
-                else:
-                    due = timestamp(event.remind_at) if event.remind_at else when - DAY
-                    candidates.extend((event.application_id, event.id, kind, due, when) for kind in ("interview_preparation", "interview_draft"))
-            for app in session.scalars(select(Application).where(Application.id.in_(policy.application_ids)).limit(100)):
-                due = timestamp(app.updated_at) + 7 * DAY
-                # One rolling weekly bucket; no replay of a months-long backlog.
-                if due <= now:
-                    due += int((now - due) // (7 * DAY)) * 7 * DAY
-                candidates.append((app.id, None, "stale_application", due, due + DAY))
+            sources: list[tuple[int, int | None, str]] = [(event.application_id, event.id,
+                "deadline" if event.event_type == "deadline" else "review" if event.status == "done" else "interview_preparation")
+                for event in events]
+            sources.extend((app.id, None, "stale_application") for app in
+                session.scalars(select(Application).where(Application.id.in_(policy.application_ids)).limit(100)))
+            for app_id, event_id, kind in sources:
+                candidate = source_candidate(session, app_id, event_id, kind, now)
+                if candidate is None or candidate.delivery_due_at is None or candidate.delivery_expires_at is None:
+                    continue
+                kinds = (kind, "interview_draft") if kind == "interview_preparation" else (kind,)
+                candidates.extend((app_id, event_id, job_kind, candidate.delivery_due_at, candidate.delivery_expires_at)
+                                  for job_kind in kinds)
             for app_id, event_id, kind, due, expires in candidates:
                 if count + added >= MAX_QUEUE or retained + added >= MAX_RETAINED_JOBS:
                     break
