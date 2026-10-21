@@ -1,7 +1,7 @@
 import { t } from '@/i18n';
 import dayjs, { type ConfigType } from 'dayjs';
 import type { Application, ApplicationStatus } from '@/types/application';
-import type { ScheduleEvent } from '@/types/event';
+import { EVENT_TYPE_LABELS, type ScheduleEvent } from '@/types/event';
 import type { ReminderCandidate } from '@/types/reminders';
 import type { Offer } from '@/types/offer';
 import type { PracticeStats } from '@/types/question';
@@ -12,6 +12,7 @@ export type PipelineInsightKind =
   | 'application_deadline'
   | 'interview_review'
   | 'interview_soon'
+  | 'event_upcoming'
   | 'stale_application'
   | 'no_next_event'
   | 'material_kit_incomplete'
@@ -177,6 +178,15 @@ export function reminderCandidateInsight(candidate: ReminderCandidate, current: 
     return { ...common, kind: 'interview_review', priority: 'p2',
       title: t("面试复盘提醒"), reason: t("面试结束，可记录复盘"), evidence,
       primaryAction: makeAction(t("打开日历"), 'calendar', refs), sortKey: 250 };
+  }
+  if (candidate.reason_code === 'event_upcoming') {
+    return { ...common, kind: 'event_upcoming', priority: hours <= 24 ? 'p0' : 'p1',
+      title: t("{label} 即将开始", { label }),
+      reason: t("{value} 将在 {value2} 小时后开始。", {
+        value: candidate.event_type ? EVENT_TYPE_LABELS[candidate.event_type] : t("日程"),
+        value2: Math.max(1, Math.ceil(hours)),
+      }), evidence,
+      primaryAction: makeAction(t("打开日历"), 'calendar', refs), sortKey: 200 + hours };
   }
   const deadline = candidate.reason_code === 'deadline';
   return { ...common, kind: deadline ? 'application_deadline' : 'interview_soon', priority: hours <= 24 ? 'p0' : 'p1',

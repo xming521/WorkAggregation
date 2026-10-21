@@ -12,7 +12,7 @@ const application: Application = { id: 1, company_name: 'Acme', position_name: '
   job_url: '', status: 'applied', source: '', notes: '', applied_at: '2026-01-01',
   created_at: '2026-01-01', updated_at: '2026-01-01' };
 
-const kinds = { deadline: 'application_deadline', offer_response_deadline: 'offer_deadline',
+const kinds = { event_upcoming: 'event_upcoming', deadline: 'application_deadline', offer_response_deadline: 'offer_deadline',
   interview_preparation: 'interview_soon', review: 'interview_review', stale_application: 'stale_application' };
 
 describe('shared reminder candidate presentation', () => {
@@ -27,6 +27,16 @@ describe('shared reminder candidate presentation', () => {
       expect(insight.primaryAction.eventId).toBe(fact.event_id ?? undefined);
       expect(insight.primaryAction.offerId).toBe(fact.offer_id ?? undefined);
     }
+  });
+
+  it('labels ordinary calendar events without turning them into interview preparation', () => {
+    const scenario = corpus.cases.find((item) => item.name === 'display_events_24h')!;
+    const insights = derivePipelineInsights({ ...input, now: scenario.now, reminderCandidates: scenario.expected });
+    expect(insights.map((item) => item.reason)).toEqual([
+      '笔试 将在 24 小时后开始。', 'Offer 进展 将在 24 小时后开始。', '自定义 将在 24 小时后开始。',
+    ]);
+    expect(insights.every((item) => item.kind === 'event_upcoming' && item.primaryAction.target === 'calendar')).toBe(true);
+    expect(insights.every((item) => item.candidate?.delivery_due_at === null)).toBe(true);
   });
 
   it('does not reconstruct reminder eligibility from incomplete client sources', () => {

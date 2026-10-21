@@ -750,6 +750,7 @@ const materials: Record<string, string> = {
   "已安排日程": "Scheduled event",
   "{label} 即将开始": "{label} starts soon",
   "日程": "Event",
+  "日程临近": "Upcoming events",
   "{value} 将在 {value2} 小时后开始。": "{value} starts in {value2} hours.",
   "日程时间：{value}": "Event time: {value}",
   "打开日历": "Open calendar",

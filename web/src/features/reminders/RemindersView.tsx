@@ -45,6 +45,7 @@ const KIND_FILTER_OPTIONS = defineKindFilterOptions([
   { value: 'offer_deadline', get label() { return t("Offer 截止"); } },
   { value: 'application_deadline', get label() { return t("截止提醒"); } },
   { value: 'interview_review', get label() { return t("面试复盘提醒"); } },
+  { value: 'event_upcoming', get label() { return t("日程临近"); } },
   { value: 'interview_soon', get label() { return t("面试临近"); } },
   { value: 'stale_application', get label() { return t("投递待跟进"); } },
   { value: 'no_next_event', get label() { return t("缺少下一步"); } },

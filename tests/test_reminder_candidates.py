@@ -12,7 +12,7 @@ from sqlalchemy import select
 from offerpilot.db import init_database
 from offerpilot.models import Application, ApplicationEvent, InterviewNote, InterviewPreparationProposal, Offer
 from offerpilot.proactive.api import register_proactive_routes
-from offerpilot.proactive.candidates import DAY
+from offerpilot.proactive.candidates import DAY, reminder_source, source_candidate
 from offerpilot.proactive.contracts import ProactivePolicy, ProactivePolicyUpdate
 from offerpilot.proactive.models import ProactiveJob
 from offerpilot.proactive.repository import ProactiveRepository
@@ -179,3 +179,38 @@ def test_eligibility_change_removes_fact_and_fences_publication(tmp_path, change
     assert repository.reminder_candidates(now) == []
     assert not repository.publish(job_id, "owner", job["turn_id"], 1, "stale", now + 1)
     assert repository.list_jobs()[0]["result_text"] == ""
+
+
+@pytest.mark.parametrize("event_id", [1, 2, 3])
+def test_display_only_events_never_become_queue_sources_after_revision_changes(tmp_path, event_id):
+    sessions = init_database(tmp_path / "candidate.db")
+    case = next(item for item in CORPUS["cases"] if item["name"] == "display_events_24h")
+    populate(sessions, case)
+    repository = ProactiveRepository(sessions)
+    now = date(case["now"]).timestamp()
+    first = next(item for item in repository.reminder_candidates(now) if item["event_id"] == event_id)
+    repository.update_settings(ProactivePolicyUpdate(expected_revision=0, confirmed=True,
+        settings=ProactivePolicy(enabled=True, reminders_enabled=True, drafts_enabled=True,
+            application_ids=[1], quiet_start_hour=0, quiet_end_hour=0)))
+    with sessions() as session:
+        event = session.get(ApplicationEvent, event_id)
+        event.scheduled_at = datetime.fromtimestamp(now + 3600, timezone.utc)
+        event.remind_at = datetime.fromtimestamp(now, timezone.utc)
+        session.commit()
+        # Even an explicit remind_at and all opt-ins cannot reinterpret display
+        # facts as any supported delivery kind or give event_upcoming permission.
+        for kind in ("event_upcoming", "interview_preparation", "interview_draft", "review", "deadline", "stale_application"):
+            assert reminder_source(session, 1, event_id, kind) is None
+            assert source_candidate(session, 1, event_id, kind, now) is None
+    changed = next(item for item in repository.reminder_candidates(now) if item["event_id"] == event_id)
+    assert changed["id"] == first["id"]
+    assert changed["source_revision"] != first["source_revision"]
+    assert changed["due_at"] == now + 3600
+    assert changed["delivery_due_at"] is None
+    assert changed["delivery_expires_at"] is None
+    assert repository.discover(now) == 0
+    assert repository.list_jobs() == []
+    with sessions() as session:
+        session.get(Application, 1).status = "closed"
+        session.commit()
+    assert repository.reminder_candidates(now) == []

@@ -43,7 +43,8 @@
           "delivery_due_at": 1788926400.0,
           "delivery_expires_at": 1789012800.0,
           "updated_at": 1788321600.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": null
         }
       ]
     },
@@ -76,7 +77,8 @@
           "delivery_due_at": 1788840000.0,
           "delivery_expires_at": 1788926400.0,
           "updated_at": 1788235200.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": null
         }
       ]
     },
@@ -109,7 +111,8 @@
           "delivery_due_at": 1788926400.0,
           "delivery_expires_at": 1789012800.0,
           "updated_at": 1787716800.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": null
         }
       ]
     },
@@ -142,7 +145,8 @@
           "delivery_due_at": 1788926400.0,
           "delivery_expires_at": 1789012800.0,
           "updated_at": 1788321600.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": null
         }
       ]
     },
@@ -175,7 +179,8 @@
           "delivery_due_at": 1788926400.0,
           "delivery_expires_at": 1789012800.0,
           "updated_at": 1788321600.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": null
         }
       ]
     },
@@ -278,7 +283,8 @@
           "delivery_due_at": 1789099200.0,
           "delivery_expires_at": 1789185600.0,
           "updated_at": 1788926400.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": "interview"
         }
       ]
     },
@@ -320,7 +326,8 @@
           "delivery_due_at": 1789012800.0,
           "delivery_expires_at": 1789099200.0,
           "updated_at": 1788926400.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": "interview"
         }
       ]
     },
@@ -362,7 +369,8 @@
           "delivery_due_at": 1788926400.0,
           "delivery_expires_at": 1789012800.0,
           "updated_at": 1788926400.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": "interview"
         }
       ]
     },
@@ -493,7 +501,8 @@
           "delivery_due_at": 1788922800.0,
           "delivery_expires_at": 1789009200.0,
           "updated_at": 1788926400.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": "interview"
         }
       ]
     },
@@ -566,7 +575,8 @@
           "delivery_due_at": 1788926400.0,
           "delivery_expires_at": 1789012800.0,
           "updated_at": 1788926400.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": "deadline"
         },
         {
           "id": "offer:1:offer_response_deadline",
@@ -585,7 +595,8 @@
           "delivery_due_at": null,
           "delivery_expires_at": null,
           "updated_at": null,
-          "deadline_label": "2026-09-10"
+          "deadline_label": "2026-09-10",
+          "event_type": null
         }
       ]
     },
@@ -682,7 +693,8 @@
           "delivery_due_at": null,
           "delivery_expires_at": null,
           "updated_at": null,
-          "deadline_label": "2026-09-10"
+          "deadline_label": "2026-09-10",
+          "event_type": null
         }
       ]
     },
@@ -716,7 +728,8 @@
           "delivery_due_at": 1773590400.0,
           "delivery_expires_at": 1773676800.0,
           "updated_at": 1772985600.0,
-          "deadline_label": null
+          "deadline_label": null,
+          "event_type": null
         }
       ]
     },
@@ -771,7 +784,8 @@
           "delivery_due_at": null,
           "delivery_expires_at": null,
           "updated_at": null,
-          "deadline_label": "2026-09-10"
+          "deadline_label": "2026-09-10",
+          "event_type": null
         }
       ]
     },
@@ -793,6 +807,418 @@
           "status": "pending"
         }
       ],
+      "expected": []
+    },
+    {
+      "name": "display_events_24h",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        }
+      ],
+      "delivery_count": 0,
+      "expected": [
+        {
+          "id": "application_event:1:event_upcoming",
+          "subject_type": "application_event",
+          "subject_id": 1,
+          "reason_code": "event_upcoming",
+          "source_revision": "c8924af2df3289fa74e06a0939430c0155b66744274076449fbb5b10c8acfa62",
+          "application_id": 1,
+          "event_id": 1,
+          "offer_id": null,
+          "company": "Acme",
+          "position": "Engineer",
+          "due_at": 1789012800.0,
+          "display_from": 1788753600.0,
+          "display_until": 1789012800.0,
+          "delivery_due_at": null,
+          "delivery_expires_at": null,
+          "updated_at": 1788926400.0,
+          "deadline_label": null,
+          "event_type": "written_test"
+        },
+        {
+          "id": "application_event:2:event_upcoming",
+          "subject_type": "application_event",
+          "subject_id": 2,
+          "reason_code": "event_upcoming",
+          "source_revision": "ab3e48b472f4cbd60016285efb3c2cce7e4d8213f4f9c205c9b2953f89951653",
+          "application_id": 1,
+          "event_id": 2,
+          "offer_id": null,
+          "company": "Acme",
+          "position": "Engineer",
+          "due_at": 1789012800.0,
+          "display_from": 1788753600.0,
+          "display_until": 1789012800.0,
+          "delivery_due_at": null,
+          "delivery_expires_at": null,
+          "updated_at": 1788926400.0,
+          "deadline_label": null,
+          "event_type": "offer_step"
+        },
+        {
+          "id": "application_event:3:event_upcoming",
+          "subject_type": "application_event",
+          "subject_id": 3,
+          "reason_code": "event_upcoming",
+          "source_revision": "3374c4e0ec90dd9f7010737880441d96ffd7937e3cb6f13c7ed6fde2e9598dbb",
+          "application_id": 1,
+          "event_id": 3,
+          "offer_id": null,
+          "company": "Acme",
+          "position": "Engineer",
+          "due_at": 1789012800.0,
+          "display_from": 1788753600.0,
+          "display_until": 1789012800.0,
+          "delivery_due_at": null,
+          "delivery_expires_at": null,
+          "updated_at": 1788926400.0,
+          "deadline_label": null,
+          "event_type": "custom"
+        }
+      ]
+    },
+    {
+      "name": "display_events_72h",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "todo",
+          "scheduled_at": "2026-09-12T04:00:00+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "todo",
+          "scheduled_at": "2026-09-12T04:00:00+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "todo",
+          "scheduled_at": "2026-09-12T04:00:00+00:00"
+        }
+      ],
+      "delivery_count": 0,
+      "expected": [
+        {
+          "id": "application_event:1:event_upcoming",
+          "subject_type": "application_event",
+          "subject_id": 1,
+          "reason_code": "event_upcoming",
+          "source_revision": "1484f7e66e75da43c6e624eef49974a5119a6d20a7ad9bbe317923e9be606b2b",
+          "application_id": 1,
+          "event_id": 1,
+          "offer_id": null,
+          "company": "Acme",
+          "position": "Engineer",
+          "due_at": 1789185600.0,
+          "display_from": 1788926400.0,
+          "display_until": 1789185600.0,
+          "delivery_due_at": null,
+          "delivery_expires_at": null,
+          "updated_at": 1788926400.0,
+          "deadline_label": null,
+          "event_type": "written_test"
+        },
+        {
+          "id": "application_event:2:event_upcoming",
+          "subject_type": "application_event",
+          "subject_id": 2,
+          "reason_code": "event_upcoming",
+          "source_revision": "a67bb3061635b8651d7e7ee851300442e92c1b2bd1e12a2a490c428030f0747f",
+          "application_id": 1,
+          "event_id": 2,
+          "offer_id": null,
+          "company": "Acme",
+          "position": "Engineer",
+          "due_at": 1789185600.0,
+          "display_from": 1788926400.0,
+          "display_until": 1789185600.0,
+          "delivery_due_at": null,
+          "delivery_expires_at": null,
+          "updated_at": 1788926400.0,
+          "deadline_label": null,
+          "event_type": "offer_step"
+        },
+        {
+          "id": "application_event:3:event_upcoming",
+          "subject_type": "application_event",
+          "subject_id": 3,
+          "reason_code": "event_upcoming",
+          "source_revision": "ac6cb8098e38f8af9edbd837d9b6888f12a980a7f9f9670f1aafc97399cc1373",
+          "application_id": 1,
+          "event_id": 3,
+          "offer_id": null,
+          "company": "Acme",
+          "position": "Engineer",
+          "due_at": 1789185600.0,
+          "display_from": 1788926400.0,
+          "display_until": 1789185600.0,
+          "delivery_due_at": null,
+          "delivery_expires_at": null,
+          "updated_at": 1788926400.0,
+          "deadline_label": null,
+          "event_type": "custom"
+        }
+      ]
+    },
+    {
+      "name": "display_events_beyond_72h",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "todo",
+          "scheduled_at": "2026-09-12T04:00:03.600000+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "todo",
+          "scheduled_at": "2026-09-12T04:00:03.600000+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "todo",
+          "scheduled_at": "2026-09-12T04:00:03.600000+00:00"
+        }
+      ],
+      "delivery_count": 0,
+      "expected": []
+    },
+    {
+      "name": "display_events_at_due",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "todo",
+          "scheduled_at": "2026-09-09T04:00:00+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "todo",
+          "scheduled_at": "2026-09-09T04:00:00+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "todo",
+          "scheduled_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "delivery_count": 0,
+      "expected": []
+    },
+    {
+      "name": "display_events_done",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "done",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "done",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "done",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        }
+      ],
+      "delivery_count": 0,
+      "expected": []
+    },
+    {
+      "name": "display_events_cancelled",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "cancelled",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "cancelled",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "cancelled",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        }
+      ],
+      "delivery_count": 0,
+      "expected": []
+    },
+    {
+      "name": "display_events_closed_application",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00",
+          "closed_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        }
+      ],
+      "delivery_count": 0,
+      "expected": []
+    },
+    {
+      "name": "display_events_deleted_application",
+      "now": "2026-09-09T04:00:00+00:00",
+      "apps": [
+        {
+          "id": 1,
+          "status": "applied",
+          "updated_at": "2026-09-09T04:00:00+00:00",
+          "deleted_at": "2026-09-09T04:00:00+00:00"
+        }
+      ],
+      "events": [
+        {
+          "id": 1,
+          "application_id": 1,
+          "event_type": "written_test",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 2,
+          "application_id": 1,
+          "event_type": "offer_step",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        },
+        {
+          "id": 3,
+          "application_id": 1,
+          "event_type": "custom",
+          "status": "todo",
+          "scheduled_at": "2026-09-10T04:00:00+00:00"
+        }
+      ],
+      "delivery_count": 0,
       "expected": []
     }
   ]

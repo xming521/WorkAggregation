@@ -47,7 +47,9 @@ result_unknown。原子认领记录 owner、lease、attempt、turn_id 和 execut
 前端只将候选映射为展示卡，不再另算面试、截止或 stale 资格。候选包含稳定主体
 `application` / `application_event` / `offer`、原因、来源 revision、事项到期时间和
 各自展示／投递窗口。Offer 答复截止与 ApplicationEvent 截止是不同主体，不互相去重；
-Offer 候选仅供展示，不借此新增后台发送能力。
+Offer 候选仅供展示，不借此新增后台发送能力。笔试、Offer 进展和自定义日程的
+todo 事项保留提前 72 小时的只读 `event_upcoming` 候选；done、cancelled 或失效来源
+不展示。其投递窗口始终为空，显式 remind_at 也不扩展队列类型或发送权限。
 
 stale 统一限定 pending、applied、written_test，满七个 24 小时即成立；
 interview、offer、closed 或已删除投递不产生 stale。展示在来源不变时持续保留；

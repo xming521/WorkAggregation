@@ -22,6 +22,7 @@ from offerpilot.models import (
 
 DAY = 86400
 STALE_STATUSES = ("pending", "applied", "written_test")
+DISPLAY_ONLY_EVENT_TYPES = ("written_test", "offer_step", "custom")
 
 
 def timestamp(value: datetime) -> float:
@@ -102,6 +103,7 @@ class ReminderCandidate:
     delivery_expires_at: float | None
     updated_at: float | None = None
     deadline_label: str | None = None
+    event_type: str | None = None
 
     def visible(self, now: float) -> bool:
         return self.display_from <= now and (self.display_until is None or now < self.display_until)
@@ -137,7 +139,28 @@ def source_candidate(session: Session, application_id: int, event_id: int | None
         application_id=application_id, event_id=event_id, offer_id=None,
         company=value["company"], position=value["position"], due_at=due,
         display_from=display_from, display_until=display_until, delivery_due_at=delivery,
-        delivery_expires_at=expires, updated_at=updated)
+        delivery_expires_at=expires, updated_at=updated, event_type=value.get("event_type"))
+
+
+def upcoming_event_candidate(session: Session, event: ApplicationEvent) -> ReminderCandidate | None:
+    """Preserve ordinary calendar cards without extending queue source eligibility."""
+    if event.event_type not in DISPLAY_ONLY_EVENT_TYPES or event.status != "todo" or event.scheduled_at is None:
+        return None
+    app = session.get(Application, event.application_id)
+    if not available(app) or app is None:
+        return None
+    due, updated = timestamp(event.scheduled_at), timestamp(app.updated_at)
+    digest = revision({"application_id": app.id, "application_status": app.status,
+        "updated_at": updated, "company": app.company_name[:200], "position": app.position_name[:200],
+        "event_id": event.id, "event_type": event.event_type, "status": event.status,
+        "subtype": event.subtype, "round": event.round, "due_at": due,
+        "remind_at": timestamp(event.remind_at) if event.remind_at else None})
+    return ReminderCandidate(id=f"application_event:{event.id}:event_upcoming", subject_type="application_event",
+        subject_id=event.id, reason_code="event_upcoming", source_revision=digest,
+        application_id=app.id, event_id=event.id, offer_id=None,
+        company=app.company_name[:200], position=app.position_name[:200], due_at=due,
+        display_from=due - 3 * DAY, display_until=due,
+        delivery_due_at=None, delivery_expires_at=None, updated_at=updated, event_type=event.event_type)
 
 
 _DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
@@ -177,9 +200,13 @@ def list_display_candidates(session: Session, now: float, timezone_name: str) ->
     zone = ZoneInfo(timezone_name)
     candidates: list[ReminderCandidate | None] = []
     for event in session.scalars(select(ApplicationEvent).where(
-        ApplicationEvent.event_type.in_(("interview", "deadline")),
+        ApplicationEvent.event_type.in_(("interview", "deadline", *DISPLAY_ONLY_EVENT_TYPES)),
         ApplicationEvent.scheduled_at >= datetime.fromtimestamp(now - DAY, timezone.utc),
-        ApplicationEvent.scheduled_at <= datetime.fromtimestamp(now + 3 * DAY, timezone.utc))):
+        ApplicationEvent.scheduled_at <= datetime.fromtimestamp(now + 3 * DAY, timezone.utc))
+        .order_by(ApplicationEvent.id)):
+        if event.event_type in DISPLAY_ONLY_EVENT_TYPES:
+            candidates.append(upcoming_event_candidate(session, event))
+            continue
         kind = "deadline" if event.event_type == "deadline" else "review" if event.status == "done" else "interview_preparation"
         candidates.append(source_candidate(session, event.application_id, event.id, kind, now))
     for app in session.scalars(select(Application).where(Application.status.in_(STALE_STATUSES),
