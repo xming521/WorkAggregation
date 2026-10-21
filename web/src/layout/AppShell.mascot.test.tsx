@@ -110,7 +110,6 @@ vi.mock('@/features/dashboard/DashboardView', () => ({
   ),
 }));
 vi.mock('@/features/reminders/RemindersView', () => ({ default: () => <div /> }));
-vi.mock('@/components/MockInterviewDrawer', () => ({ default: () => <div /> }));
 vi.mock('@/components/OfferNegotiationDrawer', () => ({ default: () => <div /> }));
 vi.mock('@/components/InterviewV01View', () => ({ default: () => <div /> }));
 vi.mock('@/components/InterviewStoryLibraryView', () => ({ default: () => <div /> }));
