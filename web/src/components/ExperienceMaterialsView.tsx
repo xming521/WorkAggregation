@@ -1,5 +1,4 @@
 import { t, useLocale } from '@/i18n';
-import KnowledgeNoteManager from './KnowledgeNoteManager';
 import type { ReactNode } from 'react';
 import InterviewStoryLibraryView, { type InterviewStoryOpenDraft } from './InterviewStoryLibraryView';
 import {
@@ -72,13 +71,11 @@ export default function ExperienceMaterialsView({
   });
 
   return (
-    <section aria-label={t("经历素材")} data-testid="experience-materials-view">
+    <section aria-label={t("我的经历")} data-testid="experience-materials-view">
       <header>
-        <h2>{t("经历素材")}</h2>
+        <h2>{t("我的经历")}</h2>
         <p>{t("已确认的经历故事和面试片段会保留在这里，来源变化时仍保留当时确认的内容。")}</p>
       </header>
-
-      <KnowledgeNoteManager />
 
       <section aria-label={t("已确认面试片段")} data-testid="confirmed-capture-list">
         <h3>{t("已确认面试片段")}</h3>

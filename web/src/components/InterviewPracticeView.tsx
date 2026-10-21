@@ -10,9 +10,10 @@ import InterviewReadinessCenter, {
 
 const { Paragraph, Title } = Typography;
 
-type InterviewPracticeMode = 'quick' | 'review';
+import type { InterviewPracticeMode } from './InterviewPracticeHome';
 
 export interface InterviewPracticeViewProps {
+  initialMode?: InterviewPracticeMode;
   adaptiveFocus?: AdaptivePracticeFocus;
   adaptiveOwnerGeneration?: number;
   recoveryOwnerGeneration?: number | null;
@@ -28,6 +29,7 @@ export interface InterviewPracticeViewProps {
 }
 
 export default function InterviewPracticeView({
+  initialMode = 'quick',
   adaptiveFocus,
   adaptiveOwnerGeneration,
   recoveryOwnerGeneration,
@@ -38,11 +40,11 @@ export default function InterviewPracticeView({
   onOpenStudio,
 }: InterviewPracticeViewProps) {
   useLocale();
-  const [mode, setMode] = useState<InterviewPracticeMode>(adaptiveFocus ? 'review' : 'quick');
+  const [mode, setMode] = useState<InterviewPracticeMode>(adaptiveFocus ? 'review' : initialMode);
 
   useEffect(() => {
-    setMode(adaptiveFocus ? 'review' : 'quick');
-  }, [adaptiveFocus?.ownerGeneration, adaptiveFocus?.signalVersionId, adaptiveFocus?.targetEventId]);
+    setMode(adaptiveFocus ? 'review' : initialMode);
+  }, [initialMode, adaptiveFocus?.ownerGeneration, adaptiveFocus?.signalVersionId, adaptiveFocus?.targetEventId]);
 
   return (
     <section

@@ -15,10 +15,12 @@ import workflowStyles from './ui/WorkflowSurface.module.css';
 import type { Application } from '@/types/application';
 import type { ScheduleEvent } from '@/types/event';
 import type { Resume } from '@/types/resume';
+import type { PracticeStats } from '@/types/question';
+import InterviewPracticeHome, { type InterviewPracticeHomeFocus, type InterviewPracticeMode } from './InterviewPracticeHome';
 
 const { Paragraph, Title } = Typography;
 
-type InterviewTabKey = 'upcoming' | 'completed' | 'practice';
+type InterviewTabKey = 'upcoming' | 'completed';
 type TaskLauncher = (request: TaskLaunchRequest) => unknown;
 
 export interface InterviewV01ViewProps {
@@ -30,7 +32,12 @@ export interface InterviewV01ViewProps {
   /** Transitional exact preparation adapter; it must already target the canonical owner. */
   onOpenPreparation?: (applicationId: number, eventId: number) => void;
   onOpenEventEditor?: (applicationId: number, eventId: number) => void;
-  onOpenFreePractice?: () => void;
+  onOpenFreePractice?: (mode?: InterviewPracticeMode) => void;
+  onOpenReadinessPractice?: (focus: InterviewPracticeHomeFocus) => void;
+  onOpenQuestionPractice?: () => void;
+  practiceStats?: PracticeStats;
+  practiceLoading?: boolean;
+  practiceError?: boolean;
   /** Navigation-only story library entry; event cards never pass a note id. */
   onOpenStoryLibrary?: (reviewNoteId?: number) => void;
   onOpenVoiceCoachingGrowth?: () => void;
@@ -327,6 +334,11 @@ export default function InterviewV01View({
   onOpenPreparation,
   onOpenEventEditor,
   onOpenFreePractice,
+  onOpenReadinessPractice,
+  onOpenQuestionPractice,
+  practiceStats,
+  practiceLoading,
+  practiceError,
   onOpenStoryLibrary,
   onOpenVoiceCoachingGrowth,
   practiceRequestToken,
@@ -341,6 +353,7 @@ export default function InterviewV01View({
   const [error, setError] = useState(false);
   const [activeTab, setActiveTab] = useState<InterviewTabKey>('upcoming');
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const practiceHomeRef = useRef<HTMLDivElement>(null);
   const lastPracticeRequestTokenRef = useRef<number | undefined>(practiceRequestToken);
 
   useEffect(() => {
@@ -348,7 +361,8 @@ export default function InterviewV01View({
     const previous = lastPracticeRequestTokenRef.current;
     lastPracticeRequestTokenRef.current = practiceRequestToken;
     if (practiceRequestToken > 0 && previous !== undefined && practiceRequestToken > previous) {
-      setActiveTab('practice');
+      practiceHomeRef.current?.scrollIntoView?.({ block: 'start' });
+      practiceHomeRef.current?.focus();
     }
   }, [practiceRequestToken]);
 
@@ -382,6 +396,10 @@ export default function InterviewV01View({
     [cards],
   );
 
+  const practiceTarget = !eventsLoading && !eventsError
+    ? upcomingCards.find((card) => card.bucket === 'upcoming')
+    : undefined;
+
   const eventStateNotice = eventsLoading ? (
     <Spin aria-label={t("正在确认面试状态")} />
   ) : eventsError ? (
@@ -399,8 +417,19 @@ export default function InterviewV01View({
         <div>
           <Title level={2} style={{ margin: 0 }}>{t("面试")}</Title>
           <Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
-            {t("围绕具体面试事件准备，完成后再进入面试练习和复盘沉淀。")}</Paragraph>
+            {t("围绕真实面试准备，也可以直接开始独立练习。")}</Paragraph>
         </div>
+      </div>
+      <div ref={practiceHomeRef} tabIndex={-1}>
+        <InterviewPracticeHome
+          target={practiceTarget ? { applicationId: practiceTarget.applicationId, eventId: practiceTarget.eventId, label: `${practiceTarget.companyName} · ${practiceTarget.positionName}` } : undefined}
+          onOpenPractice={onOpenFreePractice}
+          onOpenFocus={onOpenReadinessPractice}
+          onOpenQuestions={onOpenQuestionPractice}
+          dueCount={practiceStats?.due}
+          dueLoading={practiceLoading}
+          dueError={practiceError}
+        />
       </div>
       <Tabs
         activeKey={activeTab}
@@ -408,7 +437,6 @@ export default function InterviewV01View({
         items={[
           { key: 'upcoming', label: t("即将进行") },
           { key: 'completed', label: t("已完成") },
-          { key: 'practice', label: t("面试练习") },
         ]}
       />
 
@@ -442,7 +470,7 @@ export default function InterviewV01View({
               </div>
               <Space wrap>
                 {onOpenVoiceCoachingGrowth ? <Button icon={<SoundOutlined />} onClick={onOpenVoiceCoachingGrowth}>{t("表达成长")}</Button> : null}
-                {onOpenStoryLibrary ? <Button data-story-audit="ui-library" onClick={() => onOpenStoryLibrary()}>{t("经历素材")}</Button> : null}
+                {onOpenStoryLibrary ? <Button data-story-audit="ui-library" onClick={() => onOpenStoryLibrary()}>{t("我的经历")}</Button> : null}
               </Space>
             </div>
             <InterviewList
@@ -461,22 +489,7 @@ export default function InterviewV01View({
         )
       ) : null}
 
-      {activeTab === 'practice' ? (
-        <section data-testid="free-practice-workspace" aria-labelledby="free-practice-title">
-          <div className="op-section-heading" style={{ marginBottom: 20 }}>
-            <div>
-              <Title id="free-practice-title" level={3} style={{ margin: 0 }}>{t("面试练习")}</Title>
-              <Paragraph type="secondary" style={{ margin: '6px 0 0' }}>{t("快速模拟或围绕已确认的复盘重点练习回答，开始前不会自动调用模型。")}</Paragraph>
-            </div>
-            <Space wrap>
-              {onOpenFreePractice ? <Button type="primary" onClick={onOpenFreePractice}>{t("开始面试练习")}</Button> : null}
-            </Space>
-          </div>
-          <div className="op-empty-state" style={{ marginTop: 20 }}>
-            <Empty description={t("选择快速模拟，或从面试复盘中的已确认重点开始一次回答练习。")} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          </div>
-        </section>
-      ) : null}
+
     </div>
   );
 }
