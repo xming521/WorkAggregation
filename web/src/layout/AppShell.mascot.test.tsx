@@ -17,7 +17,7 @@ vi.mock('@tanstack/react-query', () => ({
     isFetching: false,
     error: null,
   }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({ invalidateQueries: vi.fn(), getQueryCache: () => ({ subscribe: () => () => undefined }) }),
 }));
 vi.mock('@dnd-kit/core', () => ({
   DndContext: (props: { children: React.ReactNode }) => <div>{props.children}</div>,

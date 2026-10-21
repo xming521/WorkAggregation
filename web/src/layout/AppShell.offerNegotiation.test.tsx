@@ -80,7 +80,7 @@ vi.mock('@tanstack/react-query', () => ({
     };
     return { data: data[key], isError: false, isLoading: false, isFetching: false, error: null };
   },
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({ invalidateQueries: vi.fn(), getQueryCache: () => ({ subscribe: () => () => undefined }) }),
 }));
 
 vi.mock('@/services/opportunityFitReviews', () => ({

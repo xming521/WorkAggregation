@@ -58,7 +58,7 @@ describe('module navigation contract', () => {
   it('exposes in-module tabs for secondary workflows', () => {
     expect(moduleTabsForView('calendar')).toEqual([
       { view: 'dashboard', label: '概览' },
-      { view: 'reminders', label: '提醒' },
+      { view: 'reminders', label: '今日待办' },
       { view: 'calendar', label: '日历' },
     ]);
     expect(moduleTabsForView('board')).toEqual([
@@ -67,7 +67,7 @@ describe('module navigation contract', () => {
     ]);
     expect(moduleTabsForView('dashboard')).toEqual([
       { view: 'dashboard', label: '概览' },
-      { view: 'reminders', label: '提醒' },
+      { view: 'reminders', label: '今日待办' },
       { view: 'calendar', label: '日历' },
     ]);
     expect(moduleTabsForView('offers')).toEqual([{ view: 'offers', label: 'Offer' }]);

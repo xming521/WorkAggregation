@@ -37,10 +37,11 @@ export function createFixtureApi({ retainedConversation = false, configuredAi = 
       if(p==='/api/chat/conversations/401/timeline')return answer({schema_version:1,conversation_id:401,mode:'snapshot',high_watermark:2,items:[retainedUserBody,retainedAiBody].map((content,index)=>({schema_version:1,conversation_id:401,turn_id:'synthetic-turn',item_id:`turn:synthetic-turn:message:${501+index}`,item_type:index?'assistant_message':'user_message',source_refs:[`message:${501+index}`],source_revision:'1',revision:1,display_revision:1,ordinal:index+1,change_seq:index+1,payload_digest:`synthetic-${index}`,deleted:false,payload:{schema_version:1,item_id:`message:${501+index}`,message_id:501+index,operation_id:null,kind:index?'assistant_message':'user_message',content,action:null}})),next_cursor:null,cursor:'synthetic-cursor-2'});
       if(p==='/api/chat/conversations/401/execution')return answer({execution:null});
       if(p==='/api/questions/stats')return answer({total:0,new:0,practicing:0,mastered:0,due:0,today_reviews:0,streak_days:0});
-      if(p==='/api/onboarding')return answer({steps:{configure_ai:true,create_primary_resume:true,create_first_application:true,send_first_pilot_message:true},completed_count:4,is_complete:true,force_open:false});
+      if(p==='/api/onboarding')return answer({steps:{configure_ai:true,create_primary_resume:true,create_first_application:true,send_first_pilot_message:true},completed_count:4,is_complete:true,force_open:false,dismissed:false});
       if(p==='/api/context-policies')return answer(policies);
       if(p==='/api/proactive/settings')return answer({revision:1,settings:{enabled:false,reminders_enabled:false,drafts_enabled:false,application_ids:[],timezone:'UTC',quiet_start_hour:22,quiet_end_hour:8,max_reminders_per_day:4,max_drafts_per_day:1}});
       if(p==='/api/proactive/jobs')return answer({items:[]});
+      if(p==='/api/reminders/candidates')return answer({items:[]});
       if(p==='/api/job-mail/status')return answer(mailStatus);
       if(p==='/api/job-mail/secure-setup/status')return answer(capability);
       if(p==='/api/job-mail/suggestions')return answer({items:imported?[sampleMail]:[],total:imported?1:0,pending_count:imported?1:0,has_more:false});
