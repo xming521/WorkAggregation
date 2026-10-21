@@ -195,7 +195,7 @@ export default function ProactiveInbox() {
     );
   }
 
-  const jobs = jobsQuery.data ?? [];
+  const jobs = (jobsQuery.data ?? []).filter(job => job.kind !== 'companion_life');
 
   return (
     <section className={styles.panel} aria-labelledby={titleId}>

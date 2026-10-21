@@ -1,3 +1,4 @@
+import CompanionLifeSettings from '@/features/companionLife/CompanionLifeSettings';
 import { liveText } from '@/i18n/liveText';
 import { localizedModal } from '@/i18n/modal';
 import { t, useLocale, getLocale, setLocale } from '@/i18n';
@@ -207,6 +208,7 @@ export default function SettingsView({
 
       <ContextPolicySettings />
       <ConfirmedMemorySettings />
+      <CompanionLifeSettings />
       <ProactiveSettings />
       <ProactiveInbox />
 

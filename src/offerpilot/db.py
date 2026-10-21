@@ -18,6 +18,7 @@ from offerpilot.job_mail import models as _job_mail_models  # noqa: F401
 from offerpilot.confirmed_memory import models as _confirmed_memory_models  # noqa: F401
 from offerpilot.context_sources import models as _context_sources_models  # noqa: F401
 from offerpilot.proactive import models as _proactive_models  # noqa: F401
+from offerpilot.companion import models as _companion_models  # noqa: F401
 from offerpilot.knowledge import note_lifecycle as _knowledge_note_lifecycle  # noqa: F401
 
 SessionFactory = sessionmaker[Session]
@@ -76,6 +77,7 @@ def init_database(db_path: Path) -> SessionFactory:
     _reset_knowledge_legacy_tables(engine, db_path.parent)
     Base.metadata.create_all(engine)
     _record_migration(engine, "0033_job_mail_review", "Add isolated mail evidence, proposals, previews and atomic receipts")
+    _record_migration(engine, "0034_companion_life", "Add isolated virtual life, sourced participation and idempotent commands")
     runtime_columns_changed = [
         _ensure_column(engine, "pilot_executions", "protocol", "TEXT NOT NULL DEFAULT 'legacy'"),
         _ensure_column(engine, "pilot_executions", "runtime_epoch", "TEXT"),

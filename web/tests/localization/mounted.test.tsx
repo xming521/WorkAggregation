@@ -45,7 +45,8 @@ function buttons(text: string) { return [...document.querySelectorAll<HTMLButton
 async function click(text: string) { const b = buttons(text).find((b) => !b.disabled); if (!b) throw new Error(`No button: ${text}\n${document.body.textContent}`); await act(async () => b.click()); await flush(); }
 function fill(selector: string, value: string) { const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector); if (!el) throw new Error(`Missing field ${selector}`); act(() => { Object.getOwnPropertyDescriptor(el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); }); }
 async function switchLocale(locale: 'zh-CN' | 'en-US') { await act(async () => setLocale(locale)); await flush(); }
-function writes() { return state.api.requests.filter((r: any) => r.method !== 'GET'); }
+// Content-free session liveness is not a domain/model mutation. Keep all other writes guarded.
+function writes() { return state.api.requests.filter((r: any) => r.method !== 'GET' && !(r.method === 'POST' && r.path === '/api/companion/presence')); }
 function chineseUi() { const text = document.body.textContent ?? ''; return text.replaceAll('简体中文', '').replaceAll('用户原文保持不变 / user content stays unchanged', '').match(/[\u3400-\u9fff]+/g) ?? []; }
 
 beforeEach(() => {

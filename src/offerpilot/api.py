@@ -215,6 +215,9 @@ from offerpilot.knowledge import (
     KnowledgeRepository,
 )
 from offerpilot.proactive.api import register_proactive_routes
+from offerpilot.companion.api import register_companion_routes
+from offerpilot.companion.persona import companion_persona_policy
+from offerpilot.companion.context import companion_context_message, read_companion_context
 from offerpilot.knowledge.note_api import register_knowledge_note_routes
 from offerpilot.knowledge.brief import (
     BriefSchemaError,
@@ -1460,6 +1463,7 @@ def create_app(
         local_setup_enabled=job_mail_local_setup_enabled,
     )
     register_memory_routes(app, session_factory)
+    register_companion_routes(app, session_factory)
     register_context_policy_routes(app, session_factory)
     register_readiness_context_routes(app, session_factory)
     register_summary_routes(app, session_factory)
@@ -1638,6 +1642,7 @@ def create_app(
             conversation,
             normalized_attachments or None,
             pending_tool_call_id=pending_tool_call_id,
+            query=getattr(request, "message", "") if not pending_tool_call_id else "",
         )
 
     app.state.pilot_runtime = build_pilot_runtime(
@@ -5273,6 +5278,7 @@ def create_app(
                 cast(Any, loader), conversation,
                 [{"kind": ref.kind, "id": ref.ref} for ref in request.attachments],
                 pending_tool_call_id=conversation.pending_tool_call_id,
+                query=request.message if not conversation.pending_tool_call_id else "",
             )
             frozen_source.append(source)
             return {
@@ -5824,6 +5830,7 @@ def create_app(
                 conversation,
                 [{"kind": item.kind, "id": item.ref} for item in request.attachments],
                 pending_tool_call_id=conversation.pending_tool_call_id,
+                query=request.message if not conversation.pending_tool_call_id else "",
             )
             frozen_readiness.append(
                 readiness_contexts.capture_enabled_binding_in_session(
@@ -10345,9 +10352,9 @@ def _chat_response_system_message() -> Message:
             "你是 OfferPilot，一个求职领航助手。始终使用用户的语言回复。"
             "当前对话界面支持助手文本增量流式输出。"
             "对于实质性回答，请保持简洁，并优先按「结论、依据、下一步」组织。"
-            "对于需要结论和后续行动的实质任务，请先给出证据与注意事项，再以 `## 结论` 收束为一条简短结论，"
+            "对于需要结论和后续行动的求职工作任务，请先给出证据与注意事项，再以 `## 结论` 收束为一条简短结论，"
             "并以 `## 下一步` 结尾，列出一到三条以 `- ` 开头的后续行动；该列表后不要追加文本。"
-            "问候语和澄清问题不需要使用这两个标题。"
+            "问候语、澄清问题与日常陪伴闲聊不需要使用这两个标题。"
             "如果本地工具依据较少，要明确说明。"
             "不要暴露隐藏推理。不要提到 update_application_status、create_application_event "
             "等内部工具或 API 名称；请改用用户能理解的动作描述。"
@@ -10356,6 +10363,7 @@ def _chat_response_system_message() -> Message:
             "如果写入工具提示必填信息缺失或不明确，只追问一个最关键问题，"
             "不要继续尝试另一个写入。成功写入后，只给一个实用的下一步建议，"
             "例如添加日程、生成改进计划，或继续补充复盘。"
+            + companion_persona_policy()
         ),
     )
 
@@ -10780,6 +10788,7 @@ def _load_chat_source_messages(
     attachments: list[dict[str, str]] | None,
     *,
     pending_tool_call_id: str = "",
+    query: str = "",
 ) -> _FrozenChatSourceMessages:
     scope = _canonical_source_scope(conversation)
     from offerpilot.ai.tool_authority.visibility import AuthorityApplicationVisibilityQuery
@@ -10792,7 +10801,7 @@ def _load_chat_source_messages(
             raise RuntimeError("source query returned multiple rows")
         return rows[0] if rows else None
 
-    def read(connection: sqlite3.Connection) -> tuple[Any, Any, Any]:
+    def read(connection: sqlite3.Connection) -> tuple[Any, Any, Any, Any]:
         conversation_row = one(
             connection,
             "SELECT context_type, context_ref, mode, scope_revision "
@@ -10881,10 +10890,11 @@ def _load_chat_source_messages(
                     (record_id,),
                 )
             attachment_rows.append((kind, raw_id, row))
-        return history_rows, context_row, tuple(attachment_rows)
+        companion = read_companion_context(connection, query, context_type=scope.context_type) if not attachments and not pending_tool_call_id else None
+        return history_rows, context_row, tuple(attachment_rows), companion
 
-    def freeze(raw: tuple[Any, Any, Any]) -> _FrozenChatSourceMessages:
-        history_rows, context_row, attachment_rows = raw
+    def freeze(raw: tuple[Any, Any, Any, Any]) -> _FrozenChatSourceMessages:
+        history_rows, context_row, attachment_rows, companion = raw
         frozen_history = [
             _FrozenStoredMessage(
                 id=int(str(row[0])),
@@ -10899,7 +10909,7 @@ def _load_chat_source_messages(
         history = tuple(
             _stored_messages_to_ai(frozen_history, pending_tool_call_id=pending_tool_call_id)
         )
-        context_message = _snapshot_context_message(context_row)
+        context_message = _snapshot_context_message(context_row) or companion_context_message(companion)
         attachment_messages = tuple(_snapshot_attachment_messages(attachment_rows))
         return _FrozenChatSourceMessages(
             history,

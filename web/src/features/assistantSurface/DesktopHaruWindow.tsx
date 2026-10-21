@@ -1,3 +1,4 @@
+import { companionInvitation } from '@/features/companionLife/copy';
 import { t, useLocale } from '@/i18n';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { CloseOutlined, HolderOutlined, RightOutlined, UnorderedListOutlined, UpOutlined, UserOutlined } from '@ant-design/icons';
@@ -180,6 +181,11 @@ export default function DesktopHaruWindow() {
       <span className="desktop-haru-expand-hint" aria-hidden="true">{t("收起对话")}<UpOutlined /></span>
       </> : <HaruCanvas active={active} activity={activity} animationLevel={retainedAnimationLevel.current} />}
     </button>
+    {!draft.trim() && snapshot?.companionLife && !snapshot.loading && !snapshot.hasPending && snapshot.taskState === 'idle' && <aside className="desktop-haru-life" aria-label={t('Haru 的虚拟日常')}>
+      <span>{snapshot.companionLife.invitation ? companionInvitation(snapshot.companionLife.invitation, snapshot.companionLife.title, snapshot.companionLife.detail) : t(snapshot.companionLife.title)}</span>
+      <small>{t('虚拟日常')}</small>
+      <button type="button" onClick={() => windowAction('show-main')}>{t('在主窗设置中查看')}</button>
+    </aside>}
     {state.expanded ? <section className="desktop-haru-chat" aria-label={t("Haru 对话")}>
       <div className="desktop-haru-context">
         <button type="button" className="desktop-haru-context-toggle" ref={contextToggle} aria-expanded={contextExpanded} aria-controls="desktop-haru-context-detail" onClick={() => setContextExpanded(value => !value)}>

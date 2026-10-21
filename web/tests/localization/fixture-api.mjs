@@ -20,9 +20,11 @@ export function createFixtureApi({ retainedConversation = false, configuredAi = 
   function handle(method,url,body) {
     const parsed=new URL(url,'http://localhost');const p=parsed.pathname;
     requests.push({method,path:p,query:parsed.search,body,at:Date.now()});
+    if(method==='POST'&&p==='/api/companion/presence')return answer({session_id:'fixture-session',session_quiet:false,active:body.visible,blocked:!body.visible||Boolean(body.typing||body.work_running||body.awaiting_approval||body.mock_interview||body.quiet||body.failure),blockers:[]});
     if(method==='GET') {
       if(p==='/api/auth/status')return answer({auth_enabled:false,authenticated:true});
       if(p==='/api/settings')return answer(settings);
+      if(p==='/api/companion')return answer({identity:'11111111-1111-4111-8111-111111111111',revision:1,persona_version:'companion-v1',settings:{enabled:false,proactivity:'off',hide_status:false},state:{interests:[],activity:null,wish:null},recent_events:[],shared_participation:[],presence:{session_id:'',session_quiet:false,active:false,blocked:true,blockers:[]}});
       if(p==='/api/logs')return answer({entries:[],total:0,limit:20,offset:0,has_more:false});
       if(p==='/api/applications')return answer([sampleApplication]);
       if(p==='/api/applications/creation-context')return answer({scope_id:'browser-fixture-scope'});

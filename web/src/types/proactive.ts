@@ -4,7 +4,8 @@ export type ProactiveJobKind =
   | 'interview_preparation'
   | 'stale_application'
   | 'review'
-  | 'interview_draft';
+  | 'interview_draft'
+  | 'companion_life';
 
 export type ProactiveJobState =
   | 'pending'
@@ -68,6 +69,7 @@ export const DEFAULT_PROACTIVE_SETTINGS: ProactiveSettings = {
 };
 
 export const PROACTIVE_KIND_LABELS: Record<ProactiveJobKind, string> = {
+  get companion_life() { return t('Haru 的虚拟日常'); },
   get deadline() { return t("截止提醒"); },
   get interview_preparation() { return t("面试准备提醒"); },
   get stale_application() { return t("投递跟进提醒"); },
