@@ -92,6 +92,8 @@ const WAITING_STATUSES: ApplicationStatus[] = ['pending', 'applied', 'written_te
 const PREPARE_KINDS: PipelineInsightKind[] = [
   'offer_deadline',
   'interview_soon',
+  'event_upcoming',
+  'application_deadline',
   'material_kit_incomplete',
   'question_due',
 ];

@@ -51,3 +51,33 @@ describe('shared reminder source invalidation', () => {
     expect(host.textContent).not.toContain('outdated');
   });
 });
+
+
+it('multiple consumers converge after a burst of source updates without a refetch loop', async () => {
+  const completions: Array<(value: ReminderCandidate[]) => void> = [];
+  list.mockImplementation(() => new Promise<ReminderCandidate[]>((resolve) => { completions.push(resolve); }));
+  client.setQueryData(['applications'], []);
+  await act(async () => root.render(<QueryClientProvider client={client}><View /><View /></QueryClientProvider>));
+  await flush();
+  expect(list).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    client.setQueryData(['events'], [{ id: 1, status: 'todo' }]);
+    client.setQueryData(['events'], [{ id: 1, status: 'done' }]);
+    void client.invalidateQueries({ queryKey: ['applications'] });
+  });
+  await flush();
+  const countAfterBurst = list.mock.calls.length;
+  expect(countAfterBurst).toBeGreaterThan(1);
+  // At most one new read per source notification and subscriber; candidate
+  // updates themselves must never trigger recursive source invalidation.
+  expect(countAfterBurst).toBeLessThanOrEqual(7);
+  await act(async () => {
+    completions.slice(0, -1).forEach((resolve) => resolve([fact('obsolete')]));
+    completions[completions.length - 1]([fact('latest')]);
+  });
+  await flush();
+  expect(host.textContent?.match(/latest/g)).toHaveLength(2);
+  expect(host.textContent).not.toContain('obsolete');
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+  expect(list).toHaveBeenCalledTimes(countAfterBurst);
+});
