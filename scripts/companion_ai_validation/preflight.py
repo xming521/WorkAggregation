@@ -22,13 +22,13 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Requ
 REPOSITORY = "offercontext/offerPilot"
 BRANCH = "feat/20261021-companion-life-v1"
 WORKFLOW = ".github/workflows/companion-real-ai.yml"
-# Deliberately unarmed registration publication. Pin all three independently
-# verified IDs in a later reviewed helper before any paid request. Recreated
-# workflow/environment/policy identities must never reset this one-shot budget.
-WORKFLOW_ID = 0
+# Independently verified by the unarmed registration run 39632913549.
+# Recreated workflow/environment/policy identities never reset this budget.
+# Exact helper/request SHA binding and owner approval remain mandatory.
+WORKFLOW_ID = 391917473
 ENVIRONMENT = "offerpilot-companion-ai-20261021"
-ENVIRONMENT_ID = 0
-BRANCH_POLICY_ID = 0
+ENVIRONMENT_ID = 24931188785
+BRANCH_POLICY_ID = 63853345
 REVIEWER_LOGIN = "XiaoZheBrother"
 REVIEWER_ID = 112178718
 OFFLINE_JOB = "Companion offline safety"

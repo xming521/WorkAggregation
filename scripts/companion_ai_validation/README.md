@@ -67,13 +67,16 @@ hard bound before every send.
 
 ## Safe publication and approval
 
-The initial helper has workflow/environment/policy IDs set to zero and is
-intentionally unarmed. Its offline job reads only public protection metadata and
-its own workflow registration, emitting bounded IDs. It never reads secret
-management endpoints. Failure to read/verify metadata blocks, not implies absent.
+The initial unarmed publication used zero binding IDs. Its successful registration
+run [39632913549](https://github.com/offercontext/offerPilot/actions/runs/39632913549)
+verified workflow `391917473`, environment `24931188785` and branch policy
+`63853345`; this helper pins those identities. The offline job reads only public
+protection metadata and its own workflow registration, emitting bounded IDs. It
+never reads secret management endpoints. Failure to read/verify metadata blocks,
+not implies absent. Pinning alone does not authorize or trigger a paid request.
 
-A later independently reviewed helper H must pin the verified IDs and pass its
-complete offline workflow. A request R must be H's single-parent, same-tree empty
+The independently reviewed helper H must pass its complete offline workflow.
+A request R must be H's single-parent, same-tree empty
 child, with the exact marker from `preflight.marker(H)`. Repository variables
 `OFFERPILOT_COMPANION_AI_HELPER_SHA` and
 `OFFERPILOT_COMPANION_AI_REQUEST_SHA` must bind H/R before R is pushed.
