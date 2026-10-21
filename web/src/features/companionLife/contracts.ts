@@ -15,6 +15,7 @@ export interface CompanionActivity {
   updated_at: number;
   participants: string[];
   promise: string | null;
+  paused_from?: 'active' | 'waiting_shared';
 }
 export interface CompanionPresence {
   session_id: string | null;
@@ -44,7 +45,7 @@ export interface CompanionSignals {
   quiet: boolean;
   failure: boolean;
 }
-export type CompanionEvent = 'app_open' | 'chat_end' | 'work_completed' | 'user_interaction' | 'pause' | 'resume' | 'abandon' | 'join' | 'complete_shared' | 'decline_wish' | 'accept_wish' | 'quiet_session' | 'resume_session';
+export type CompanionEvent = 'app_open' | 'chat_end' | 'work_completed' | 'user_interaction' | 'pause' | 'resume' | 'abandon' | 'join' | 'complete_shared' | 'withdraw_shared' | 'decline_wish' | 'accept_wish' | 'quiet_session' | 'resume_session';
 export interface CompanionEnvelope { identity: string; expected_revision: number; command_id: string }
 export type CompanionCommand =
   | { kind: 'event'; body: CompanionEnvelope & { event: CompanionEvent; activity_id?: string; wish_id?: string } }

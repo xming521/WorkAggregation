@@ -80,6 +80,8 @@ def init_database(db_path: Path) -> SessionFactory:
     _record_migration(engine, "0034_companion_life", "Add isolated virtual life, sourced participation and idempotent commands")
     _ensure_column(engine, "companion_participation", "origin", "TEXT NOT NULL DEFAULT 'control'")
     _record_migration(engine, "0035_companion_chat", "Ground bounded companion chat actions in actual admitted user messages")
+    _ensure_column(engine, "companion_events", "template_id", "TEXT")
+    _record_migration(engine, "0036_companion_activity_binding", "Bind virtual objects to sourced activity identities without guessing legacy history")
     runtime_columns_changed = [
         _ensure_column(engine, "pilot_executions", "protocol", "TEXT NOT NULL DEFAULT 'legacy'"),
         _ensure_column(engine, "pilot_executions", "runtime_epoch", "TEXT"),

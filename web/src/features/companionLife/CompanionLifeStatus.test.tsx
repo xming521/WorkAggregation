@@ -40,6 +40,35 @@ it('keeps a shared step waiting until explicit completion and supports decline',
   await click('关闭日常详情'); expect(vi.mocked(life.event).mock.calls.some(call => call[0] === 'complete_shared')).toBe(false);
   await click('查看 Haru 的虚拟日常'); await click('约好的一步完成了'); expect(life.event).toHaveBeenLastCalledWith('complete_shared', true);
 });
+it('withdraws only a live shared step through the explicit control, including while paused', async () => {
+  await render(); await click('查看 Haru 的虚拟日常');
+  expect(document.body.textContent).not.toContain('这步请 Haru 自己做');
+  life.snapshot!.state.activity!.status = 'waiting_shared';
+  life.snapshot!.state.wish = null; await render();
+  expect(document.body.textContent).toContain('不会清除之前的共同记录');
+  await click('这步请 Haru 自己做');
+  expect(life.event).toHaveBeenLastCalledWith('withdraw_shared', true);
+  expect(vi.mocked(life.event).mock.calls.some(call => ['abandon', 'complete_shared', 'resume'].includes(call[0]))).toBe(false);
+  life.snapshot!.state.activity!.status = 'paused';
+  life.snapshot!.state.activity!.paused_from = 'waiting_shared'; await render();
+  await click('这步请 Haru 自己做');
+  expect(life.event).toHaveBeenLastCalledWith('withdraw_shared', true);
+  life.snapshot!.state.activity!.paused_from = 'active'; await render();
+  expect(document.body.textContent).not.toContain('这步请 Haru 自己做');
+});
+it('keeps withdrawal reachable in settings when hidden and quiet, and disables uncertain actions', async () => {
+  life.snapshot!.settings.hide_status = true; life.signals.quiet = true; life.quiet = true;
+  life.snapshot!.state.activity!.status = 'waiting_shared'; life.snapshot!.state.wish = null;
+  await render(); await click('查看日常活动');
+  life.uncertain = true; await render();
+  const withdrawal = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.replace(/\s/g, '') === '这步请Haru自己做');
+  expect(withdrawal?.disabled).toBe(true);
+  life.uncertain = false; await render(); await click('这步请 Haru 自己做');
+  expect(life.event).toHaveBeenLastCalledWith('withdraw_shared', true);
+  await act(async () => { await setLocale('en-US'); }); await render();
+  expect(document.body.textContent).toContain('Let Haru do this step');
+  expect(document.body.textContent).toContain('Earlier shared records are kept');
+});
 it('suspends and closes the popover while typing, without reopening it afterward', async () => {
   await render(); await click('查看 Haru 的虚拟日常');
   life = { ...life, signals: { ...life.signals, typing: true } }; await render(); expect(host.querySelector('[data-companion-life]')).toBeNull();

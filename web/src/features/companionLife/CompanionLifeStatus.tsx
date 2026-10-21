@@ -14,6 +14,7 @@ export function CompanionLifeDetails({ onClose }: { onClose?: () => void }) {
   if (!life || !snapshot) return null;
   const activity = snapshot.state.activity;
   const wish = snapshot.state.wish;
+  const canWithdraw = activity?.status === 'waiting_shared' || (activity?.status === 'paused' && activity.paused_from === 'waiting_shared');
   const disabled = life.busy || life.uncertain || !snapshot.settings.enabled;
   return <section className={styles.content} aria-label={t('Haru 的虚拟日常')} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose?.(); } }}>
     <header><strong>{t(activity?.title ?? 'Haru 的虚拟日常')}</strong>{onClose && <Button size="small" type="text" aria-label={t('关闭日常详情')} onClick={onClose}>{t('关闭')}</Button>}</header>
@@ -21,12 +22,14 @@ export function CompanionLifeDetails({ onClose }: { onClose?: () => void }) {
     {activity ? <><p>{companionLifeExpression(activity, t)}</p><small>{t(STATUS[activity.status])} · {t('第 {step} / {total} 步', { step: Math.min(activity.step_index + 1, activity.step_count), total: activity.step_count })}</small></> : <p>{companionLifeExpression(activity, t)}</p>}
     {activity?.promise && activity.status !== 'waiting_shared' && <p>{t(activity.promise)}</p>}
     {activity?.status === 'waiting_shared' && <p>{t('共同的小事会留在这里，等你在聊天里回应或确认这一步；不倒计时，也不会催促。')}</p>}
+    {canWithdraw && <p>{t('不想参与这一步时，可以交给 Haru 自己做。不会清除之前的共同记录；已暂停的日常仍会暂停。')}</p>}
     {wish && <p>{t(wish.text)}</p>}
     <Space wrap>
       {activity && ['active', 'waiting_shared'].includes(activity.status) && <Button size="small" disabled={disabled} onClick={() => void life.event('pause', true)}>{t('暂停日常')}</Button>}
       {activity?.status === 'paused' && <Button size="small" disabled={disabled} onClick={() => void life.event('resume', true)}>{t('继续日常')}</Button>}
       {activity?.status === 'active' && <Button size="small" disabled={disabled} onClick={() => void life.event('join', true)}>{t('一起做这件小事')}</Button>}
       {activity?.status === 'waiting_shared' && <Button size="small" disabled={disabled} onClick={() => void life.event('complete_shared', true)}>{t('约好的一步完成了')}</Button>}
+      {canWithdraw && <Button size="small" disabled={disabled} onClick={() => void life.event('withdraw_shared', true)}>{t('这步请 Haru 自己做')}</Button>}
       {activity && ['active', 'paused', 'waiting_shared'].includes(activity.status) && <Button size="small" disabled={disabled} onClick={() => void life.event('abandon', true)}>{t('先放下这件事')}</Button>}
       {wish && <>{activity?.status === 'active' && <Button size="small" disabled={disabled} onClick={() => void life.event('accept_wish', true)}>{t('试试这个愿望')}</Button>}<Button size="small" disabled={disabled} onClick={() => void life.event('decline_wish', true)}>{t('这次先不了')}</Button></>}
     </Space>

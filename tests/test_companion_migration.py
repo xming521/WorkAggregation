@@ -113,3 +113,57 @@ def test_old_activity_wish_backfill_is_conservative_preserves_pending_and_fences
     with sessions() as session:
         assert session.scalar(select(func.count()).select_from(CompanionEvent)) == 3
         assert session.get(CompanionState, 1).sequence == 1
+
+
+def test_v13_binding_upgrade_only_backfills_authoritative_current_entity(tmp_path):
+    path = tmp_path / 'old-v12.db'
+    sessions = init_database(path)
+    repo = CompanionRepository(sessions)
+    first = repo.read(1000)
+    started = repo.apply_event(CompanionEventCommand(identity=first['identity'],
+        expected_revision=first['revision'], command_id=uuid4(), event='app_open'), 1000)
+    current_id = started['state']['activity']['id']
+    historical_id = str(uuid4())
+    other_identity = str(uuid4())
+    with sessions() as session:
+        for identity, activity_id, message in (
+            (first['identity'], historical_id, '虚拟小船的旧故事，不可据文字回填'),
+            (other_identity, current_id, '另一个身份即使活动 ID 相同也不可混入'),
+        ):
+            session.add(CompanionEvent(id=str(uuid4()), identity=identity, revision=0,
+                category='virtual', event_type='activity_started', activity_id=activity_id,
+                template_id=None, text=message, source='deterministic_template', occurred_at=500))
+        session.commit()
+    sessions.kw['bind'].dispose()
+    with sqlite3.connect(path) as connection:
+        connection.execute('ALTER TABLE companion_events DROP COLUMN template_id')
+        connection.execute("UPDATE companion_state SET persona_version='companion-v1.2'")
+        connection.execute("DELETE FROM schema_migrations WHERE version='0036_companion_activity_binding'")
+    upgraded = init_database(path)
+    restored = CompanionRepository(upgraded).read(1000)
+    assert restored['identity'] == started['identity']
+    assert restored['state'] == started['state']
+    assert restored['revision'] == started['revision'] + 1
+    with upgraded() as session:
+        events = session.scalars(select(CompanionEvent)).all()
+        assert all(event.template_id == ('paper_boat' if event.identity == first['identity']
+            and event.activity_id == current_id else None) for event in events)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT 1 FROM schema_migrations WHERE version='0036_companion_activity_binding'").fetchone()
+    assert CompanionRepository(upgraded).read(1000) == restored
+
+
+def test_current_binding_backfill_does_not_overwrite_conflicting_existing_metadata(tmp_path):
+    sessions = init_database(tmp_path / 'conflicting-binding.db')
+    repo = CompanionRepository(sessions)
+    initial = repo.read(1000)
+    repo.apply_event(CompanionEventCommand(identity=initial['identity'], expected_revision=initial['revision'],
+        command_id=uuid4(), event='app_open'), 1000)
+    with sessions() as session:
+        event = session.scalar(select(CompanionEvent))
+        event.template_id = 'cloud_catalog'
+        session.commit()
+    before = repo.read(1000)
+    assert CompanionRepository(sessions).read(1000) == before
+    with sessions() as session:
+        assert session.scalar(select(CompanionEvent)).template_id == 'cloud_catalog'

@@ -53,7 +53,8 @@ class ChatIntent:
     value: str | None = None
 
 
-def parse_chat_intent(message: str, *, shared_kind: str | None = None) -> ChatIntent | None:
+def parse_chat_intent(message: str, *, shared_kind: str | None = None,
+                      shared_withdrawable: bool = False) -> ChatIntent | None:
     """Conservative full sentences; only a bound shared prompt admits short replies."""
     if not message or len(message) > 160 or any(word in message for word in _WORK_ZH) or _WORK_EN.search(message):
         return None
@@ -62,6 +63,15 @@ def parse_chat_intent(message: str, *, shared_kind: str | None = None) -> ChatIn
     # name is accepted only after the explicit '叫/取名' introducer below.
     if re.search(r'[\n\r`<>“”"「」]|(?:如果|假如|要是|假设|他说|她说|别人说|你说|比如|例如|能不能解释|不要|不想|不打算|并不|没有)', value):
         return None
+    # Withdrawal is a separate whole-utterance intent, never inferred from
+    # ordinary dislike or negation. Deictic wording needs a live conversation
+    # binding supplied at admission; an explicit object is checked there too.
+    withdrawal = r'(?:我这次不参加了[，,]?)?'
+    explicit = r'我这次不参加了[，,]?你自己(?:继续)?(?:折(?:纸小船|小船|纸)|做纸星星|收集云朵)'
+    deictic = withdrawal + r'(?:这(?:一)?步你自己(?:做|继续)|你自己继续)'
+    if (re.fullmatch(_PREFIX + explicit + _END, value, re.IGNORECASE)
+            or shared_withdrawable and re.fullmatch(_PREFIX + deictic + _END, value, re.IGNORECASE)):
+        return ChatIntent('withdraw_shared')
     wait = re.fullmatch(_PREFIX + r"(?:先别往下做[，,]?|先停在这里[，,]?)?等我(?:回来|回头|有空)?[，,]?(?:我们|咱们)?一起" + _STEP + _END, value, re.IGNORECASE)
     join = re.fullmatch(_PREFIX + r"(?:我回来了[，,]?)?(?:我们|咱们|我(?:也)?(?:想|要)?(?:和你)?)(?:来)?一起" + _STEP + _END, value, re.IGNORECASE)
     match = wait or join
@@ -121,12 +131,27 @@ def freeze_chat_command(session: Session, conversation: Any, request: Any) -> di
     )) if last_user_id is not None else None
     bound_kind = (shared['kind'] if shared and shared.get('conversation_id') == conversation.id
                   and activity['status'] == 'waiting_shared' and previous is not None else None)
-    intent = parse_chat_intent(request.message, shared_kind=bound_kind)
+    # For V1, chat withdrawal stays in the shared step's source conversation.
+    # A different conversation is not allowed to acquire ownership of this
+    # participation merely by naming it. The explicit card remains a fallback.
+    withdrawable = bool(shared and shared.get('conversation_id') == conversation.id
+                        and (activity['status'] == 'waiting_shared'
+                             or activity['status'] == 'paused' and activity.get('paused_from') == 'waiting_shared'))
+    withdrawal_previous = session.scalar(select(CompanionChatEvidence).where(
+        CompanionChatEvidence.message_id == last_user_id,
+        CompanionChatEvidence.identity == row.identity,
+        CompanionChatEvidence.activity_id == activity['id'],
+        CompanionChatEvidence.action.in_(('join', 'wait', 'pause', 'resume')),
+    )) if withdrawable and last_user_id is not None else None
+    shared_withdrawable = withdrawable and withdrawal_previous is not None
+    intent = parse_chat_intent(request.message, shared_kind=bound_kind, shared_withdrawable=shared_withdrawable)
     if intent is None:
+        return {}
+    if intent.action == 'withdraw_shared' and not withdrawable:
         return {}
     command = {'identity': row.identity, 'revision': row.revision, 'activity_id': activity['id'],
                'participation_id': shared.get('participation_id') if shared else None,
-               'bound_kind': bound_kind, 'intent': asdict(intent)}
+               'bound_kind': bound_kind, 'shared_withdrawable': shared_withdrawable, 'intent': asdict(intent)}
     return {SOURCE_KEY: _json(command)}
 
 
@@ -154,7 +179,8 @@ class CompanionChatService:
         if raw is None:
             return None
         frozen = json.loads(raw)
-        intent = parse_chat_intent(message, shared_kind=frozen['bound_kind'])
+        intent = parse_chat_intent(message, shared_kind=frozen['bound_kind'],
+                                   shared_withdrawable=frozen.get('shared_withdrawable', False))
         if intent is None or asdict(intent) != frozen['intent']:
             raise CompanionConflict('chat_source_conflict')
         return turn, frozen
@@ -212,6 +238,22 @@ class CompanionChatService:
                frozen: dict[str, Any], now: float, conversation_id: int) -> tuple[str, str | None]:
         activity = life['activity']
         repo = self.repository
+        if intent.action == 'withdraw_shared':
+            shared = activity.get('shared_step')
+            if (not shared or shared.get('conversation_id') != conversation_id
+                    or shared.get('participation_id') != frozen['participation_id']):
+                raise CompanionConflict('shared_step_conflict')
+            part = session.get(CompanionParticipation, shared['participation_id'])
+            if (part is None or part.origin != 'chat' or part.identity != row.identity
+                    or part.activity_id != activity['id'] or part.status != 'promised'):
+                raise CompanionConflict('participation_missing')
+            command = CompanionEventCommand(identity=UUID(row.identity), expected_revision=row.revision,
+                command_id=uuid4(), activity_id=UUID(activity['id']), event='withdraw_shared')
+            repo._interact(session, row, life, command, now)
+            response = ('好，这一步不再等你参与，也不会记成一起完成。'
+                        + ('日常仍停在这里，等你恢复后我再自己慢慢做。' if activity['status'] == 'paused'
+                           else '剩下的我自己慢慢做。'))
+            return response, part.id
         if intent.action in ('pause', 'resume'):
             command = CompanionEventCommand(identity=UUID(row.identity), expected_revision=row.revision,
                 command_id=uuid4(), activity_id=UUID(activity['id']), event='pause' if intent.action == 'pause' else 'resume')

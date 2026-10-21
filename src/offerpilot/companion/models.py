@@ -29,6 +29,9 @@ class CompanionEvent(Base):
     category: Mapped[str] = mapped_column(String(16), nullable=False)
     event_type: Mapped[str] = mapped_column(String(40), nullable=False)
     activity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Structured virtual-object binding. Legacy unknown history remains null;
+    # prose is never parsed to manufacture an activity's identity or type.
+    template_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(String(40), nullable=False)
     occurred_at: Mapped[float] = mapped_column(Float, nullable=False)

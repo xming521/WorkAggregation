@@ -23,7 +23,7 @@ class CompanionCommand(BaseModel):
 class CompanionEventCommand(CompanionCommand):
     event: Literal[
         "app_open", "chat_end", "work_completed", "user_interaction",
-        "pause", "resume", "abandon", "join", "complete_shared", "decline_wish", "accept_wish",
+        "pause", "resume", "abandon", "join", "complete_shared", "withdraw_shared", "decline_wish", "accept_wish",
         "quiet_session", "resume_session",
     ]
     activity_id: UUID | None = None

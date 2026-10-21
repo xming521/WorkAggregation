@@ -78,6 +78,8 @@ export default {
   '继续日常': 'Resume activity',
   '一起做这件小事': 'Join this activity',
   '约好的一步完成了': 'The agreed step is complete',
+  '这步请 Haru 自己做': 'Let Haru do this step',
+  '不想参与这一步时，可以交给 Haru 自己做。不会清除之前的共同记录；已暂停的日常仍会暂停。': 'You can leave this step to Haru. Earlier shared records are kept, and a paused activity stays paused.',
   '先放下这件事': 'Set this aside',
   '试试这个愿望': 'Try this wish',
   '这次先不了': 'Not this time',

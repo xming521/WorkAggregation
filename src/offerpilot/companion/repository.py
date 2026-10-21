@@ -216,6 +216,19 @@ class CompanionRepository:
                     activity["wish_offered"] = True
                     state.life_json = _json(life)
                     changed = True
+                if activity is not None and any(
+                    template["id"] == activity.get("template_id") for template in TEMPLATES
+                ):
+                    # Only the authoritative current entity can recover its
+                    # old structured binding. Never guess historical types
+                    # from event prose, nor overwrite conflicting metadata.
+                    for event in session.scalars(select(CompanionEvent).where(
+                        CompanionEvent.identity == state.identity,
+                        CompanionEvent.activity_id == activity["id"],
+                        CompanionEvent.template_id.is_(None),
+                    )):
+                        event.template_id = activity["template_id"]
+                        changed = True
                 if changed:
                     # One startup normalization, one fence, including persona
                     # upgrades. A second initializer must remain a pure no-op.
@@ -311,6 +324,7 @@ class CompanionRepository:
         session.add(CompanionEvent(id=event_id, identity=row.identity, revision=row.revision,
             category="actual" if actual else "virtual", event_type=event_type,
             activity_id=life["activity"]["id"] if life.get("activity") else None, text=message,
+            template_id=activity.get("template_id") if activity else None,
             source="user_command" if actual else "deterministic_template", occurred_at=now))
         row.latest_event_id = event_id
 
@@ -438,6 +452,34 @@ class CompanionRepository:
                 activity_id=activity["id"], status="promised", promise=template["promise"],
                 created_at=now, completed_at=None))
             kind, message = "shared_joined", "用户明确加入了这件小事；共同的一步尚未完成"
+        elif event == "withdraw_shared":
+            if status != "waiting_shared" and not (status == "paused" and activity.get("paused_from") == "waiting_shared"):
+                raise CompanionConflict("activity_not_waiting_shared")
+            shared = activity.get("shared_step")
+            parts = session.scalars(select(CompanionParticipation).where(
+                CompanionParticipation.identity == row.identity,
+                CompanionParticipation.activity_id == activity["id"],
+                CompanionParticipation.status == "promised")).all()
+            if len(parts) != 1 or (shared and shared.get("participation_id") != parts[0].id):
+                raise CompanionConflict("participation_missing")
+            parts[0].status = "abandoned"
+            activity["promise"] = None
+            activity["participants"] = ["companion"]
+            activity.pop("shared_step", None)
+            if status == "paused":
+                activity["paused_from"] = "active"
+            else:
+                activity["status"] = "active"
+            life["wish"] = None
+            activity["wish_offered"] = True
+            activity["updated_at"] = now
+            # This only releases the user's pending step. It neither advances
+            # the companion's work nor rewrites prior completed participation.
+            # Time spent waiting was not independent work: keep the next wake
+            # behind the normal step delay, including after a long absence.
+            self._event(session, row, life, now, "shared_withdrawn",
+                        "用户退出了当前约定的一步，未完成这次共同参与；活动本身保留", actual=True)
+            return True
         elif event == "complete_shared":
             if status != "waiting_shared":
                 raise CompanionConflict("activity_not_waiting_shared")
