@@ -122,10 +122,14 @@ def test_workflow_has_one_secret_step_and_no_pr_or_write_path():
     assert "  pull_request_target:" not in workflow
     assert ": write" not in workflow
     assert "cancel-in-progress: false" in workflow
+    assert "continue-on-error" not in workflow
     assert "environment: offerpilot-simplification-ai-20261021" in workflow
     assert workflow.count("github.sha == vars.OFFERPILOT_SIMPLIFICATION_AI_REQUEST_SHA") == 2
     assert "persist-credentials: true" not in workflow
-    assert 'preflight.py --phase paid' in workflow
+    command = "python -m scripts.simplification_ai_validation.preflight"
+    assert f"{command} --phase before" in workflow
+    assert f"{command} --phase paid" in workflow
+    assert "python scripts/simplification_ai_validation/preflight.py" not in workflow
     assert "artifacts/simplification-ai/summary.json" in workflow
     assert "artifacts/simplification-ai/budget.jsonl" in workflow
 
@@ -168,3 +172,39 @@ def test_main_never_inherits_provider_secret_into_git_or_driver(tmp_path, monkey
     monkeypatch.setattr(run, "execute", execute)
     assert run.main() == 0
     assert len(commands) == 2
+
+
+@pytest.mark.parametrize("remaining", [-1, 89], ids=["expired", "under-90-seconds"])
+def test_expired_price_refuses_before_provider_key_git_or_transport(
+        tmp_path, monkeypatch, capsys, admission, remaining):
+    import sys
+
+    record, metadata, _ = admission
+    now = gate.PRICE_VALID_UNTIL - remaining
+    record["checked_at"] = int(now)
+    path = tmp_path / "admission.json"
+    path.write_text(json.dumps(record))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Expired quote must not access the provider key, git or transport")
+
+    class GuardedEnvironment(dict):
+        pop = forbidden
+
+        def get(self, key, default=None):
+            if key == run.KEY_NAME:
+                forbidden()
+            return super().get(key, default)
+
+    monkeypatch.setattr(run.os, "environ", GuardedEnvironment(metadata))
+    monkeypatch.setattr(run.time, "time", lambda: now)
+    monkeypatch.setattr(run.subprocess, "run", forbidden)
+    monkeypatch.setattr(run, "HTTPSUpstream", forbidden)
+    monkeypatch.setattr(run, "execute", forbidden)
+    monkeypatch.setattr(sys, "argv", ["run", "--live", "--admission-file", str(path),
+                                     "--evidence-dir", str(tmp_path / "evidence")])
+    assert run.main() == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "passed": False, "error_code": "price_review_expired",
+    }
+    assert not (tmp_path / "evidence").exists()

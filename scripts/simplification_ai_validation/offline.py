@@ -14,7 +14,7 @@ from scripts.simplification_ai_validation.broker import require_linux
 ROOT = Path(__file__).resolve().parents[2]
 SUITE = "scripts/simplification_ai_validation/tests"
 MANIFEST = Path(__file__).with_name("offline-nodes.json")
-EXPECTED_COUNT = 203
+EXPECTED_COUNT = 244
 
 
 def source_digest() -> str:
@@ -74,7 +74,7 @@ class Evidence:
         import pytest
         self.collected = sorted(item.nodeid for item in session.items)
         if self.collected != self.expected or self.collection_errors or self.deselected:
-            raise pytest.UsageError("offline_collection_not_exact_203")
+            raise pytest.UsageError(f"offline_collection_not_exact_{EXPECTED_COUNT}")
 
     def pytest_runtest_logreport(self, report: Any) -> None:
         self.reports.setdefault(report.nodeid, []).append({

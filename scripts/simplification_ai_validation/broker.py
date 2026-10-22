@@ -34,12 +34,14 @@ MAX_REQUESTS = 18
 MAX_BYTES = 128 * 1024
 REQUEST_SECONDS = 90
 SESSION_SECONDS = 20 * 60
-# Official public sources checked 2026-10-21 14:35 UTC, never account /models:
+# Official public sources rechecked 2026-10-22 00:01 UTC, never account /models:
 # https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
 # https://api-docs.deepseek.com/zh-cn/api/list-models/
-# Peak cache-miss input 2 / output 8 CNY per million; context_window 1048576.
+# deepseek-flash maps to DeepSeek-V4.1-Flash-1017; context_window 1048576.
+# Peak cache-miss input 2 / output 8 CNY per million.
+# Conservative 4096-output upper bound: 2.129920 CNY; reservation stays 3 CNY.
 # This reviewed quote expires, and is never silently extended on a rerun.
-PRICE_VALID_UNTIL = datetime(2026, 10, 22, tzinfo=timezone.utc).timestamp()
+PRICE_VALID_UNTIL = datetime(2026, 10, 24, tzinfo=timezone.utc).timestamp()
 OPERATIONS = (
     "cli_analyze", "http_analyze", "cli_match", "http_match",
     "cli_questions", "http_questions", "quick_start", "quick_next",

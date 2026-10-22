@@ -68,7 +68,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFERPILOT_SIMPLIFICATION_AI_HELPER_SHA: ${{ vars.OFFERPILOT_SIMPLIFICATION_AI_HELPER_SHA }}
           OFFERPILOT_SIMPLIFICATION_AI_REQUEST_SHA: ${{ vars.OFFERPILOT_SIMPLIFICATION_AI_REQUEST_SHA }}
-        run: python scripts/simplification_ai_validation/preflight.py --phase before
+        run: python -m scripts.simplification_ai_validation.preflight --phase before
   paid:
     name: Simplification approved real AI
     needs: [offline, preflight]
@@ -103,7 +103,7 @@ jobs:
           OFFERPILOT_SIMPLIFICATION_AI_HELPER_SHA: ${{ vars.OFFERPILOT_SIMPLIFICATION_AI_HELPER_SHA }}
           OFFERPILOT_SIMPLIFICATION_AI_REQUEST_SHA: ${{ vars.OFFERPILOT_SIMPLIFICATION_AI_REQUEST_SHA }}
         run: >-
-          python scripts/simplification_ai_validation/preflight.py --phase paid
+          python -m scripts.simplification_ai_validation.preflight --phase paid
           --admission-file "$RUNNER_TEMP/simplification-ai-admission.json"
       - name: One synthetic matrix, no retries, 10 CNY cumulative hard budget
         env:

@@ -9,6 +9,7 @@ from urllib.error import HTTPError
 
 import pytest
 
+from scripts.simplification_ai_validation import broker as gate
 from scripts.simplification_ai_validation import preflight as p
 
 H, R, TREE = "a" * 40, "b" * 40, "c" * 40
@@ -21,6 +22,9 @@ POLICIES_PATH = f"{ENV_PATH}/deployment-branch-policies"
 @pytest.fixture(autouse=True)
 def pinned_fake_workflow(monkeypatch):
     monkeypatch.setattr(p, "WORKFLOW_ID", WORKFLOW_ID)
+    # Offline history tests must outlive the fixed live quote.
+    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - 3600)
+    monkeypatch.setattr(p.time, "monotonic", lambda: 1000.0)
 
 
 def run(number, sha, current=False):
@@ -469,3 +473,221 @@ def test_missing_or_recreated_workflow_id_is_blocked(monkeypatch, pin):
     env, event, data = fixture()
     with pytest.raises(p.Blocked, match="WORKFLOW_IDENTITY_MISMATCH"):
         p.preflight(phase="before", env=env, event=event, read=lambda path: data[path])
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+@pytest.mark.parametrize("remaining", [-1, 89, 1199],
+                         ids=["expired", "under-90-seconds", "under-20-minutes"])
+def test_price_window_refuses_before_github_reads(monkeypatch, phase, remaining):
+    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
+    calls = []
+    with pytest.raises(p.Blocked, match="^PRICE_REVIEW_EXPIRED$"):
+        execute(fixture(phase), phase, calls)
+    assert calls == []
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+@pytest.mark.parametrize("remaining", [-1, 89, 1199],
+                         ids=["expired", "under-90-seconds", "under-20-minutes"])
+def test_cli_price_window_refuses_before_reader_credentials_or_admission(
+        tmp_path, monkeypatch, capsys, phase, remaining):
+    env, _, _ = fixture(phase)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Expired quote must not read credentials, create a reader or write admission")
+
+    class GuardedEnvironment(dict):
+        def get(self, key, default=None):
+            if key == "GH_TOKEN" or key.startswith("OFFERPILOT_SIMPLIFICATION_DEEPSEEK"):
+                forbidden()
+            return super().get(key, default)
+
+        def __getitem__(self, key):
+            if key == "GH_TOKEN" or key.startswith("OFFERPILOT_SIMPLIFICATION_DEEPSEEK"):
+                forbidden()
+            return super().__getitem__(key)
+
+    monkeypatch.setattr(p.os, "environ", GuardedEnvironment(env))
+    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
+    monkeypatch.setattr(p, "GitHubReader", forbidden)
+    monkeypatch.setattr(p, "write_admission", forbidden)
+    admission = tmp_path / "admission.json"
+    args = ["--phase", phase]
+    if phase == "paid":
+        args += ["--admission-file", str(admission)]
+    assert p.main(args) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "ok": False, "error_code": "PRICE_REVIEW_EXPIRED",
+    }
+    assert not admission.exists()
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+@pytest.mark.parametrize("remaining", [-1, 89, 1199],
+                         ids=["expired", "under-90-seconds", "under-20-minutes"])
+def test_quote_window_rechecked_after_github_and_owner_checks(
+        tmp_path, monkeypatch, capsys, phase, remaining):
+    env, event, data = fixture(phase)
+    event_path, admission = tmp_path / "event.json", tmp_path / "admission.json"
+    event_path.write_text(json.dumps(event))
+    env["GITHUB_EVENT_PATH"] = str(event_path)
+    env["GH_TOKEN"] = "synthetic-github-token"
+    now, calls = [gate.PRICE_VALID_UNTIL - 3600], []
+    last = ("actions/runs/2/approvals" if phase == "paid"
+            else p.page_path("actions/runs/2/jobs?filter=all", 1))
+
+    def read(path):
+        calls.append(path)
+        if path == last:
+            now[0] = gate.PRICE_VALID_UNTIL - remaining
+        return deepcopy(data[path])
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("A quote that expires during GitHub checks must not write admission")
+
+    monkeypatch.setattr(p.os, "environ", env)
+    monkeypatch.setattr(p.time, "time", lambda: now[0])
+    monkeypatch.setattr(p, "GitHubReader", lambda token: read)
+    monkeypatch.setattr(p, "write_admission", forbidden)
+    args = ["--phase", phase]
+    if phase == "paid":
+        args += ["--admission-file", str(admission)]
+    assert p.main(args) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "ok": False, "error_code": "PRICE_REVIEW_EXPIRED",
+    }
+    assert calls[-1] == last
+    assert ("actions/runs/2/approvals" in calls) is (phase == "paid")
+    assert not admission.exists()
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+@pytest.mark.parametrize("remaining", [1200, 1201])
+def test_full_session_window_remains_admissible(monkeypatch, phase, remaining):
+    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
+    assert execute(fixture(phase), phase) == {"ok": True, "helper_sha": H, "request_sha": R}
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+@pytest.mark.parametrize("stall", ["reader", "metadata"])
+def test_monotonic_session_window_survives_wall_rollback_before_admission(
+        tmp_path, monkeypatch, capsys, phase, stall):
+    env, event, data = fixture(phase)
+    event_path, admission = tmp_path / "event.json", tmp_path / "admission.json"
+    event_path.write_text(json.dumps(event))
+    env["GITHUB_EVENT_PATH"] = str(event_path)
+    env["GH_TOKEN"] = "synthetic-github-token"
+    wall, mono, calls = [gate.PRICE_VALID_UNTIL - 1210], [1000.0], []
+    last = ("actions/runs/2/approvals" if phase == "paid"
+            else p.page_path("actions/runs/2/jobs?filter=all", 1))
+
+    def rollback():
+        wall[0] -= 3600
+        mono[0] += 11
+
+    def read(path):
+        calls.append(path)
+        if stall == "metadata" and path == last:
+            rollback()
+        return deepcopy(data[path])
+
+    def reader(token):
+        if stall == "reader":
+            rollback()
+        return read
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Wall-clock rollback must not grant a fresh session or admission")
+
+    monkeypatch.setattr(p.os, "environ", env)
+    monkeypatch.setattr(p.time, "time", lambda: wall[0])
+    monkeypatch.setattr(p.time, "monotonic", lambda: mono[0])
+    monkeypatch.setattr(p, "GitHubReader", reader)
+    monkeypatch.setattr(p, "write_admission", forbidden)
+    args = ["--phase", phase]
+    if phase == "paid":
+        args += ["--admission-file", str(admission)]
+    assert p.main(args) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "ok": False, "error_code": "PRICE_REVIEW_EXPIRED",
+    }
+    if stall == "reader":
+        assert calls == []
+    else:
+        assert calls[-1] == last
+    assert not admission.exists()
+
+
+@pytest.mark.parametrize(("phase", "boundary"), [
+    ("before", "event"), ("paid", "event"),
+    ("before", "validated"), ("paid", "validated"),
+    ("paid", "fsync"), ("paid", "written"),
+])
+@pytest.mark.parametrize("clock_change", ["elapsed", "rollback"])
+def test_stalled_handoffs_never_report_success_or_admit_expired_quote(
+        tmp_path, monkeypatch, capsys, phase, boundary, clock_change):
+    env, event, data = fixture(phase)
+    event_path, admission = tmp_path / "event.json", tmp_path / "admission.json"
+    event_path.write_text(json.dumps(event))
+    env["GITHUB_EVENT_PATH"] = str(event_path)
+    env["GH_TOKEN"] = "synthetic-github-token"
+    wall, mono, readers, credentials = [gate.PRICE_VALID_UNTIL - 1210], [1000.0], [], []
+
+    class GuardedEnvironment(dict):
+        def get(self, key, default=None):
+            if key == "GH_TOKEN":
+                credentials.append(key)
+            return super().get(key, default)
+
+    def stall():
+        wall[0] += 11 if clock_change == "elapsed" else -3600
+        mono[0] += 11
+
+    def reader(token):
+        readers.append(token)
+        return data.__getitem__
+
+    read_text, validate, fsync, write = p.Path.read_text, p.preflight, p.os.fsync, p.write_admission
+
+    def stalled_read(path, *args, **kwargs):
+        result = read_text(path, *args, **kwargs)
+        if path == event_path:
+            stall()
+        return result
+
+    def stalled_validation(**kwargs):
+        result = validate(**kwargs)
+        stall()
+        return result
+
+    def stalled_fsync(fd):
+        fsync(fd)
+        stall()
+
+    def stalled_write(*args, **kwargs):
+        write(*args, **kwargs)
+        stall()
+
+    monkeypatch.setattr(p.os, "environ", GuardedEnvironment(env))
+    monkeypatch.setattr(p.time, "time", lambda: wall[0])
+    monkeypatch.setattr(p.time, "monotonic", lambda: mono[0])
+    monkeypatch.setattr(p, "GitHubReader", reader)
+    if boundary == "event":
+        monkeypatch.setattr(p.Path, "read_text", stalled_read)
+    elif boundary == "validated":
+        monkeypatch.setattr(p, "preflight", stalled_validation)
+    elif boundary == "fsync":
+        monkeypatch.setattr(p.os, "fsync", stalled_fsync)
+    else:
+        monkeypatch.setattr(p, "write_admission", stalled_write)
+    args = ["--phase", phase]
+    if phase == "paid":
+        args += ["--admission-file", str(admission)]
+    assert p.main(args) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "ok": False, "error_code": "PRICE_REVIEW_EXPIRED",
+    }
+    # A failed write may leave an exclusive file, but never a successful gate.
+    assert admission.exists() is (boundary in {"fsync", "written"})
+    if boundary == "event":
+        assert readers == credentials == []

@@ -1,4 +1,5 @@
 """All upstreams here are fake. No credential/config discovery or paid requests."""
+from datetime import datetime, timezone
 import json
 import threading
 import urllib.error
@@ -515,3 +516,13 @@ def test_wall_clock_rollback_cannot_extend_price_deadline(tmp_path, monkeypatch)
     assert not fake.calls
     assert broker.summary()["reserved_micro_cny"] == gate.RESERVATION
     broker.close()
+
+
+def test_reviewed_quote_has_fixed_deadline_and_unchanged_bounds():
+    assert gate.PRICE_VALID_UNTIL == datetime(2026, 10, 24, tzinfo=timezone.utc).timestamp()
+    assert gate.MODEL == "deepseek-flash" and gate.BASE_URL == "https://api.deepseek.com"
+    assert gate.CONTEXT_TOKENS == 1_048_576 and gate.OUTPUT_TOKENS == 4096
+    assert gate.CONTEXT_TOKENS * 2 + gate.OUTPUT_TOKENS * 8 == 2_129_920
+    assert gate.RESERVATION == 3_000_000 and gate.BUDGET == 10_000_000
+    assert gate.REQUEST_SECONDS == 90 and gate.SESSION_SECONDS == 20 * 60
+    assert gate.MAX_REQUESTS == 18

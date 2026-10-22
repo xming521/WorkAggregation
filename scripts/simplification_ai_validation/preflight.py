@@ -19,6 +19,8 @@ from typing import Any, Callable, Mapping, NoReturn, cast
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
+from scripts.simplification_ai_validation.broker import PRICE_VALID_UNTIL, SESSION_SECONDS
+
 REPOSITORY = "offercontext/offerPilot"
 BRANCH = "feat/20261021-product-simplification"
 WORKFLOW = ".github/workflows/simplification-real-ai.yml"
@@ -48,6 +50,16 @@ class Blocked(Exception):
 def demand(condition: bool, code: str) -> None:
     if not condition:
         raise Blocked(code)
+
+
+def check_price_window(deadline: float | None = None) -> float:
+    """Require a full session without extending the quote on wall-clock rollback."""
+    if deadline is None:
+        # Read monotonic first so a stalled clock read only shortens the window.
+        deadline = time.monotonic() + (PRICE_VALID_UNTIL - time.time())
+    demand(time.time() + SESSION_SECONDS <= PRICE_VALID_UNTIL
+           and time.monotonic() + SESSION_SECONDS <= deadline, "PRICE_REVIEW_EXPIRED")
+    return deadline
 
 
 def positive(value: Any) -> bool:
@@ -383,9 +395,11 @@ class GitHubReader:
             raise Blocked("GITHUB_READ_UNAVAILABLE") from None
 
 
-def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader) -> dict[str, Any]:
+def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader,
+              price_deadline: float | None = None) -> dict[str, Any]:
     ctx = validate_context(env)
     demand(phase in ("before", "paid"), "INVALID_PHASE")
+    price_deadline = check_price_window(price_deadline)
     workflow_path = f"actions/workflows/{WORKFLOW.rsplit('/', 1)[-1]}"
     current = single(read, f"actions/runs/{ctx.run_id}")
     workflow = single(read, workflow_path)
@@ -402,11 +416,14 @@ def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader) -
     validate_history(ctx, runs, jobs, current, workflow, phase)
     if phase == "paid":
         validate_review(single(read, f"actions/runs/{ctx.run_id}/approvals"), environment_id)
+    # GitHub pagination and owner-review reads may consume the remaining quote.
+    check_price_window(price_deadline)
     return {"ok": True, "helper_sha": ctx.helper_sha, "request_sha": ctx.request_sha}
 
 
-def write_admission(path: str, ctx: Context) -> None:
-    """An admission is a local handoff, not a reusable approval or budget reset."""
+def write_admission(path: str, ctx: Context, price_deadline: float | None = None) -> None:
+    """Only a successful preflight makes this local handoff usable, never its existence."""
+    price_deadline = check_price_window(price_deadline)
     record = {"schema": 1, "source_sha": ctx.request_sha, "helper_sha": ctx.helper_sha,
               "run_id": str(ctx.run_id), "checked_at": int(time.time())}
     try:
@@ -418,6 +435,8 @@ def write_admission(path: str, ctx: Context) -> None:
             os.fsync(stream.fileno())
     except Exception:
         raise Blocked("ADMISSION_WRITE_BLOCKED") from None
+    # The exclusive file may remain after failure; the workflow must not consume it.
+    check_price_window(price_deadline)
 
 
 class SafeParser(argparse.ArgumentParser):
@@ -444,11 +463,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.request_sha is not None:
             env[REQUEST_VAR] = args.request_sha
         ctx = validate_context(env)
+        # Refuse before reading GH_TOKEN or constructing even the read-only client.
+        price_deadline = check_price_window()
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        check_price_window(price_deadline)
         result = preflight(phase=args.phase, env=env, event=event,
-                           read=GitHubReader(os.environ.get("GH_TOKEN", "")))
+                           read=GitHubReader(os.environ.get("GH_TOKEN", "")),
+                           price_deadline=price_deadline)
         if args.admission_file:
-            write_admission(args.admission_file, ctx)
+            write_admission(args.admission_file, ctx, price_deadline)
+        check_price_window(price_deadline)
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as error:

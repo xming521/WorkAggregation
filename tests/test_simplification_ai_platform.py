@@ -1,6 +1,6 @@
 """Portable contracts for the explicitly Linux-only paid-validation helper.
 
-The 203 Linux durability cases live in its mandatory companion gate, not in the
+The 244 Linux helper cases live in its mandatory companion gate, not in the
 Windows product manifest. These tests run unchanged on Windows and Linux.
 """
 import copy
@@ -54,7 +54,8 @@ def test_linux_manifest_preserves_all_203_cases_outside_product_testpaths():
     from scripts.test_shards.gate import validate_node_id
 
     nodes = offline.expected_nodes()
-    assert len(nodes) == 203
+    # All 203 original nodes plus 41 fixed-quote and expiry regressions.
+    assert len(nodes) == 244
     for node in nodes:
         validate_node_id(node)
     assert {node.split("::")[0].rsplit("/", 1)[-1] for node in nodes} == {
@@ -133,5 +134,5 @@ def test_exact_collection_mismatch_refuses_before_test_bodies(damage):
     if damage == "deselected":
         evidence.pytest_deselected(["test_b"])
     session = SimpleNamespace(items=[SimpleNamespace(nodeid=node) for node in nodes])
-    with pytest.raises(pytest.UsageError, match="offline_collection_not_exact_203"):
+    with pytest.raises(pytest.UsageError, match=f"offline_collection_not_exact_{offline.EXPECTED_COUNT}"):
         evidence.pytest_collection_finish(session)
