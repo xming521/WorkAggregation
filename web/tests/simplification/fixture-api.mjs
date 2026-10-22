@@ -2,6 +2,7 @@
 import { createFixtureApi, sampleApplication, sampleEvent, sampleMail } from '../localization/fixture-api.mjs';
 
 export const knowledgeTitle = '合成已确认知识：性能排查';
+export const referenceTitle = '合成外部参考：性能测量指南';
 export const frozenEvidence = '合成冻结依据：先测量热点，再验证最小改动。';
 export const allowedWrites = new Set([
   'PATCH /api/onboarding', 'PUT /api/settings', 'POST /api/settings/providers/test',
@@ -11,7 +12,7 @@ export const allowedWrites = new Set([
 const copy = value => structuredClone(value);
 const answer = (data, status = 200) => ({ status, data: copy(data) });
 
-export function createSimplificationFixture({ firstUse = false, today = false } = {}) {
+export function createSimplificationFixture({ firstUse = false, today = false, materials = false } = {}) {
   const base = createFixtureApi();
   const requests = [], unexpected = [], controls = new Map(), pending = new Set();
   const now = Math.floor(Date.now() / 1000);
@@ -33,10 +34,19 @@ export function createSimplificationFixture({ firstUse = false, today = false } 
   };
   let note = { id: 7, title: knowledgeTitle, origin_kind: 'confirmed_interview_capture', version_id: 21,
     version_number: 2, archived: false, source_id: 31, source_status: 'source_changed', captured_at: stamp,
+    capture_metadata: { source_id: 31, origin_note_id: 41, application_event_id: 201,
+      note_fingerprint: 'synthetic-confirmed-capture', capture_schema_version: 'interview-note-capture-v1', captured_at: stamp },
     content: { title: knowledgeTitle, blocks: [{ block_id: 'b1', text: '合成已确认正文，不是未确认草稿。', evidence_refs: [{ fragment_id: 'f1', excerpt: frozenEvidence }] }] },
     evidence: [{ id: 'e1', path: '/questions', excerpt: frozenEvidence, char_start: 0, char_end: frozenEvidence.length,
       line_start: 1, line_end: 2, frozen_at: stamp }],
   };
+  const reference = { id: 32, source_kind: 'markdown', title: referenceTitle, display_title: referenceTitle,
+    title_hint: '', author: '', published_at: null, main_filename: 'synthetic-performance-guide.md',
+    main_media_type: 'text/markdown', total_bytes: 128, token_count: 32, lifecycle: 'active',
+    extraction_status: 'extracted', extraction_error_code: '', extraction_error_message: '',
+    brief_status: 'not_started', brief_block_reason: '', brief_error_code: '', brief_error_message: '',
+    active_snapshot_id: 42, archived_at: null, created_at: stamp, updated_at: stamp,
+    provenance: { captured_at: stamp, metadata_extraction_version: 'synthetic-v1' } };
   const receipts = new Map(), mutations = new Set(), stories = [];
   const candidate = { id: 'fixture-written-test', subject_type: 'application_event', subject_id: 202,
     reason_code: 'event_upcoming', source_revision: 'synthetic-1', application_id: 101, event_id: 202,
@@ -82,7 +92,8 @@ export function createSimplificationFixture({ firstUse = false, today = false } 
       if (p === '/api/applications') return answer(applications);
       if (p === '/api/application-events') return answer(events);
       if (p === '/api/dashboard') return answer({ total: applications.length, board: { interview: applications } });
-      if (p === '/api/knowledge/notes') return answer({ items: [] });
+      if (p === '/api/knowledge/notes') return answer({ items: materials && !firstUse ? [note] : [] });
+      if (p === '/api/knowledge/sources') return answer(materials && !firstUse ? [reference] : []);
       if (p === '/api/knowledge/note-management') return answer({ items: [note] });
       if (p === '/api/interview-stories') return answer(stories);
       if (p === '/api/interview-story-sources') return answer({ resumes: [], interview_notes: [], mock_turns: [] });

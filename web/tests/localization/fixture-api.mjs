@@ -50,7 +50,8 @@ export function createFixtureApi({ retainedConversation = false, configuredAi = 
       if(p==='/api/interview-practice-cases')return answer({items:[]});
       if(p==='/api/interview-practice/recommendations')return answer([]);
       if(p==='/api/interview-practice/plans')return answer([]);
-      if(['/api/resumes','/api/offers','/api/notes','/api/questions','/api/questions/due','/api/confirmed-memory','/api/knowledge/sources','/api/knowledge/notes','/api/interview-stories','/api/chat/conversations','/api/applications/101/notes'].includes(p))return answer([]);
+      if(p==='/api/knowledge/notes')return answer({items:[]});
+      if(['/api/resumes','/api/offers','/api/notes','/api/questions','/api/questions/due','/api/confirmed-memory','/api/knowledge/sources','/api/interview-stories','/api/chat/conversations','/api/applications/101/notes'].includes(p))return answer([]);
     }
     if(method==='POST'&&p==='/api/job-mail/imports'){imported=true;return answer({items:[sampleMail],deduplicated:false,evidence_id:'evidence-fixture-1'});}
     if(method==='POST'&&p==='/api/job-mail/suggestions/mail-fixture-1/preview') {

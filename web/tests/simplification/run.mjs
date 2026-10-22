@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
-import { createSimplificationFixture, knowledgeTitle, frozenEvidence, allowedWrites } from './fixture-api.mjs';
+import { createSimplificationFixture, knowledgeTitle, referenceTitle, frozenEvidence, allowedWrites } from './fixture-api.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const dist = path.join(root, 'dist');
@@ -373,10 +373,16 @@ try {
     check('Practice entry has no document horizontal overflow', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2));
   });
 
-  await runCase('knowledge-evidence-cancel-and-unknown', {}, async ({ page, api, check, snap }) => {
+  await runCase('knowledge-evidence-cancel-and-unknown', { materials: true }, async ({ page, api, check, snap }) => {
     await go(page, 'knowledge');
+    const sources = page.locator('.knowledge-source-list');
+    await sources.getByText(referenceTitle, { exact: true }).waitFor();
+    check('Reference sources render separately from confirmed interview captures',
+      await sources.getByRole('listitem').count() === 1 && await sources.getByText(knowledgeTitle, { exact: true }).count() === 0);
+    await snap('reference-source-boundary');
     await page.getByRole('tab', { name: '已确认的知识笔记', exact: true }).click();
     const notes = page.getByTestId('confirmed-knowledge-notes'); await notes.getByText(knowledgeTitle, { exact: false }).waitFor();
+    check('Reference source is not promoted into a confirmed knowledge note', await notes.getByText(referenceTitle, { exact: true }).count() === 0);
     await notes.getByRole('button', { name: '查看来源与依据', exact: true }).click();
     await page.getByText('资料来源 #31', { exact: true }).waitFor();
     check('Confirmed knowledge preserves frozen source evidence', await page.getByText(frozenEvidence, { exact: true }).isVisible());
@@ -424,9 +430,22 @@ try {
     await notes.getByText('合成确认修订', { exact: false }).waitFor();
   });
 
-  await runCase('experience-owner-and-safety', {}, async ({ page, api, check, result, snap }) => {
+  await runCase('experience-owner-and-safety', { materials: true }, async ({ page, api, check, result, snap }) => {
     await go(page, 'reviews');
     await page.getByTestId('experience-materials-view').waitFor();
+    const captures = page.getByTestId('confirmed-capture-list');
+    const captureRow = captures.getByRole('listitem').filter({ has: page.getByText(knowledgeTitle, { exact: true }) });
+    await captureRow.waitFor({ state: 'visible' });
+    check('Confirmed interview capture renders a nonempty successful list',
+      await captureRow.count() === 1 && await captures.getByRole('listitem').count() === 1
+      && await captureRow.getByText('来源已更新，已确认内容仍保留', { exact: true }).isVisible());
+    check('Successful captures are not an unavailable or empty placeholder',
+      await captures.getByRole('alert').count() === 0 && await captures.getByRole('status').count() === 0);
+    check('Personal experience does not contain the external reference source',
+      await page.getByTestId('experience-materials-view').getByText(referenceTitle, { exact: true }).count() === 0);
+    const stories = page.getByTestId('experience-story-library');
+    await stories.getByText('还没有已确认的面试故事', { exact: true }).waitFor();
+    await snap('confirmed-capture-list');
     await page.getByRole('button', { name: '新建故事', exact: true }).click();
     const assertion = '合成经历：通过测量和回归验证改善接口性能。';
     await page.getByRole('textbox', { name: '用户明确原始陈述', exact: true }).fill(assertion);
@@ -461,6 +480,37 @@ try {
     const attempts = counts(api, 'POST', '/api/interview-stories');
     check('Story retry after navigation preserves owner request identity', attempts.length === 2 && JSON.stringify(attempts[1].body) === JSON.stringify(first));
     check('Manual story never calls proposal/model APIs', writes(api).every(request => request.path === '/api/interview-stories'));
+    check('Saved story request retains the entered content and explicit assertion evidence',
+      first.content.title === '合成性能优化故事'
+      && first.content.blocks.some(block => block.kind === 'action' && block.text === '测量热点并验证最小变更。' && block.fact_mode === 'evidence_backed')
+      && JSON.stringify(first.assertions) === JSON.stringify([assertion]) && first.evidence_links.length > 0
+      && first.evidence_links.every(link => link.source_kind === 'user_assertion' && link.source_id === 'assertion_001'
+        && link.source_path === '/statement' && link.excerpt === assertion));
+    const storyRow = stories.getByRole('listitem').filter({ hasText: '合成性能优化故事' });
+    await storyRow.getByText('合成性能优化故事', { exact: true }).waitFor({ state: 'visible' });
+    check('Successful retry renders exactly one saved story row with its title and version',
+      await storyRow.count() === 1 && api.snapshot().stories.length === 1
+      && await storyRow.getByText('版本 1', { exact: true }).isVisible()
+      && await storyRow.getByText('使用中', { exact: true }).isVisible());
+    check('Saved story and confirmed capture stay in separate experience lists',
+      await captures.getByText('合成性能优化故事', { exact: true }).count() === 0
+      && await stories.getByText(knowledgeTitle, { exact: true }).count() === 0
+      && await captureRow.isVisible());
+    await afterPaint(page);
+    await snap('saved-manual-story');
+    await page.getByRole('tab', { name: '参考知识', exact: true }).click();
+    const sources = page.locator('.knowledge-source-list');
+    await sources.getByText(referenceTitle, { exact: true }).waitFor();
+    check('Manual story save never adds a personal story or capture to reference sources',
+      await sources.getByRole('listitem').count() === 1
+      && await sources.getByText('合成性能优化故事', { exact: true }).count() === 0
+      && await sources.getByText(knowledgeTitle, { exact: true }).count() === 0);
+    await page.getByRole('tab', { name: '已确认的知识笔记', exact: true }).click();
+    const notes = page.getByTestId('confirmed-knowledge-notes');
+    await notes.getByText(knowledgeTitle, { exact: false }).waitFor();
+    check('Manual story save does not promote the story to confirmed knowledge',
+      await notes.getByText('合成性能优化故事', { exact: true }).count() === 0
+      && writes(api).every(request => request.path === '/api/interview-stories'));
   });
 
   await runCase('diagnostics-demand-only', {}, async ({ page, api, check, snap }) => {
