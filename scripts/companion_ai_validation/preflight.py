@@ -1,4 +1,4 @@
-"""Read-only, fail-closed approval gate for the new one-shot companion run.
+"""Read-only, fail-closed gate for exactly one cumulative corrective batch.
 
 Only GitHub runner metadata, the push event and explicitly injected Actions vars
 are inputs. No product settings, local credentials, historical desktop helpers,
@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 from scripts.companion_ai_validation.broker import PRICE_VALID_UNTIL, SESSION_SECONDS
+from scripts.companion_ai_validation import continuation as lineage
 
 REPOSITORY = "offercontext/offerPilot"
 BRANCH = "feat/20261021-companion-life-v1"
@@ -66,7 +68,9 @@ def marker(helper_sha: str) -> str:
     return (
         "test: request OfferPilot companion real AI validation\n\n"
         f"OfferPilot-Companion-AI-Helper: {helper_sha}\n"
-        "OfferPilot-Companion-AI-Request: one-shot-20261021"
+        "OfferPilot-Companion-AI-Request: one-shot-20261021-correction-1\n"
+        f"OfferPilot-Companion-AI-Predecessor: {lineage.PREDECESSOR_RUN_ID}\n"
+        f"OfferPilot-Companion-AI-Ledger: {lineage.LEDGER_SHA256}"
     )
 
 
@@ -86,7 +90,9 @@ class Context:
 def validate_context(env: Mapping[str, str]) -> Context:
     demand(env.get("GITHUB_RUN_ATTEMPT") == "1", "RERUN_FORBIDDEN")
     helper, request = env.get(HELPER_VAR, ""), env.get(REQUEST_VAR, "")
-    demand(bool(SHA.fullmatch(helper) and SHA.fullmatch(request)) and helper != request,
+    demand(bool(SHA.fullmatch(helper) and SHA.fullmatch(request)) and helper != request
+           and helper not in (lineage.PREDECESSOR_HELPER_SHA, lineage.PREDECESSOR_SOURCE_SHA)
+           and request not in (lineage.PREDECESSOR_HELPER_SHA, lineage.PREDECESSOR_SOURCE_SHA),
            "EXACT_SHA_APPROVAL_MISSING")
     demand(
         env.get("GITHUB_EVENT_NAME") == "push"
@@ -142,7 +148,7 @@ def validate_identity(ctx: Context, event: Any, request: Any, helper: Any, branc
 def validate_environment(environment: Any, policies: list[dict[str, Any]]) -> int:
     environment = obj(environment)
     demand(positive(ENVIRONMENT_ID) and environment.get("name") == ENVIRONMENT
-           and environment.get("id") == ENVIRONMENT_ID,
+           and positive(environment.get("id")) and environment.get("id") == ENVIRONMENT_ID,
            "PROTECTED_ENVIRONMENT_MISSING")
     demand(environment.get("can_admins_bypass") is False, "ENVIRONMENT_BYPASS_NOT_DISABLED")
     rules = environment.get("protection_rules")
@@ -156,7 +162,8 @@ def validate_environment(environment: Any, policies: list[dict[str, Any]]) -> in
     reviewer = obj(configured[0])
     person = obj(reviewer.get("reviewer"))
     demand(reviewer.get("type") == "User" and person.get("type") == "User"
-           and person.get("login") == REVIEWER_LOGIN and person.get("id") == REVIEWER_ID,
+           and person.get("login") == REVIEWER_LOGIN and positive(person.get("id"))
+           and person.get("id") == REVIEWER_ID,
            "EXACT_OWNER_REVIEWER_REQUIRED")
     # A single-owner run must remain approvable by that owner. Approval itself is
     # verified independently in the paid phase; bypass is never an approval.
@@ -164,7 +171,7 @@ def validate_environment(environment: Any, policies: list[dict[str, Any]]) -> in
     policy = obj(environment.get("deployment_branch_policy"))
     demand(policy.get("protected_branches") is False and policy.get("custom_branch_policies") is True
            and positive(BRANCH_POLICY_ID) and len(policies) == 1
-           and obj(policies[0]).get("id") == BRANCH_POLICY_ID
+           and positive(obj(policies[0]).get("id")) and policies[0].get("id") == BRANCH_POLICY_ID
            and policies[0].get("name") == BRANCH
            and policies[0].get("type") == "branch", "EXACT_BRANCH_POLICY_REQUIRED")
     return ENVIRONMENT_ID
@@ -177,9 +184,10 @@ def validate_review(reviews: Any, environment_id: int) -> None:
     user = obj(review.get("user"))
     demand(
         review.get("state") == "approved" and user.get("type") == "User"
-        and user.get("id") == REVIEWER_ID and user.get("login") == REVIEWER_LOGIN
+        and positive(user.get("id")) and user.get("id") == REVIEWER_ID
+        and user.get("login") == REVIEWER_LOGIN
         and isinstance(environments, list) and len(environments) == 1
-        and obj(environments[0]).get("id") == environment_id
+        and positive(obj(environments[0]).get("id")) and environments[0].get("id") == environment_id
         and environments[0].get("name") == ENVIRONMENT,
         "OWNER_APPROVAL_UNVERIFIED",
     )
@@ -188,7 +196,8 @@ def validate_review(reviews: Any, environment_id: int) -> None:
 def validate_run(ctx: Context, run: dict[str, Any], workflow_id: int) -> None:
     demand(positive(run.get("id")) and positive(run.get("run_number")), "INVALID_RUN_IDENTITY")
     demand(type(run.get("run_attempt")) is int and run["run_attempt"] == 1, "RERUN_FORBIDDEN")
-    demand(run.get("workflow_id") == workflow_id and workflow_path(run.get("path"))
+    demand(positive(run.get("workflow_id")) and run.get("workflow_id") == workflow_id
+           and workflow_path(run.get("path"))
            and run.get("event") == "push" and run.get("head_branch") == BRANCH
            and trusted_repo(run.get("repository"), ctx.repository_id)
            and trusted_repo(run.get("head_repository"), ctx.repository_id)
@@ -202,11 +211,12 @@ def validate_jobs(run: dict[str, Any], jobs: list[dict[str, Any]]) -> dict[str, 
         job = obj(job)
         demand(positive(job.get("id")) and job["id"] not in ids
                and job.get("name") in JOBS and job["name"] not in names
-               and job.get("run_id") == run["id"] and job.get("head_sha") == run["head_sha"],
+               and positive(job.get("run_id")) and job.get("run_id") == run["id"]
+               and job.get("head_sha") == run["head_sha"],
                "JOB_HISTORY_INVALID")
         # Some REST API versions omit run_attempt from jobs; the run is checked
         # above and filter=all exposes duplicate jobs from all attempts.
-        demand(job.get("run_attempt", 1) == 1, "RERUN_FORBIDDEN")
+        demand(type(job.get("run_attempt", 1)) is int and job.get("run_attempt", 1) == 1, "RERUN_FORBIDDEN")
         ids.add(job["id"])
         names.add(job["name"])
     return {job["name"]: job for job in jobs}
@@ -221,7 +231,8 @@ def validate_history(ctx: Context, runs: list[dict[str, Any]],
                      current: Any, workflow: Any, phase: str) -> None:
     current, workflow = obj(current), obj(workflow)
     demand(phase in ("before", "paid"), "INVALID_PHASE")
-    demand(positive(WORKFLOW_ID) and workflow.get("id") == WORKFLOW_ID
+    demand(positive(WORKFLOW_ID) and positive(workflow.get("id"))
+           and workflow.get("id") == WORKFLOW_ID
            and workflow.get("path") == WORKFLOW
            and workflow.get("state") == "active", "WORKFLOW_IDENTITY_MISMATCH")
     demand(bool(runs) and len({obj(run).get("id") for run in runs}) == len(runs), "RUN_HISTORY_INCOMPLETE")
@@ -240,6 +251,7 @@ def validate_history(ctx: Context, runs: list[dict[str, Any]],
            "CURRENT_RUN_UNVERIFIED")
     demand(set(jobs_by_run) == {run["id"] for run in runs}, "JOB_HISTORY_INCOMPLETE")
     helper_runs = []
+    predecessor_runs, predecessor_helpers = [], []
     for run in runs:
         jobs = validate_jobs(run, jobs_by_run[run["id"]])
         if run["id"] == ctx.run_id:
@@ -260,12 +272,28 @@ def validate_history(ctx: Context, runs: list[dict[str, Any]],
         demand(run.get("status") == "completed", "PRIOR_RUN_UNRESOLVED")
         demand(set(jobs) == JOBS and all(job.get("status") == "completed" for job in jobs.values()),
                "JOB_HISTORY_INCOMPLETE")
-        demand(completed(jobs[PAID_JOB], "skipped"), "PAID_BUDGET_ALREADY_CONSUMED")
+        if run["id"] == lineage.PREDECESSOR_RUN_ID:
+            demand(run["head_sha"] == lineage.PREDECESSOR_SOURCE_SHA
+                   and run.get("conclusion") == "success"
+                   and all(completed(job, "success") for job in jobs.values()),
+                   "PREDECESSOR_RUN_MISMATCH")
+            predecessor_runs.append(run)
+        else:
+            demand(completed(jobs[PAID_JOB], "skipped"), "PAID_BUDGET_ALREADY_CONSUMED")
+        if run["id"] == lineage.PREDECESSOR_HELPER_RUN_ID:
+            demand(run["head_sha"] == lineage.PREDECESSOR_HELPER_SHA
+                   and run.get("conclusion") == "success"
+                   and completed(jobs[OFFLINE_JOB], "success")
+                   and completed(jobs[PREFLIGHT_JOB], "skipped"), "PREDECESSOR_HELPER_MISMATCH")
+            predecessor_helpers.append(run)
         if run["head_sha"] == ctx.helper_sha:
             demand(run.get("conclusion") == "success" and completed(jobs[OFFLINE_JOB], "success"),
                    "HELPER_OFFLINE_SUCCESS_REQUIRED")
             helper_runs.append(run)
     demand(len(helper_runs) == 1, "HELPER_OFFLINE_SUCCESS_REQUIRED")
+    demand(len(predecessor_runs) == len(predecessor_helpers) == 1, "PREDECESSOR_HISTORY_REQUIRED")
+    demand(predecessor_helpers[0]["run_number"] < predecessor_runs[0]["run_number"]
+           < helper_runs[0]["run_number"] < current["run_number"], "PREDECESSOR_HISTORY_ORDER")
 
 
 @dataclass(frozen=True)
@@ -367,6 +395,7 @@ class GitHubReader:
             re.escape(f"actions/workflows/{WORKFLOW.rsplit('/', 1)[-1]}/runs")
             + r"\?per_page=100&page=[1-9][0-9]*",
             r"actions/runs/[1-9][0-9]*(?:/approvals)?",
+            re.escape(f"actions/artifacts/{lineage.PREDECESSOR_ARTIFACT_ID}"),
             r"actions/runs/[1-9][0-9]*/jobs\?filter=all&per_page=100&page=[1-9][0-9]*",
         )
         demand(any(re.fullmatch(pattern, path) for pattern in allowed), "GITHUB_READ_PATH_DENIED")
@@ -389,13 +418,73 @@ class GitHubReader:
             raise Blocked("GITHUB_READ_UNAVAILABLE") from None
 
 
+def verified_lineage() -> dict[str, Any]:
+    try:
+        return lineage.lineage_fields()
+    except lineage.ContinuationError as error:
+        raise Blocked(str(error)) from None
+
+
+def validate_predecessor_metadata(ctx: Context, read: Reader, environment_id: int) -> None:
+    """Original approval/accounting is provenance, never current-run approval."""
+    original = obj(single(read, f"git/commits/{lineage.PREDECESSOR_SOURCE_SHA}"))
+    helper = obj(single(read, f"git/commits/{lineage.PREDECESSOR_HELPER_SHA}"))
+    original_marker = (
+        "test: request OfferPilot companion real AI validation\n\n"
+        f"OfferPilot-Companion-AI-Helper: {lineage.PREDECESSOR_HELPER_SHA}\n"
+        "OfferPilot-Companion-AI-Request: one-shot-20261021"
+    )
+    parents = original.get("parents")
+    demand(original.get("sha") == lineage.PREDECESSOR_SOURCE_SHA
+           and helper.get("sha") == lineage.PREDECESSOR_HELPER_SHA
+           and obj(original.get("tree")).get("sha") == lineage.PREDECESSOR_TREE_SHA
+           and obj(helper.get("tree")).get("sha") == lineage.PREDECESSOR_TREE_SHA
+           and isinstance(parents, list) and len(parents) == 1
+           and obj(parents[0]).get("sha") == lineage.PREDECESSOR_HELPER_SHA
+           and original.get("message") in (original_marker, original_marker + "\n"),
+           "PREDECESSOR_SOURCE_MISMATCH")
+    validate_review(single(read, f"actions/runs/{lineage.PREDECESSOR_RUN_ID}/approvals"), environment_id)
+    artifact = obj(single(read, f"actions/artifacts/{lineage.PREDECESSOR_ARTIFACT_ID}"))
+    owner = obj(artifact.get("workflow_run"))
+    demand(positive(artifact.get("id")) and artifact.get("id") == lineage.PREDECESSOR_ARTIFACT_ID
+           and artifact.get("name") == f"companion-ai-{lineage.PREDECESSOR_SOURCE_SHA}"
+           and positive(artifact.get("size_in_bytes")) and artifact.get("size_in_bytes") == lineage.ARCHIVE_SIZE
+           and artifact.get("digest") == f"sha256:{lineage.ARCHIVE_SHA256}"
+           and artifact.get("expired") is False
+           and artifact.get("url") == API + f"actions/artifacts/{lineage.PREDECESSOR_ARTIFACT_ID}"
+           and positive(owner.get("id")) and owner.get("id") == lineage.PREDECESSOR_RUN_ID
+           and positive(owner.get("repository_id")) and owner.get("repository_id") == ctx.repository_id
+           and positive(owner.get("head_repository_id")) and owner.get("head_repository_id") == ctx.repository_id
+           and owner.get("head_branch") == BRANCH
+           and owner.get("head_sha") == lineage.PREDECESSOR_SOURCE_SHA,
+           "PREDECESSOR_ARTIFACT_MISMATCH")
+
+
 def start_quote_window() -> float:
     return time.monotonic() + (PRICE_VALID_UNTIL - time.time())
 
 
 def check_quote_window(deadline: float) -> None:
-    demand(time.time() + SESSION_SECONDS <= PRICE_VALID_UNTIL
-           and time.monotonic() + SESSION_SECONDS <= deadline, "PRICE_REVIEW_EXPIRED")
+    wall, monotonic = time.time(), time.monotonic()
+    demand(all(type(value) in (int, float) and 0 <= value < 9_223_372_036 and math.isfinite(value)
+               for value in (wall, monotonic, deadline))
+           and wall + SESSION_SECONDS <= PRICE_VALID_UNTIL
+           and monotonic + SESSION_SECONDS <= deadline, "PRICE_REVIEW_EXPIRED")
+
+
+def monotonic_ns(value: float) -> int:
+    """Conservative integer handoff of the already-anchored monotonic window."""
+    demand(type(value) in (int, float) and 0 <= value < 9_223_372_036 and math.isfinite(value),
+           "ADMISSION_CLOCK_INVALID")
+    return math.floor(value * 1_000_000_000)
+
+
+def check_handoff_age(checked_wall: int, checked_ns: int) -> None:
+    now_ns = monotonic_ns(time.monotonic())
+    wall = time.time()
+    demand(type(wall) in (int, float) and 0 <= wall < 9_223_372_036 and math.isfinite(wall)
+           and 0 <= wall - checked_wall <= 120
+           and 0 <= now_ns - checked_ns <= 120_000_000_000, "ADMISSION_EXPIRED")
 
 
 def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader,
@@ -406,6 +495,7 @@ def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader,
     # event reads, metadata/approval reads and the durable admission handoff.
     deadline = start_quote_window() if quote_deadline is None else quote_deadline
     check_quote_window(deadline)
+    verified_lineage()
     workflow_path = f"actions/workflows/{WORKFLOW.rsplit('/', 1)[-1]}"
     current = single(read, f"actions/runs/{ctx.run_id}")
     workflow = single(read, workflow_path)
@@ -420,6 +510,7 @@ def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader,
     jobs = {run["id"]: read_pages(read, f"actions/runs/{run['id']}/jobs?filter=all", "jobs")
             for run in runs}
     validate_history(ctx, runs, jobs, current, workflow, phase)
+    validate_predecessor_metadata(ctx, read, environment_id)
     if phase == "paid":
         validate_review(single(read, f"actions/runs/{ctx.run_id}/approvals"), environment_id)
     check_quote_window(deadline)
@@ -465,8 +556,20 @@ def write_admission(path: str, ctx: Context, quote_deadline: float | None = None
     """An admission is a local handoff, not a reusable approval or budget reset."""
     deadline = start_quote_window() if quote_deadline is None else quote_deadline
     check_quote_window(deadline)
-    record = {"schema": 1, "source_sha": ctx.request_sha, "helper_sha": ctx.helper_sha,
-              "run_id": str(ctx.run_id), "checked_at": int(time.time())}
+    # Stamp before verification/open/write/fsync. These are the same Linux
+    # monotonic origin in the paid preflight and subsequent live entrypoint.
+    checked_ns, deadline_ns = monotonic_ns(time.monotonic()), monotonic_ns(deadline)
+    checked_wall_raw = time.time()
+    demand(type(checked_wall_raw) in (int, float) and 0 <= checked_wall_raw < 9_223_372_036
+           and math.isfinite(checked_wall_raw), "ADMISSION_CLOCK_INVALID")
+    checked_wall = int(checked_wall_raw)
+    record = {**verified_lineage(), "schema": lineage.ADMISSION_SCHEMA,
+              "source_sha": ctx.request_sha, "helper_sha": ctx.helper_sha,
+              "run_id": str(ctx.run_id), "run_attempt": "1", "checked_at": checked_wall,
+              "checked_at_monotonic_ns": checked_ns,
+              "quote_deadline_monotonic_ns": deadline_ns}
+    check_quote_window(deadline)
+    check_handoff_age(checked_wall, checked_ns)
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -479,6 +582,7 @@ def write_admission(path: str, ctx: Context, quote_deadline: float | None = None
     # A slow open/flush/fsync must not report successful admission. The workflow
     # never exposes the provider secret after a nonzero preflight exit.
     check_quote_window(deadline)
+    check_handoff_age(checked_wall, checked_ns)
 
 
 class SafeParser(argparse.ArgumentParser):

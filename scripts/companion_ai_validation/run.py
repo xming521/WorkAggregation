@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,9 +16,11 @@ import tempfile
 import time
 from typing import Any, Callable, Iterator
 
+from scripts.companion_ai_validation import continuation
 from scripts.companion_ai_validation.broker import (
     MODEL, OPERATIONS, OUTPUT_TOKENS, CONTEXT_TOKENS, PRICE_VALID_UNTIL,
-    REQUEST_SECONDS, Broker, GateError, HTTPSUpstream, encode, require_linux, serve,
+    MAX_BYTES, SESSION_SECONDS, Broker, GateError, HTTPSUpstream, RunWindow, decode, encode,
+    require_linux, serve,
 )
 
 KEY_NAME = "OFFERPILOT_COMPANION_DEEPSEEK_20261021"
@@ -35,28 +38,63 @@ def clean_environment() -> None:
 
 
 def check_admission(record: Any, metadata: dict[str, str], now: float) -> str:
-    expected = {"schema", "source_sha", "helper_sha", "run_id", "checked_at"}
-    if not isinstance(record, dict) or set(record) != expected or record["schema"] != 1:
+    expected = continuation.LINEAGE_KEYS | {
+        "schema", "source_sha", "helper_sha", "run_id", "run_attempt", "checked_at",
+        "checked_at_monotonic_ns", "quote_deadline_monotonic_ns",
+    }
+    if (not isinstance(record, dict) or set(record) != expected
+            or type(record["schema"]) is not int
+            or record["schema"] != continuation.ADMISSION_SCHEMA):
         raise GateError("admission_required")
+    try:
+        continuation.validate_lineage(record)
+    except continuation.ContinuationError as exc:
+        raise GateError("admission_lineage") from exc
     sha = record["source_sha"]
     helper = record["helper_sha"]
+    run_id = record["run_id"]
     if (not isinstance(sha, str) or len(sha) != 40 or
             any(c not in "0123456789abcdef" for c in sha) or
             not isinstance(helper, str) or len(helper) != 40 or
-            any(c not in "0123456789abcdef" for c in helper) or sha == helper):
+            any(c not in "0123456789abcdef" for c in helper) or sha == helper
+            or sha in {record["predecessor_source_sha"], record["predecessor_helper_sha"]}
+            or helper in {record["predecessor_source_sha"], record["predecessor_helper_sha"]}
+            or not isinstance(run_id, str) or not run_id or run_id[0] == "0"
+            or any(c not in "0123456789" for c in run_id)
+            or record["run_attempt"] != "1"):
         raise GateError("admission_identity")
     if (metadata.get("GITHUB_SHA") != sha or metadata.get("GITHUB_RUN_ID") != record["run_id"]
             or metadata.get("GITHUB_RUN_ATTEMPT") != "1"
             or metadata.get("GITHUB_EVENT_NAME") != "push"
             or metadata.get("GITHUB_REPOSITORY") != "offercontext/offerPilot"
-            or metadata.get("GITHUB_REF") != "refs/heads/feat/20261021-companion-life-v1"):
+            or metadata.get("GITHUB_REF") != "refs/heads/feat/20261021-companion-life-v1"
+            or metadata.get("GITHUB_WORKFLOW_SHA") != sha
+            or metadata.get("GITHUB_WORKFLOW_REF") != (
+                "offercontext/offerPilot/.github/workflows/companion-real-ai.yml"
+                "@refs/heads/feat/20261021-companion-life-v1")):
         raise GateError("admission_identity")
+    check_admission_time(record, now)
+    return sha
+
+
+def check_admission_time(record: dict[str, Any], now: float) -> None:
     checked = record["checked_at"]
     if type(checked) is not int or not 0 <= now - checked <= 120:
         raise GateError("admission_expired")
-    if now + REQUEST_SECONDS > PRICE_VALID_UNTIL:
+    monotonic = time.monotonic()
+    if not math.isfinite(monotonic) or not 0 <= monotonic < 9_223_372_036:
+        raise GateError("clock_anomaly")
+    now_ns = math.floor(monotonic * 1e9)
+    checked_ns, quote_ns = record["checked_at_monotonic_ns"], record["quote_deadline_monotonic_ns"]
+    if (type(checked_ns) is not int or not 0 <= checked_ns < 2**63
+            or type(quote_ns) is not int or not checked_ns < quote_ns < 2**63):
+        raise GateError("admission_required")
+    if not 0 <= now_ns - checked_ns <= 120_000_000_000:
+        raise GateError("admission_expired")
+    if quote_ns - now_ns < SESSION_SECONDS * 1_000_000_000:
         raise GateError("price_review_expired")
-    return sha
+    if now + SESSION_SECONDS > PRICE_VALID_UNTIL:
+        raise GateError("price_review_expired")
 
 
 def write_config(data_dir: Path, base_url: str, token: str) -> None:
@@ -118,14 +156,15 @@ class ResponseEvidence:
 
 
 def execute(send: Callable[[bytes], tuple[int, bytes]], source_sha: str,
-            evidence_dir: Path) -> dict[str, Any]:
+            evidence_dir: Path, *, window: RunWindow | None = None) -> dict[str, Any]:
     require_linux()
+    window = window if window is not None else RunWindow()
     # Defer production imports until runtime environment is sanitized by main.
     # Offline callers are protected by pytest's early loopback-only network guard.
     from scripts.companion_ai_validation.driver import MatrixFailure, run_matrix
 
     evidence_dir.mkdir(parents=True, exist_ok=False)
-    broker = Broker(evidence_dir / "budget.jsonl", send, source_sha)
+    broker = Broker(evidence_dir / "budget.jsonl", send, source_sha, window=window)
     outcome: dict[str, Any] = {"passed": False, "error_code": "incomplete"}
     samples: ResponseEvidence | None = None
     try:
@@ -170,7 +209,7 @@ def execute(send: Callable[[bytes], tuple[int, bytes]], source_sha: str,
             broker.close()
         except GateError:
             outcome = {"passed": False, "error_code": "journal_failure"}
-        report = {"schema": 1, "matrix": outcome, "budget": summary}
+        report = {"schema": continuation.ADMISSION_SCHEMA, "matrix": outcome, "budget": summary}
         (evidence_dir / "summary.json").write_bytes(encode(report) + b"\n")
     return report
 
@@ -178,19 +217,22 @@ def execute(send: Callable[[bytes], tuple[int, bytes]], source_sha: str,
 def main() -> int:
     try:
         require_linux()
+        window = RunWindow()
         parser = argparse.ArgumentParser()
         parser.add_argument("--live", action="store_true", required=True)
         parser.add_argument("--admission-file", type=Path, required=True)
         parser.add_argument("--evidence-dir", type=Path, required=True)
         args = parser.parse_args()
         keys = ("GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_EVENT_NAME",
-                "GITHUB_REPOSITORY", "GITHUB_REF")
+                "GITHUB_REPOSITORY", "GITHUB_REF", "GITHUB_WORKFLOW_SHA", "GITHUB_WORKFLOW_REF")
         metadata = {name: os.environ.get(name, "") for name in keys}
-        source_sha = check_admission(json.loads(args.admission_file.read_bytes()),
-                                     metadata, time.time())
+        with args.admission_file.open("rb") as admission_file:
+            admission = decode(admission_file.read(MAX_BYTES + 1))
+        source_sha = check_admission(admission, metadata, window.effective_wall())
+        window.restrict_quote_deadline(admission["quote_deadline_monotonic_ns"])
         # Verify checked-out files, not merely a supplied environment string.
         git_environment = {"PATH": os.defpath, "GIT_CONFIG_NOSYSTEM": "1",
-                           "GIT_CONFIG_GLOBAL": os.devnull}
+                           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1"}
         checkout = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
                                   env=git_environment, capture_output=True,
                                   check=True).stdout.decode().strip()
@@ -199,14 +241,29 @@ def main() -> int:
                                capture_output=True, check=True).stdout
         if checkout != source_sha or dirty:
             raise GateError("checkout_changed")
+        # Read the raw commit: HEAD^ and pretty-format parents can disappear in
+        # Actions' shallow checkout. The immutable commit still names its parent.
+        commit = subprocess.run(["git", "cat-file", "-p", "HEAD"], cwd=ROOT,
+                                env=git_environment, capture_output=True,
+                                check=True).stdout
+        header = commit.partition(b"\n\n")[0].splitlines()
+        parents = [line[7:] for line in header if line.startswith(b"parent ")]
+        if parents != [admission["helper_sha"].encode("ascii")]:
+            raise GateError("checkout_helper_mismatch")
         if os.environ.get(MODEL_NAME) != MODEL:
             raise GateError("provider_metadata_mismatch")
+        # Checkout/provenance checks may stall. They never extend admission age
+        # or the fixed quote, and predecessor bytes must still verify here.
+        check_admission(admission, metadata, window.effective_wall())
+        # The final lineage verification can also stall. No further file or
+        # metadata I/O may sit between this anchored check and secret access.
+        check_admission_time(admission, window.effective_wall())
         # Read the one explicitly authorized environment secret only after all gates.
         key = os.environ.pop(KEY_NAME, "")
         clean_environment()
-        transport = HTTPSUpstream(key)
+        transport = HTTPSUpstream(key, window=window)
         key = ""
-        report = execute(transport, source_sha, args.evidence_dir)
+        report = execute(transport, source_sha, args.evidence_dir, window=window)
         print(json.dumps({"passed": report["matrix"]["passed"], "budget": report["budget"]},
                          sort_keys=True))
         return 0 if report["matrix"]["passed"] else 1

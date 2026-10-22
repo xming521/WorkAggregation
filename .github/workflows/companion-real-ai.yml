@@ -101,7 +101,7 @@ jobs:
           version: '0.12.19'
       - name: Prepare frozen dependencies before exposing the provider secret
         run: uv sync --frozen
-      - name: Recheck owner approval, SHA and no previous paid attempt
+      - name: Recheck new owner approval, SHA and exact predecessor lineage
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFERPILOT_COMPANION_AI_HELPER_SHA: ${{ vars.OFFERPILOT_COMPANION_AI_HELPER_SHA }}
@@ -109,7 +109,7 @@ jobs:
         run: >-
           python -m scripts.companion_ai_validation.preflight --phase paid
           --admission-file "$RUNNER_TEMP/companion-ai-admission.json"
-      - name: One synthetic matrix, no retries, 20 CNY cumulative hard budget
+      - name: One corrective matrix, no retries, inherited 20 CNY task budget
         env:
           OFFERPILOT_COMPANION_DEEPSEEK_20261021: ${{ secrets.OFFERPILOT_COMPANION_DEEPSEEK_20261021 }}
           OFFERPILOT_COMPANION_AI_MODEL: ${{ vars.OFFERPILOT_COMPANION_AI_MODEL }}

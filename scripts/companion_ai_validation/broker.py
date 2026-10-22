@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import math
 import os
 import secrets
 import ssl
@@ -17,10 +18,13 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Iterator
+
+from scripts.companion_ai_validation import continuation
 
 MODEL = "deepseek-flash"
 BASE_URL = "https://api.deepseek.com"
@@ -39,16 +43,49 @@ SESSION_SECONDS = 20 * 60
 # Peak cache-miss input 2 / output 8 CNY per million; context_window 1048576.
 # This reviewed quote expires, and is never silently extended on a rerun.
 PRICE_VALID_UNTIL = datetime(2026, 10, 24, tzinfo=timezone.utc).timestamp()
-OPERATIONS = (
-    "independent_play", "shared_wait_after_absence", "actual_color_choice",
-    "unpressured_leisure", "paused_gap", "serious_mixed_work",
-    "work_finish_continuation", "boat_specific_memory", "cloud_specific_memory",
-    "same_type_ambiguity", "deleted_source_memory", "withdrawal_and_boundaries",
-)
+OPERATIONS = continuation.OPERATIONS
 
 
 class GateError(RuntimeError):
     """Safe error codes only: never stringify upstream errors."""
+
+
+@dataclass(frozen=True)
+class RunWindow:
+    """One non-extending clock anchor, captured before admission or source I/O."""
+    started_monotonic: float = field(init=False)
+    started_wall: float = field(init=False)
+    session_deadline: float = field(init=False)
+    price_deadline: float = field(init=False)
+    _last_monotonic: float = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        monotonic, wall = time.monotonic(), time.time()
+        if not math.isfinite(monotonic) or not math.isfinite(wall):
+            raise GateError("clock_anomaly")
+        object.__setattr__(self, "started_monotonic", monotonic)
+        object.__setattr__(self, "started_wall", wall)
+        object.__setattr__(self, "session_deadline", monotonic + SESSION_SECONDS)
+        object.__setattr__(self, "price_deadline", monotonic + (PRICE_VALID_UNTIL - wall))
+        object.__setattr__(self, "_last_monotonic", monotonic)
+
+    def effective_wall(self) -> float:
+        # A backward wall jump must never rejuvenate admission age or the quote.
+        monotonic, wall = time.monotonic(), time.time()
+        if (not math.isfinite(monotonic) or not math.isfinite(wall)
+                or monotonic < self._last_monotonic):
+            raise GateError("clock_anomaly")
+        object.__setattr__(self, "_last_monotonic", monotonic)
+        return max(wall, self.started_wall + (monotonic - self.started_monotonic))
+
+    def restrict_quote_deadline(self, deadline_ns: int) -> None:
+        """A same-job preflight handoff may only shorten this process's quote."""
+        if type(deadline_ns) is not int or not 0 <= deadline_ns < 2**63:
+            raise GateError("admission_required")
+        # Integer-nanosecond conversion can round upward. Move one float step
+        # down before narrowing so even conversion cannot extend the quote.
+        carried = math.nextafter(deadline_ns / 1e9, -math.inf)
+        object.__setattr__(self, "price_deadline", min(self.price_deadline, carried))
 
 
 def require_linux() -> None:
@@ -167,13 +204,14 @@ def local_sse(response: dict[str, Any]) -> bytes:
 
 class HTTPSUpstream:
     """One direct verified TLS connection per attempt; never an SDK/proxy opener."""
-    def __init__(self, key: str):
+    def __init__(self, key: str, *, window: RunWindow | None = None):
         require_linux()
+        window = window if window is not None else RunWindow()
         if not key or any(c.isspace() for c in key):
             raise GateError("credential_missing")
         self._key = key
-        self._deadline = time.monotonic() + SESSION_SECONDS
-        self._price_deadline = time.monotonic() + (PRICE_VALID_UNTIL - time.time())
+        self._deadline = window.session_deadline
+        self._price_deadline = window.price_deadline
 
     def _check_window(self, request_deadline: float) -> None:
         if (time.time() + REQUEST_SECONDS > PRICE_VALID_UNTIL
@@ -230,13 +268,23 @@ class HTTPSUpstream:
 
 class Broker:
     def __init__(self, journal_path: Path, send: Callable[[bytes], tuple[int, bytes]],
-                 source_sha: str):
+                 source_sha: str, *, window: RunWindow | None = None):
         require_linux()
+        window = window if window is not None else RunWindow()
         if len(source_sha) != 40 or any(c not in "0123456789abcdef" for c in source_sha):
             raise GateError("source_sha")
+        # There is no caller-, CLI- or environment-supplied opening balance. The
+        # only continuation inherits the exact fully replayed original ledger.
+        try:
+            lineage = continuation.lineage_fields()
+        except continuation.ContinuationError as exc:
+            raise GateError("predecessor_evidence_invalid") from exc
+        if (lineage["budget_micro_cny"] != BUDGET
+                or lineage["price_valid_until"] != PRICE_VALID_UNTIL):
+            raise GateError("continuation_contract_mismatch")
         self._lock = threading.Lock()
-        self._deadline = time.monotonic() + SESSION_SECONDS
-        self._price_deadline = time.monotonic() + (PRICE_VALID_UNTIL - time.time())
+        self._deadline = window.session_deadline
+        self._price_deadline = window.price_deadline
         self._halt = threading.Event()
         self._send = send
         self._token = ""
@@ -244,9 +292,10 @@ class Broker:
         self._calls = 0
         self._next = 0
         self._state: dict[str, Any] = {
-            "schema": 1, "source_sha": source_sha, "request_count": 0,
-            "settled_micro_cny": 0, "reserved_micro_cny": 0,
-            "budget_micro_cny": BUDGET, "halted": False,
+            **lineage, "schema": continuation.ADMISSION_SCHEMA,
+            "source_sha": source_sha, "request_count": 0,
+            "settled_micro_cny": lineage["prior_settled_micro_cny"],
+            "reserved_micro_cny": lineage["prior_reserved_micro_cny"], "halted": False,
         }
         # Never truncate, reopen, resume or silently reset a previous budget.
         try:
@@ -263,6 +312,23 @@ class Broker:
             self._halt.set()
             raise GateError("journal_unavailable") from exc
 
+    def _accounting(self) -> dict[str, Any]:
+        """Unambiguous cumulative and batch evidence at every durable transition."""
+        settled = self._state["settled_micro_cny"]
+        reserved = self._state["reserved_micro_cny"]
+        return {
+            **self._state,
+            "batch_request_count": self._state["request_count"],
+            "lifetime_request_count": (self._state["prior_request_count"]
+                                       + self._state["request_count"]),
+            "batch_settled_micro_cny": settled - self._state["prior_settled_micro_cny"],
+            "batch_reserved_micro_cny": reserved - self._state["prior_reserved_micro_cny"],
+            "lifetime_settled_micro_cny": settled,
+            "lifetime_reserved_micro_cny": reserved,
+            "lifetime_liability_micro_cny": settled + reserved,
+            "lifetime_remaining_micro_cny": BUDGET - settled - reserved,
+        }
+
     def _record(self, event: str, **values: Any) -> None:
         try:
             current = os.fstat(self._fd)
@@ -272,7 +338,7 @@ class Broker:
                     or current.st_size != len(self._journal_bytes)
                     or os.pread(self._fd, current.st_size, 0) != self._journal_bytes):
                 raise OSError("journal changed")
-            line = encode({**self._state, "event": event, **values}) + b"\n"
+            line = encode({**self._accounting(), "event": event, **values}) + b"\n"
             view = memoryview(line)
             while view:
                 count = os.write(self._fd, view)
@@ -435,7 +501,9 @@ class Broker:
 
     def summary(self) -> dict[str, Any]:
         with self._lock:
-            return {**self._state, "halted": self._halt.is_set(), "stages_complete": self._next}
+            return {**self._accounting(), "halted": self._halt.is_set(),
+                    "stages_complete": self._next,
+                    "accounting_basis": "conservative_usage_not_provider_invoice"}
 
     def close(self) -> None:
         self._halt.set()

@@ -11,9 +11,10 @@ import pytest
 
 from scripts.companion_ai_validation import preflight as p
 from scripts.companion_ai_validation import broker
+from scripts.companion_ai_validation import continuation as c
 
 H, R, TREE = "a" * 40, "b" * 40, "c" * 40
-REPO_ID, ENV_ID, WORKFLOW_ID = 77, 88, 99
+REPO_ID, ENV_ID, WORKFLOW_ID = 241031113, 88, 99
 RUNS_PATH = "actions/workflows/companion-real-ai.yml/runs"
 ENV_PATH = f"environments/{p.ENVIRONMENT}"
 POLICIES_PATH = f"{ENV_PATH}/deployment-branch-policies"
@@ -29,9 +30,9 @@ def pinned_fake_workflow(monkeypatch):
     monkeypatch.setattr(p.time, "monotonic", lambda: 1000.0)
 
 
-def run(number, sha, current=False):
+def run(number, sha, current=False, run_id=None):
     return {
-        "id": number, "run_number": number, "run_attempt": 1, "workflow_id": WORKFLOW_ID,
+        "id": number if run_id is None else run_id, "run_number": number, "run_attempt": 1, "workflow_id": WORKFLOW_ID,
         "path": p.WORKFLOW, "event": "push", "head_branch": p.BRANCH, "head_sha": sha,
         "status": "in_progress" if current else "completed",
         "conclusion": None if current else "success",
@@ -47,8 +48,11 @@ def jobs_for(value, phase="before"):
         active = p.PREFLIGHT_JOB if phase == "before" else p.PAID_JOB
         status = "in_progress" if current and name == active else "completed"
         conclusion = None if status == "in_progress" else "success"
-        if name == p.PAID_JOB and not current:
-            conclusion = "skipped"
+        if not current:
+            if name == p.PAID_JOB and value["id"] != c.PREDECESSOR_RUN_ID:
+                conclusion = "skipped"
+            if name == p.PREFLIGHT_JOB and value["id"] != c.PREDECESSOR_RUN_ID:
+                conclusion = "skipped"
         if name == p.PAID_JOB and current and phase == "before":
             status, conclusion = "queued", None
         result.append({"id": value["id"] * 10 + index, "run_id": value["id"],
@@ -70,7 +74,8 @@ def add_pages(data, path, key, values):
         )
 
 
-def fixture(phase="before", count=2):
+def fixture(phase="before", count=4):
+    assert count >= 4
     env = {
         p.HELPER_VAR: H, p.REQUEST_VAR: R, "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_EVENT_NAME": "push", "GITHUB_REPOSITORY": p.REPOSITORY,
@@ -85,7 +90,10 @@ def fixture(phase="before", count=2):
         "repository": {"id": REPO_ID, "full_name": p.REPOSITORY},
         "head_commit": {"id": R, "message": p.marker(H)},
     }
-    runs = [run(n, H if n == 1 else f"{n:040x}") for n in range(1, count)]
+    runs = [run(1, c.PREDECESSOR_HELPER_SHA, run_id=c.PREDECESSOR_HELPER_RUN_ID),
+            run(2, c.PREDECESSOR_SOURCE_SHA, run_id=c.PREDECESSOR_RUN_ID),
+            run(3, H, run_id=1)]
+    runs.extend(run(n, f"{n:040x}") for n in range(4, count))
     runs.append(run(count, R, current=True))
     data = {
         f"git/commits/{R}": p.Response({"sha": R, "tree": {"sha": TREE},
@@ -111,6 +119,22 @@ def fixture(phase="before", count=2):
             "environments": [{"id": ENV_ID, "name": p.ENVIRONMENT}],
         }]),
     }
+    data[f"git/commits/{c.PREDECESSOR_HELPER_SHA}"] = p.Response({
+        "sha": c.PREDECESSOR_HELPER_SHA, "tree": {"sha": c.PREDECESSOR_TREE_SHA}})
+    data[f"git/commits/{c.PREDECESSOR_SOURCE_SHA}"] = p.Response({
+        "sha": c.PREDECESSOR_SOURCE_SHA, "tree": {"sha": c.PREDECESSOR_TREE_SHA},
+        "parents": [{"sha": c.PREDECESSOR_HELPER_SHA}],
+        "message": "test: request OfferPilot companion real AI validation\n\n"
+                   f"OfferPilot-Companion-AI-Helper: {c.PREDECESSOR_HELPER_SHA}\n"
+                   "OfferPilot-Companion-AI-Request: one-shot-20261021"})
+    data[f"actions/runs/{c.PREDECESSOR_RUN_ID}/approvals"] = deepcopy(data[f"actions/runs/{count}/approvals"])
+    data[f"actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}"] = p.Response({
+        "id": c.PREDECESSOR_ARTIFACT_ID, "name": f"companion-ai-{c.PREDECESSOR_SOURCE_SHA}",
+        "size_in_bytes": c.ARCHIVE_SIZE, "digest": f"sha256:{c.ARCHIVE_SHA256}", "expired": False,
+        "url": p.API + f"actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}",
+        "workflow_run": {"id": c.PREDECESSOR_RUN_ID, "repository_id": REPO_ID,
+                         "head_repository_id": REPO_ID, "head_branch": p.BRANCH,
+                         "head_sha": c.PREDECESSOR_SOURCE_SHA}})
     add_pages(data, POLICIES_PATH, "branch_policies", [{"id": p.BRANCH_POLICY_ID, "name": p.BRANCH, "type": "branch"}])
     add_pages(data, RUNS_PATH, "workflow_runs", runs)
     for value in runs:
@@ -141,7 +165,7 @@ def jobs(values, run_id=1):
 def test_success_is_bound_to_exact_published_helper_and_current_request(phase):
     calls = []
     assert execute(fixture(phase), phase, calls) == {"ok": True, "helper_sha": H, "request_sha": R}
-    assert ("actions/runs/2/approvals" in calls) is (phase == "paid")
+    assert ("actions/runs/4/approvals" in calls) is (phase == "paid")
     assert not any("secrets" in value or "variables" in value for value in calls)
 
 
@@ -257,7 +281,7 @@ def test_cli_keeps_quote_anchor_across_slow_event_and_admission(stage, wall_roll
 
 def test_before_accepts_unmaterialized_paid_but_never_missing_preflight():
     values = fixture()
-    response = values[2][p.page_path("actions/runs/2/jobs?filter=all", 1)]
+    response = values[2][p.page_path("actions/runs/4/jobs?filter=all", 1)]
     response.data["jobs"].pop()
     response.data["total_count"] -= 1
     assert execute(values)["ok"]
@@ -364,7 +388,7 @@ def test_extra_deployment_policy_is_rejected_even_with_allowed_branch():
 ])
 def test_paid_phase_requires_actual_current_run_owner_environment_approval(mutation):
     values = fixture("paid")
-    mutation(values[2]["actions/runs/2/approvals"].data)
+    mutation(values[2]["actions/runs/4/approvals"].data)
     with pytest.raises(p.Blocked, match="OWNER_APPROVAL_UNVERIFIED"):
         execute(values, "paid")
 
@@ -389,7 +413,7 @@ def test_every_prior_nonskipped_paid_result_consumes_budget(conclusion):
     lambda rows: rows[0].update(head_repository={"full_name": "attacker/offerPilot", "id": REPO_ID}),
     lambda rows: rows[0].update(status="queued"),
     lambda rows: rows[0].update(conclusion="failure"),
-    lambda rows: rows[1].update(status="completed"),
+    lambda rows: rows[-1].update(status="completed"),
 ])
 def test_history_ref_provenance_reruns_gaps_and_unresolved_runs_fail_closed(mutation):
     values = fixture()
@@ -416,9 +440,9 @@ def test_missing_duplicate_unknown_or_wrong_identity_jobs_are_rejected(mutation)
 @pytest.mark.parametrize("phase", ["before", "paid"])
 def test_current_run_cannot_hide_additional_jobs(phase):
     values = fixture(phase)
-    current_jobs = jobs(values, 2)
+    current_jobs = jobs(values, 4)
     current_jobs.append({**current_jobs[-1], "id": 987, "name": "Surprise provider request"})
-    values[2][p.page_path("actions/runs/2/jobs?filter=all", 1)].data["total_count"] += 1
+    values[2][p.page_path("actions/runs/4/jobs?filter=all", 1)].data["total_count"] += 1
     with pytest.raises(p.Blocked, match="JOB_HISTORY_INVALID"):
         execute(values, phase)
 
@@ -471,7 +495,7 @@ def test_missing_or_inconsistent_history_pages_are_rejected(failure):
 
 
 def test_deleted_run_cannot_be_hidden_by_adjusting_total_count():
-    values = fixture(count=3)
+    values = fixture(count=5)
     response = values[2][p.page_path(RUNS_PATH, 1)]
     response.data["workflow_runs"].pop(0)
     response.data["total_count"] -= 1
@@ -538,8 +562,12 @@ def test_admission_is_minimal_fresh_and_exclusive(tmp_path, monkeypatch):
     path = tmp_path / "admission.json"
     monkeypatch.setattr(p.time, "time", lambda: 1792594800)
     p.write_admission(str(path), p.Context(H, R, 2, REPO_ID))
-    assert json.loads(path.read_text()) == {"schema": 1, "source_sha": R, "helper_sha": H,
-                                           "run_id": "2", "checked_at": 1792594800}
+    assert json.loads(path.read_text()) == {**c.lineage_fields(), "schema": 2,
+                                           "source_sha": R, "helper_sha": H,
+                                           "run_id": "2", "run_attempt": "1", "checked_at": 1792594800,
+                                           "checked_at_monotonic_ns": 1000_000_000_000,
+                                           "quote_deadline_monotonic_ns": int(
+                                               (1000 + broker.PRICE_VALID_UNTIL - 1792594800) * 1e9)}
     assert path.stat().st_mode & 0o777 == 0o600
     original = path.read_bytes()
     with pytest.raises(p.Blocked, match="ADMISSION_WRITE_BLOCKED"):
@@ -559,11 +587,11 @@ def test_cli_only_writes_admission_after_paid_validation(tmp_path, monkeypatch, 
     assert p.main(["--phase", "paid", "--helper-sha", H, "--request-sha", R,
                    "--admission-file", str(admission)]) == 0
     assert json.loads(capsys.readouterr().out) == {"ok": True, "helper_sha": H, "request_sha": R}
-    assert json.loads(admission.read_text())["run_id"] == "2"
+    assert json.loads(admission.read_text())["run_id"] == "4"
     assert p.main(["--phase", "before", "--admission-file", str(tmp_path / "no.json")]) == 1
     assert not (tmp_path / "no.json").exists()
     assert json.loads(capsys.readouterr().out)["error_code"] == "ADMISSION_PHASE_INVALID"
-    data["actions/runs/2/approvals"].data[0]["state"] = "rejected"
+    data["actions/runs/4/approvals"].data[0]["state"] = "rejected"
     assert p.main(["--phase", "paid", "--admission-file", str(tmp_path / "denied.json")]) == 1
     assert not (tmp_path / "denied.json").exists()
     assert "synthetic-github-token" not in capsys.readouterr().out
@@ -603,3 +631,261 @@ def test_registration_inspection_cannot_arm_or_write_admission(monkeypatch):
                       'reviewer_id': p.REVIEWER_ID, 'protection_shape_verified': True}
     assert len(calls) == 3
     assert not any('/secrets' in call or '/approvals' in call for call in calls)
+
+
+@pytest.mark.parametrize('phase', ['before', 'paid'])
+def test_only_exact_original_paid_run_is_exempt_and_current_approval_is_separate(phase):
+    calls = []
+    assert execute(fixture(phase), phase, calls)['ok']
+    assert f'actions/runs/{c.PREDECESSOR_RUN_ID}/approvals' in calls
+    assert ('actions/runs/4/approvals' in calls) is (phase == 'paid')
+    assert f'actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}' in calls
+
+
+@pytest.mark.parametrize('phase', ['before', 'paid'])
+@pytest.mark.parametrize('mutation', ['missing', 'sha', 'failure', 'rerun', 'paid_skipped',
+                                      'paid_unknown', 'helper_sha', 'helper_failure', 'order'])
+def test_pinned_original_history_is_mandatory_not_any_successful_run(phase, mutation):
+    values = fixture(phase)
+    rows = history(values)
+    original = next(row for row in rows if row['id'] == c.PREDECESSOR_RUN_ID)
+    helper = next(row for row in rows if row['id'] == c.PREDECESSOR_HELPER_RUN_ID)
+    if mutation == 'missing':
+        original['id'] += 1
+        previous_jobs = deepcopy(jobs(values, c.PREDECESSOR_RUN_ID))
+        for job in previous_jobs:
+            job['run_id'] = original['id']
+        add_pages(values[2], f"actions/runs/{original['id']}/jobs?filter=all", 'jobs', previous_jobs)
+    elif mutation == 'sha':
+        original['head_sha'] = 'f' * 40
+    elif mutation == 'failure':
+        original['conclusion'] = 'failure'
+    elif mutation == 'rerun':
+        original['run_attempt'] = 2
+    elif mutation == 'paid_skipped':
+        jobs(values, c.PREDECESSOR_RUN_ID)[-1]['conclusion'] = 'skipped'
+    elif mutation == 'paid_unknown':
+        jobs(values, c.PREDECESSOR_RUN_ID)[-1]['conclusion'] = None
+    elif mutation == 'helper_sha':
+        helper['head_sha'] = H
+    elif mutation == 'helper_failure':
+        helper['conclusion'] = 'failure'
+    else:
+        original['run_number'], helper['run_number'] = helper['run_number'], original['run_number']
+    with pytest.raises(p.Blocked):
+        execute(values, phase)
+
+
+@pytest.mark.parametrize('phase', ['before', 'paid'])
+@pytest.mark.parametrize('field,value', [
+    ('id', 12408325853), ('name', 'some-other-artifact'), ('size_in_bytes', 0),
+    ('digest', None), ('digest', 'sha256:' + '0' * 64), ('expired', True),
+    ('url', 'https://untrusted.invalid/artifact'),
+])
+def test_artifact_must_remain_available_and_exact_in_both_phases(phase, field, value):
+    values = fixture(phase)
+    values[2][f'actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}'].data[field] = value
+    with pytest.raises(p.Blocked, match='PREDECESSOR_ARTIFACT_MISMATCH'):
+        execute(values, phase)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('id', 1), ('repository_id', 1), ('head_repository_id', 1),
+    ('head_branch', 'master'), ('head_sha', H),
+])
+def test_artifact_cannot_belong_to_another_run_or_source(field, value):
+    values = fixture()
+    values[2][f'actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}'].data['workflow_run'][field] = value
+    with pytest.raises(p.Blocked, match='PREDECESSOR_ARTIFACT_MISMATCH'):
+        execute(values)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('sha', H), ('tree', {'sha': TREE}), ('parents', []),
+    ('parents', [{'sha': H}]), ('message', 'same source but unreviewed'),
+])
+def test_original_request_source_is_bound_to_its_exact_helper_tree(field, value):
+    values = fixture()
+    values[2][f'git/commits/{c.PREDECESSOR_SOURCE_SHA}'].data[field] = value
+    with pytest.raises(p.Blocked, match='PREDECESSOR_SOURCE_MISMATCH'):
+        execute(values)
+
+
+@pytest.mark.parametrize('phase', ['before', 'paid'])
+def test_missing_original_approval_is_not_forgiven_by_a_current_approval(phase):
+    values = fixture(phase)
+    values[2][f'actions/runs/{c.PREDECESSOR_RUN_ID}/approvals'].data.clear()
+    with pytest.raises(p.Blocked, match='OWNER_APPROVAL_UNVERIFIED'):
+        execute(values, phase)
+
+
+def test_missing_local_evidence_blocks_before_github_and_admission(tmp_path, monkeypatch):
+    monkeypatch.setattr(c, 'EVIDENCE_PATH', tmp_path / 'absent.zip')
+    calls = []
+    with pytest.raises(p.Blocked, match='PREDECESSOR_EVIDENCE_UNAVAILABLE'):
+        execute(fixture(), calls=calls)
+    assert calls == []
+    with pytest.raises(p.Blocked, match='PREDECESSOR_EVIDENCE_UNAVAILABLE'):
+        p.write_admission(str(tmp_path / 'admission.json'), p.Context(H, R, 4, REPO_ID))
+    assert not (tmp_path / 'admission.json').exists()
+
+
+def test_correction_marker_cannot_reuse_the_original_campaign_request_marker():
+    values = fixture()
+    marker = values[2][f'git/commits/{c.PREDECESSOR_SOURCE_SHA}'].data['message']
+    values[1]['head_commit']['message'] = marker
+    values[2][f'git/commits/{R}'].data['message'] = marker
+    with pytest.raises(p.Blocked):
+        execute(values)
+    assert 'correction-1' in p.marker(H)
+    assert str(c.PREDECESSOR_RUN_ID) in p.marker(H) and c.LEDGER_SHA256 in p.marker(H)
+
+
+@pytest.mark.parametrize('path', [
+    f'actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID + 1}',
+    f'actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}/zip',
+    f'actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}?alternate=true',
+])
+def test_artifact_extension_is_exact_metadata_only_no_download_fallback(path, monkeypatch):
+    reader = p.GitHubReader('synthetic-token')
+    monkeypatch.setattr(reader.opener, 'open', lambda *a, **k: pytest.fail('Must not send'))
+    with pytest.raises(p.Blocked, match='GITHUB_READ_PATH_DENIED'):
+        reader(path)
+
+
+@pytest.mark.parametrize('key', [p.HELPER_VAR, p.REQUEST_VAR])
+@pytest.mark.parametrize('sha', [c.PREDECESSOR_HELPER_SHA, c.PREDECESSOR_SOURCE_SHA])
+def test_previous_helper_or_request_cannot_be_rearmed(key, sha):
+    values, calls = fixture(), []
+    values[0][key] = sha
+    with pytest.raises(p.Blocked, match='EXACT_SHA_APPROVAL_MISSING'):
+        execute(values, calls=calls)
+    assert calls == []
+
+
+@pytest.mark.parametrize('target', ['artifact_id', 'artifact_size', 'artifact_run', 'artifact_repo',
+                                   'workflow', 'reviewer', 'review_environment', 'job_attempt'])
+def test_numeric_metadata_must_be_integer_not_float_or_boolean(target):
+    values = fixture('paid')
+    artifact = values[2][f'actions/artifacts/{c.PREDECESSOR_ARTIFACT_ID}'].data
+    if target.startswith('artifact_'):
+        if target == 'artifact_id':
+            artifact['id'] = float(artifact['id'])
+        elif target == 'artifact_size':
+            artifact['size_in_bytes'] = float(artifact['size_in_bytes'])
+        elif target == 'artifact_run':
+            artifact['workflow_run']['id'] = float(c.PREDECESSOR_RUN_ID)
+        else:
+            artifact['workflow_run']['repository_id'] = float(REPO_ID)
+    elif target == 'workflow':
+        values[2]['actions/workflows/companion-real-ai.yml'].data['id'] = float(WORKFLOW_ID)
+    elif target == 'reviewer':
+        values[2]['actions/runs/4/approvals'].data[0]['user']['id'] = float(p.REVIEWER_ID)
+    elif target == 'review_environment':
+        values[2]['actions/runs/4/approvals'].data[0]['environments'][0]['id'] = float(ENV_ID)
+    else:
+        jobs(values, 4)[0]['run_attempt'] = True
+    with pytest.raises(p.Blocked):
+        execute(values, 'paid')
+
+
+def test_real_admission_producer_matches_live_runner_schema_without_key(tmp_path):
+    from scripts.companion_ai_validation import run as live
+
+    env, _, _ = fixture('paid')
+    target = tmp_path / 'admission.json'
+    p.write_admission(str(target), p.validate_context(env))
+    record = json.loads(target.read_bytes())
+    assert set(record) == c.LINEAGE_KEYS | {
+        'schema', 'source_sha', 'helper_sha', 'run_id', 'run_attempt', 'checked_at',
+        'checked_at_monotonic_ns', 'quote_deadline_monotonic_ns'}
+    assert record['schema'] == 2 and record['run_attempt'] == '1'
+    assert live.check_admission(record, env, p.time.time()) == R
+
+
+@pytest.mark.parametrize('value', [float('inf'), float('-inf'), float('nan'), -1.0, True, 10**20, 10**1000])
+def test_invalid_monotonic_handoff_values_fail_closed(value):
+    with pytest.raises(p.Blocked, match='ADMISSION_CLOCK_INVALID'):
+        p.monotonic_ns(value)
+
+
+@pytest.mark.parametrize('deadline', [float('inf'), float('nan'), -1.0, True, 10**1000])
+def test_corrupt_quote_anchor_never_writes_admission(tmp_path, deadline):
+    target = tmp_path / 'admission.json'
+    with pytest.raises(p.Blocked, match='PRICE_REVIEW_EXPIRED'):
+        p.write_admission(str(target), p.Context(H, R, 4, REPO_ID), deadline)
+    assert not target.exists()
+
+
+def test_handoff_preserves_original_deadline_after_wall_rollback(tmp_path, monkeypatch):
+    wall, monotonic = [broker.PRICE_VALID_UNTIL - 3600], [1000.0]
+    monkeypatch.setattr(p.time, 'time', lambda: wall[0])
+    monkeypatch.setattr(p.time, 'monotonic', lambda: monotonic[0])
+    original_deadline = p.start_quote_window()
+    wall[0] -= 3600
+    monotonic[0] += 10
+    target = tmp_path / 'admission.json'
+    p.write_admission(str(target), p.Context(H, R, 4, REPO_ID), original_deadline)
+    record = json.loads(target.read_bytes())
+    assert record['checked_at_monotonic_ns'] == 1010_000_000_000
+    assert record['quote_deadline_monotonic_ns'] == 4600_000_000_000
+    assert record['quote_deadline_monotonic_ns'] < p.monotonic_ns(p.start_quote_window())
+
+
+@pytest.mark.parametrize('stage', ['lineage', 'open', 'fsync'])
+def test_slow_admission_handoff_cannot_rejuvenate_freshness_with_wall_rollback(tmp_path, monkeypatch, stage):
+    wall, monotonic = [broker.PRICE_VALID_UNTIL - 3600], [1000.0]
+    monkeypatch.setattr(p.time, 'time', lambda: wall[0])
+    monkeypatch.setattr(p.time, 'monotonic', lambda: monotonic[0])
+    target = tmp_path / 'admission.json'
+    original_lineage, original_open, original_fsync = p.verified_lineage, p.os.open, p.os.fsync
+
+    def stall():
+        monotonic[0] += 121
+        # Wall remains at the initial value after a rollback of elapsed time.
+
+    def delayed_lineage():
+        result = original_lineage()
+        stall()
+        return result
+
+    def delayed_open(path, *args):
+        result = original_open(path, *args)
+        if path == str(target):
+            stall()
+        return result
+
+    def delayed_fsync(fd):
+        original_fsync(fd)
+        stall()
+
+    if stage == 'lineage':
+        monkeypatch.setattr(p, 'verified_lineage', delayed_lineage)
+    elif stage == 'open':
+        monkeypatch.setattr(p.os, 'open', delayed_open)
+    else:
+        monkeypatch.setattr(p.os, 'fsync', delayed_fsync)
+    with pytest.raises(p.Blocked, match='ADMISSION_EXPIRED'):
+        p.write_admission(str(target), p.Context(H, R, 4, REPO_ID))
+    if stage == 'lineage':
+        assert not target.exists()
+    else:
+        record = json.loads(target.read_bytes())
+        assert record['checked_at_monotonic_ns'] == 1000_000_000_000
+        assert record['quote_deadline_monotonic_ns'] == 4600_000_000_000
+
+
+def test_step_delay_between_real_producer_and_runner_does_not_refresh_admission(tmp_path, monkeypatch):
+    from scripts.companion_ai_validation import run as live
+
+    env, _, _ = fixture('paid')
+    wall, monotonic = [broker.PRICE_VALID_UNTIL - 3600], [1000.0]
+    monkeypatch.setattr(p.time, 'time', lambda: wall[0])
+    monkeypatch.setattr(p.time, 'monotonic', lambda: monotonic[0])
+    target = tmp_path / 'admission.json'
+    p.write_admission(str(target), p.validate_context(env))
+    record = json.loads(target.read_bytes())
+    assert live.check_admission(record, env, wall[0]) == R
+    monotonic[0] += 121
+    with pytest.raises(broker.GateError, match='admission_expired'):
+        live.check_admission(record, env, wall[0])

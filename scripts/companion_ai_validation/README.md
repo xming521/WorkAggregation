@@ -1,4 +1,4 @@
-# Companion one-shot experience validation
+# Companion bounded corrective experience validation
 
 This is a Linux-only acceptance harness, not an installed product feature or a
 second agent. It uses a fresh owned database, the real loopback `/api/chat`
@@ -37,8 +37,10 @@ intact; no tools are executed by this harness.
 - Environment variable: `OFFERPILOT_COMPANION_AI_MODEL=deepseek-flash`.
 - Fixed official TLS host `api.deepseek.com`, path `/chat/completions`.
 - Separate task-total cap: RMB20, including failed and unknown attempts.
-- Initial batch: exactly twelve ordered slots, at most one actual HTTP request per
-  slot, no retries, SDK retries, format repair, fallback or automatic extra batch.
+- One corrective batch: exactly twelve ordered slots, at most one actual HTTP
+  request per slot, no retries, SDK retries, format repair, fallback or automatic
+  extra batch. The original twelve replies are retained evidence, not replayed as
+  fresh results. Budget or safety failure can stop the batch before all slots finish.
 - Explicit thinking disabled and 512 output-token cap. The production client uses
   streaming; the broker makes one non-streaming upstream request and exposes local
   SSE only after complete model/content/usage/tool validation and durable settlement.
@@ -48,17 +50,62 @@ intact; no tools are executed by this harness.
   [Thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/) defaults on,
   so disabling it is explicit. The reviewed quote expires at 2026-10-24 00:00 UTC;
   code must not silently extend it. This is the same activity and cumulative
-  RMB20 budget, not another allocation. The expired request remains unpushed.
+  RMB20 budget, not another allocation.
 - Before each actual HTTP request, fsync a RMB3 reservation. The documented
   1,048,576-token context and 512 output cap cost less than this even at peak rates.
   Trusted, consistent usage alone releases the difference. Unknown status, usage,
   timeout, concurrent/duplicate requests or tampered journal retain liability and
-  halt. Wall/monotonic session and price windows are checked after fsync and TLS
-  connection, immediately before sending HTTP. No proxy, redirect or custom TLS.
-- Journals cannot reopen/reset. A rerun, missing history, previous non-skipped paid
-  job or recreated pinned workflow/environment/policy blocks. A later correction
-  batch needs an explicitly reviewed cumulative-budget continuation, not a new
-  workflow identity or a fresh RMB20 budget.
+  halt. Monotonic request/session deadlines and wall/monotonic price windows are
+  checked after fsync and TLS connection, immediately before sending HTTP. No proxy,
+  redirect or custom TLS.
+- Journals cannot reopen/reset. Only the exact verified original paid run below
+  is a historical exception. Any other non-skipped paid job, rerun, missing history
+  or recreated pinned workflow/environment/policy blocks. Once this corrective paid
+  job starts, success, failure or cancellation consumes this one continuation.
+
+## Original evidence and cumulative continuation
+
+The original [run 39736858377](https://github.com/offercontext/offerPilot/actions/runs/39736858377)
+completed twelve requests and all structural checks, but independent review of the
+actual replies **failed** the experience: work-report formatting leaked into daily
+chat, progress gained an extra step, and ambiguous history was incorrectly denied.
+V1.4 changes the real source-fact projection and shared response policy; free tests
+do not prove the corrected model's tone or factual compliance.
+
+The original conservative settled cost is **103,154 micro-CNY (RMB0.103154)**,
+with no outstanding or unknown reservation. The corrective broker inherits this
+amount before its first durable reservation. The task cap stays **20,000,000
+micro-CNY**, not another RMB20 allocation. Before any new request the initial
+remaining allowance is 19,896,846 micro-CNY; the first RMB3 reservation makes total
+liability 3,103,154 micro-CNY. Known new usage accumulates on top of the original
+cost; an unknown result retains the full reservation and halts. These are
+conservative validated-usage amounts, not a provider invoice.
+
+The helper pins the original H/R, run, artifact identity and SHA-256 digests. Its
+bundled original artifact contains only synthetic dialogue, state and a numeric
+ledger. A strict replay verifies all twelve reserve/settle/complete transitions,
+source identity, usage arithmetic, response/summary agreement and normal closure.
+The terminal `closed.halted=true` is normal closure only when every earlier record
+is unhalted and fully settled. Any actual halt, unknown liability, hash mismatch,
+missing source or unavailable remote provenance fails closed, never refunds it.
+
+Admission schema 2 links the new exact H/R and run to that immutable predecessor.
+Both preflight phases verify complete workflow history. Only the paid phase,
+after the environment review, requires fresh owner approval for the new run;
+the secret-free before phase does not pretend that approval already exists.
+The old approval cannot authorize the new run. There is no
+command-line or environment override for initial liability, predecessor, budget,
+operation list or correction ordinal. The same workflow, environment, key,
+concurrency identity and fixed 2026-10-24 00:00 UTC quote expiry remain in place.
+No third paid batch is enabled, even if money remains.
+
+Publication of the helper alone is free. Before pushing its same-tree request,
+obtain approval of this exact once-corrective scope and configure the new exact
+repository H/R bindings. Do not push while that scope approval or configuration
+is pending. The push creates a run that must then wait for the owner's new
+protected-environment review before paid execution; never approve for the owner.
+Review all twelve new replies and the cumulative journal independently before
+claiming corrected experience success.
 
 The earlier 48k input-token figure was a planning estimate, not the budget gate.
 Actual production schemas/history are not silently trimmed to meet that guess.
@@ -85,11 +132,16 @@ child, with the exact marker from `preflight.marker(H)`. Repository variables
 Only `feat/20261021-companion-life-v1` is allowed. The dedicated environment must
 require `XiaoZheBrother`, disallow admin bypass, and allow that owner to review
 own pushes. Before and after environment approval, preflight verifies current
-SHA, event, full run/job history and exact owner approval. Secret-free
+SHA, event and full run/job history; the paid phase additionally verifies the
+new run's exact owner approval. Secret-free
 preflight also requires a full twenty-minute session remaining in the reviewed
 quote. The same wall/monotonic window spans event and metadata reads, admission
 open/flush/fsync and final success. Expired or too-late requests fail without
 authorizing the provider-secret step, even if an admission write stalled.
+The paid admission carries monotonic freshness and non-extending quote anchors
+into the live process on the same Linux job. Step delays, evidence replay and
+checkout verification cannot renew either window, including after wall rollback;
+the transport and broker retain the earlier quote bound.
 Registration-only
 inspection remains available after expiry; it cannot authorize any request.
 Read-only Actions

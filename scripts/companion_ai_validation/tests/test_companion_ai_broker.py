@@ -7,6 +7,7 @@ import urllib.request
 import pytest
 
 from scripts.companion_ai_validation import broker as gate
+from scripts.companion_ai_validation import continuation
 
 SHA = "a" * 40
 
@@ -63,16 +64,28 @@ def test_reservation_is_fsynced_before_actual_http_and_only_numbers_are_journale
     path = tmp_path / "journal.jsonl"
 
     def send(raw):
-        record = json.loads(path.read_text().splitlines()[-1])
+        records = [json.loads(line) for line in path.read_text().splitlines()]
+        created, record = records
+        assert created["event"] == "created"
+        assert created["settled_micro_cny"] == 103154
+        assert created["lifetime_liability_micro_cny"] == 103154
+        assert created["batch_settled_micro_cny"] == 0
+        assert created["prior_request_count"] == 12
+        assert created["batch_request_count"] == 0
+        assert created["lifetime_request_count"] == 12
         assert record["event"] == "reserved"
         assert record["reserved_micro_cny"] == gate.RESERVATION
         assert record["request_count"] == 1
+        assert record["lifetime_liability_micro_cny"] == 3103154
+        assert record["batch_request_count"] == 1
+        assert record["lifetime_request_count"] == 13
+        assert all(record[key] == value for key, value in continuation.lineage_fields().items())
         return 200, gate.encode(response())
 
     broker = gate.Broker(path, send, SHA)
     token = broker.begin_stage("independent_play")
     broker.request(token, gate.encode(payload()))
-    assert broker.summary()["settled_micro_cny"] == 360
+    assert broker.summary()["settled_micro_cny"] == continuation.PRIOR_SETTLED + 360
     assert broker.summary()["reserved_micro_cny"] == 0
     broker.close_stage()
     broker.close()
@@ -141,7 +154,9 @@ def test_unknown_or_conflicting_usage_preserves_liability_and_stops(tmp_path, ch
         broker.request(token, gate.encode(payload()))
     assert len(fake.calls) == 1
     assert broker.summary()["reserved_micro_cny"] == gate.RESERVATION
-    assert broker.summary()["settled_micro_cny"] == 0
+    assert broker.summary()["settled_micro_cny"] == continuation.PRIOR_SETTLED
+    assert broker.summary()["lifetime_liability_micro_cny"] == 3103154
+    assert broker.summary()["batch_settled_micro_cny"] == 0
     with pytest.raises(gate.GateError):
         broker.request(token, gate.encode(payload()))
     assert len(fake.calls) == 1
@@ -191,7 +206,7 @@ def test_budget_stops_before_total_could_exceed_twenty_yuan(tmp_path):
     with pytest.raises(gate.GateError, match="budget_exhausted"):
         broker.request(token, gate.encode(payload()))
     assert len(fake.calls) == 9
-    assert broker.summary()["settled_micro_cny"] == 9 * cost
+    assert broker.summary()["settled_micro_cny"] == continuation.PRIOR_SETTLED + 9 * cost
     broker.close()
 
 
@@ -232,6 +247,9 @@ def test_twelve_stages_exactly_twelve_http_requests(tmp_path):
         broker.close_stage()
     assert len(fake.calls) == 12
     assert broker.summary()["stages_complete"] == 12
+    assert broker.summary()["prior_request_count"] == 12
+    assert broker.summary()["batch_request_count"] == 12
+    assert broker.summary()["lifetime_request_count"] == 24
     assert all(body["thinking"] == {"type": "disabled"} for body in fake.calls)
     with pytest.raises(gate.GateError):
         broker.begin_stage(gate.OPERATIONS[0])
@@ -239,6 +257,109 @@ def test_twelve_stages_exactly_twelve_http_requests(tmp_path):
         broker.request(token, gate.encode(payload()))
     assert len(fake.calls) == 12
     broker.close()
+
+
+@pytest.mark.parametrize("seed", [0, False, -1])
+def test_no_public_opening_balance_override(tmp_path, monkeypatch, seed):
+    monkeypatch.setenv("OFFERPILOT_COMPANION_INITIAL_SETTLED_MICRO_CNY", str(seed))
+    monkeypatch.setenv("OFFERPILOT_COMPANION_PRIOR_SETTLED_MICRO_CNY", str(seed))
+    with pytest.raises(TypeError):
+        gate.Broker(tmp_path / "never-created.jsonl", Fake(), SHA,
+                    initial_settled_micro_cny=seed)
+    assert not (tmp_path / "never-created.jsonl").exists()
+    broker, fake = make(tmp_path)
+    assert broker.summary()["settled_micro_cny"] == 103154
+    assert not fake.calls
+    broker.close()
+
+
+@pytest.mark.parametrize("damage", ["missing", "changed"])
+def test_unverified_predecessor_cannot_create_journal_or_send(tmp_path, monkeypatch, damage):
+    evidence = tmp_path / "original.zip"
+    if damage == "changed":
+        evidence.write_bytes(continuation.EVIDENCE_PATH.read_bytes() + b"changed")
+    monkeypatch.setattr(continuation, "EVIDENCE_PATH", evidence)
+    fake = Fake()
+    with pytest.raises(gate.GateError, match="predecessor_evidence_invalid"):
+        make(tmp_path, fake)
+    assert not (tmp_path / "journal.jsonl").exists()
+    assert not fake.calls
+
+
+@pytest.mark.parametrize("excess", [0, 2])
+def test_real_settlements_use_lifetime_budget_not_a_new_twenty_yuan(tmp_path, excess):
+    # All prior costs are genuinely settled through fake HTTP, never injected.
+    # Fixed integer pricing permits costs in multiples of two micro-CNY.
+    target = gate.BUDGET - gate.RESERVATION + excess
+    costs = [2_000_000] * 8 + [target - 103154 - 16_000_000]
+    calls = []
+
+    def send(raw):
+        records = [json.loads(line) for line in (tmp_path / "journal.jsonl").read_text().splitlines()]
+        assert records[-1]["lifetime_liability_micro_cny"] <= 20_000_000
+        calls.append(raw)
+        cost = costs[len(calls) - 1] if len(calls) <= len(costs) else 360
+        return 200, gate.encode(response(prompt=(cost - 160) // 2, completion=20))
+
+    broker, _ = make(tmp_path, send)
+    for operation in gate.OPERATIONS[:9]:
+        token = broker.begin_stage(operation)
+        broker.request(token, gate.encode(payload(operation)))
+        broker.close_stage()
+    assert broker.summary()["lifetime_settled_micro_cny"] == target
+    token = broker.begin_stage(gate.OPERATIONS[9])
+    if excess:
+        with pytest.raises(gate.GateError, match="budget_exhausted"):
+            broker.request(token, gate.encode(payload()))
+        assert len(calls) == 9
+    else:
+        broker.request(token, gate.encode(payload()))
+        assert len(calls) == 10
+        assert broker.summary()["settled_micro_cny"] == target + 360
+    broker.close()
+
+
+@pytest.mark.parametrize("remaining", [3_000_000, 2_999_999])
+def test_exact_micro_boundary_before_http(tmp_path, remaining):
+    broker, fake = make(tmp_path)
+    # White-box arithmetic boundary only: the odd micro-CNY state is not
+    # obtainable with this provider's even-token prices or any public API.
+    broker._state["settled_micro_cny"] = gate.BUDGET - remaining
+    token = broker.begin_stage(gate.OPERATIONS[0])
+    if remaining == gate.RESERVATION:
+        broker.request(token, gate.encode(payload()))
+        assert len(fake.calls) == 1
+    else:
+        with pytest.raises(gate.GateError, match="budget_exhausted"):
+            broker.request(token, gate.encode(payload()))
+        assert not fake.calls
+        assert broker.summary()["reserved_micro_cny"] == 0
+    broker.close()
+
+
+def test_every_journal_event_preserves_consistent_prior_batch_and_lifetime(tmp_path):
+    broker, fake = make(tmp_path)
+    for operation in gate.OPERATIONS:
+        token = broker.begin_stage(operation)
+        broker.request(token, gate.encode(payload(operation)))
+        broker.close_stage()
+    broker.close()
+    records = [json.loads(line) for line in (tmp_path / "journal.jsonl").read_text().splitlines()]
+    assert len(fake.calls) == 12 and len(records) == 38
+    for record in records:
+        assert record["schema"] == 2
+        assert all(record[key] == value for key, value in continuation.lineage_fields().items())
+        assert record["batch_request_count"] == record["request_count"]
+        assert record["lifetime_request_count"] == 12 + record["batch_request_count"]
+        assert record["lifetime_settled_micro_cny"] == 103154 + record["batch_settled_micro_cny"]
+        assert record["settled_micro_cny"] == record["lifetime_settled_micro_cny"]
+        assert record["reserved_micro_cny"] == record["batch_reserved_micro_cny"]
+        assert record["lifetime_reserved_micro_cny"] == record["reserved_micro_cny"]
+        liability = record["lifetime_settled_micro_cny"] + record["lifetime_reserved_micro_cny"]
+        assert record["lifetime_liability_micro_cny"] == liability
+        assert record["lifetime_remaining_micro_cny"] == 20_000_000 - liability
+    assert records[-1]["event"] == "closed" and records[-1]["halted"] is True
+    assert records[-2]["event"] == "stage_complete" and records[-2]["halted"] is False
 
 
 def test_concurrent_request_never_sends_second(tmp_path):
@@ -290,7 +411,7 @@ def test_ledger_write_failure_never_releases_unknown_reservation(tmp_path, monke
         broker.request(token, gate.encode(payload()))
     assert len(fake.calls) == (event == "settled")
     assert broker.summary()["reserved_micro_cny"] == gate.RESERVATION
-    assert broker.summary()["settled_micro_cny"] == 0
+    assert broker.summary()["settled_micro_cny"] == continuation.PRIOR_SETTLED
     broker.close()
 
 
@@ -483,6 +604,75 @@ def test_wall_clock_rollback_cannot_extend_price_deadline(tmp_path, monkeypatch)
     assert not fake.calls
     assert broker.summary()["reserved_micro_cny"] == gate.RESERVATION
     broker.close()
+
+
+@pytest.mark.parametrize("boundary", ["price", "session"])
+def test_shared_window_cannot_be_reanchored_by_transport_or_broker_creation(
+        tmp_path, monkeypatch, boundary):
+    monotonic, wall = [100.0], [gate.PRICE_VALID_UNTIL - (1201 if boundary == "price" else 3600)]
+    monkeypatch.setattr(gate.time, "monotonic", lambda: monotonic[0])
+    monkeypatch.setattr(gate.time, "time", lambda: wall[0])
+    window = gate.RunWindow()
+    monotonic[0] += 1112
+    wall[0] -= 3600
+    transport = gate.HTTPSUpstream("synthetic-test-only", window=window)
+    fake = Fake()
+    broker = gate.Broker(tmp_path / "journal.jsonl", fake, SHA, window=window)
+    assert broker._deadline == transport._deadline == window.session_deadline == 1300
+    assert broker._price_deadline == transport._price_deadline == window.price_deadline
+    token = broker.begin_stage(gate.OPERATIONS[0])
+    with pytest.raises(gate.GateError, match="price_review_expired|session_deadline"):
+        broker.request(token, gate.encode(payload()))
+    assert not fake.calls
+    broker.close()
+
+
+def test_slow_predecessor_verification_cannot_reanchor_broker_quote(tmp_path, monkeypatch):
+    monotonic, wall = [100.0], [gate.PRICE_VALID_UNTIL - 100]
+    monkeypatch.setattr(gate.time, "monotonic", lambda: monotonic[0])
+    monkeypatch.setattr(gate.time, "time", lambda: wall[0])
+    original = continuation.lineage_fields
+
+    def slow():
+        result = original()
+        monotonic[0] += 11
+        wall[0] -= 3600
+        return result
+
+    monkeypatch.setattr(continuation, "lineage_fields", slow)
+    broker, fake = make(tmp_path)
+    token = broker.begin_stage(gate.OPERATIONS[0])
+    with pytest.raises(gate.GateError, match="price_review_expired"):
+        broker.request(token, gate.encode(payload()))
+    assert not fake.calls
+    broker.close()
+
+
+def test_window_rejects_monotonic_regression_and_disallows_custom_anchor(monkeypatch):
+    monotonic = [100.0]
+    monkeypatch.setattr(gate.time, "monotonic", lambda: monotonic[0])
+    window = gate.RunWindow()
+    monotonic[0] = 110.0
+    window.effective_wall()
+    monotonic[0] = 109.0
+    with pytest.raises(gate.GateError, match="clock_anomaly"):
+        window.effective_wall()
+    with pytest.raises(TypeError):
+        gate.RunWindow(price_deadline=999999999999)
+
+
+def test_carried_preflight_quote_can_only_shorten_process_deadline(monkeypatch):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(gate.time, "time", lambda: gate.PRICE_VALID_UNTIL - 3600)
+    window = gate.RunWindow()
+    assert window.price_deadline == 3700
+    window.restrict_quote_deadline(9999_000_000_000)
+    assert window.price_deadline == 3700
+    window.restrict_quote_deadline(1301_000_000_000)
+    narrowed = window.price_deadline
+    assert narrowed < 1301 and narrowed == pytest.approx(1301)
+    window.restrict_quote_deadline(3700_000_000_000)
+    assert window.price_deadline == narrowed
 
 
 def test_actual_chat_history_and_tools_are_preserved_but_thinking_is_disabled(tmp_path):
