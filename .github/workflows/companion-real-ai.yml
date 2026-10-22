@@ -38,7 +38,7 @@ jobs:
       - name: Read independent workflow and environment protection registration
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/companion_ai_validation/preflight.py --phase inspect
+        run: python -m scripts.companion_ai_validation.preflight --phase inspect
       - name: Keep mandatory offline node aggregate
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -72,7 +72,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFERPILOT_COMPANION_AI_HELPER_SHA: ${{ vars.OFFERPILOT_COMPANION_AI_HELPER_SHA }}
           OFFERPILOT_COMPANION_AI_REQUEST_SHA: ${{ vars.OFFERPILOT_COMPANION_AI_REQUEST_SHA }}
-        run: python scripts/companion_ai_validation/preflight.py --phase before
+        run: python -m scripts.companion_ai_validation.preflight --phase before
   paid:
     name: Companion approved real AI
     needs: [offline, preflight]
@@ -107,7 +107,7 @@ jobs:
           OFFERPILOT_COMPANION_AI_HELPER_SHA: ${{ vars.OFFERPILOT_COMPANION_AI_HELPER_SHA }}
           OFFERPILOT_COMPANION_AI_REQUEST_SHA: ${{ vars.OFFERPILOT_COMPANION_AI_REQUEST_SHA }}
         run: >-
-          python scripts/companion_ai_validation/preflight.py --phase paid
+          python -m scripts.companion_ai_validation.preflight --phase paid
           --admission-file "$RUNNER_TEMP/companion-ai-admission.json"
       - name: One synthetic matrix, no retries, 20 CNY cumulative hard budget
         env:

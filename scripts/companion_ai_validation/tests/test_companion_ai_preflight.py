@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 import pytest
 
 from scripts.companion_ai_validation import preflight as p
+from scripts.companion_ai_validation import broker
 
 H, R, TREE = "a" * 40, "b" * 40, "c" * 40
 REPO_ID, ENV_ID, WORKFLOW_ID = 77, 88, 99
@@ -23,6 +24,9 @@ def pinned_fake_workflow(monkeypatch):
     monkeypatch.setattr(p, "WORKFLOW_ID", WORKFLOW_ID)
     monkeypatch.setattr(p, "ENVIRONMENT_ID", ENV_ID)
     monkeypatch.setattr(p, "BRANCH_POLICY_ID", 66)
+    # Quote checks stay deterministic after the real, non-sliding deadline.
+    monkeypatch.setattr(p.time, "time", lambda: broker.PRICE_VALID_UNTIL - 3600)
+    monkeypatch.setattr(p.time, "monotonic", lambda: 1000.0)
 
 
 def run(number, sha, current=False):
@@ -139,6 +143,116 @@ def test_success_is_bound_to_exact_published_helper_and_current_request(phase):
     assert execute(fixture(phase), phase, calls) == {"ok": True, "helper_sha": H, "request_sha": R}
     assert ("actions/runs/2/approvals" in calls) is (phase == "paid")
     assert not any("secrets" in value or "variables" in value for value in calls)
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+@pytest.mark.parametrize("remaining", [0, broker.SESSION_SECONDS - 1])
+def test_expired_or_short_quote_rejects_before_github_reads(phase, remaining, monkeypatch):
+    monkeypatch.setattr(p.time, "time", lambda: broker.PRICE_VALID_UNTIL - remaining)
+    calls = []
+    with pytest.raises(p.Blocked, match="^PRICE_REVIEW_EXPIRED$"):
+        execute(fixture(phase), phase, calls)
+    assert calls == []
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+def test_full_session_quote_boundary_is_accepted(phase, monkeypatch):
+    monkeypatch.setattr(p.time, "time", lambda: broker.PRICE_VALID_UNTIL - broker.SESSION_SECONDS)
+    assert execute(fixture(phase), phase)["ok"]
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+@pytest.mark.parametrize("wall_rollback", [False, True])
+def test_slow_metadata_rechecks_quote_without_wall_clock_extension(phase, wall_rollback, monkeypatch):
+    wall, monotonic = [broker.PRICE_VALID_UNTIL - broker.SESSION_SECONDS - 10], [1000.0]
+    monkeypatch.setattr(p.time, "time", lambda: wall[0])
+    monkeypatch.setattr(p.time, "monotonic", lambda: monotonic[0])
+    env, event, data = fixture(phase)
+
+    def read(path):
+        monotonic[0] = 1011.0
+        wall[0] = broker.PRICE_VALID_UNTIL - broker.SESSION_SECONDS + (1 if not wall_rollback else -3600)
+        return deepcopy(data[path])
+
+    with pytest.raises(p.Blocked, match="^PRICE_REVIEW_EXPIRED$"):
+        p.preflight(phase=phase, env=env, event=event, read=read)
+
+
+@pytest.mark.parametrize("phase", ["before", "paid"])
+def test_expired_cli_writes_no_admission_and_never_reads_github(phase, tmp_path, monkeypatch, capsys):
+    env, event, _ = fixture(phase)
+    event_path, admission = tmp_path / "event.json", tmp_path / "admission.json"
+    event_path.write_text(json.dumps(event))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setattr(p.time, "time", lambda: broker.PRICE_VALID_UNTIL)
+
+    def no_read(path):
+        pytest.fail("Expired preflight must not perform GitHub reads")
+
+    monkeypatch.setattr(p, "GitHubReader", lambda token: no_read)
+    args = ["--phase", phase]
+    if phase == "paid":
+        args += ["--admission-file", str(admission)]
+    assert p.main(args) == 1
+    assert json.loads(capsys.readouterr().out) == {"ok": False, "error_code": "PRICE_REVIEW_EXPIRED"}
+    assert not admission.exists()
+
+
+@pytest.mark.parametrize("stage", ["event", "admission_open", "admission_fsync"])
+@pytest.mark.parametrize("wall_rollback", [False, True])
+def test_cli_keeps_quote_anchor_across_slow_event_and_admission(stage, wall_rollback, tmp_path,
+                                                              monkeypatch, capsys):
+    env, event, data = fixture("paid")
+    event_path, admission = tmp_path / "event.json", tmp_path / "admission.json"
+    event_path.write_text(json.dumps(event))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    wall, monotonic = [broker.PRICE_VALID_UNTIL - broker.SESSION_SECONDS - 10], [1000.0]
+    monkeypatch.setattr(p.time, "time", lambda: wall[0])
+    monkeypatch.setattr(p.time, "monotonic", lambda: monotonic[0])
+    reader_constructions = []
+
+    def reader(token):
+        reader_constructions.append(True)
+        return data.__getitem__
+
+    def stall():
+        monotonic[0] = 1011.0
+        wall[0] = broker.PRICE_VALID_UNTIL - broker.SESSION_SECONDS + (1 if not wall_rollback else -3600)
+
+    monkeypatch.setattr(p, "GitHubReader", reader)
+    read_text, open_file, fsync = p.Path.read_text, p.os.open, p.os.fsync
+
+    def slow_read(path, *args, **kwargs):
+        value = read_text(path, *args, **kwargs)
+        if path == event_path:
+            stall()
+        return value
+
+    def slow_open(path, *args, **kwargs):
+        descriptor = open_file(path, *args, **kwargs)
+        if path == str(admission):
+            stall()
+        return descriptor
+
+    def slow_fsync(descriptor):
+        fsync(descriptor)
+        stall()
+
+    if stage == "event":
+        monkeypatch.setattr(p.Path, "read_text", slow_read)
+    elif stage == "admission_open":
+        monkeypatch.setattr(p.os, "open", slow_open)
+    else:
+        monkeypatch.setattr(p.os, "fsync", slow_fsync)
+    assert p.main(["--phase", "paid", "--admission-file", str(admission)]) == 1
+    assert json.loads(capsys.readouterr().out) == {"ok": False, "error_code": "PRICE_REVIEW_EXPIRED"}
+    if stage == "event":
+        assert reader_constructions == [] and not admission.exists()
+    # A late failed admission write cannot make the next secret step runnable.
 
 
 def test_before_accepts_unmaterialized_paid_but_never_missing_preflight():
@@ -473,7 +587,9 @@ def test_missing_or_recreated_workflow_id_is_blocked(monkeypatch, pin):
         p.preflight(phase="before", env=env, event=event, read=lambda path: data[path])
 
 
-def test_registration_inspection_cannot_arm_or_write_admission():
+def test_registration_inspection_cannot_arm_or_write_admission(monkeypatch):
+    # Harmless registration evidence remains readable after quote expiration.
+    monkeypatch.setattr(p.time, "time", lambda: broker.PRICE_VALID_UNTIL + 1)
     _, _, data = fixture()
     calls = []
 

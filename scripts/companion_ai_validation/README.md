@@ -44,10 +44,11 @@ intact; no tools are executed by this harness.
   SSE only after complete model/content/usage/tool validation and durable settlement.
   A tool-bearing response is rejected before any text reaches product execution.
 - Integer micro-CNY accounting: peak cache-miss input RMB2/million, output
-  RMB8/million, verified on 2026-10-21 against the [official price page](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/).
+  RMB8/million, reverified on 2026-10-22 against the [official price page](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/).
   [Thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/) defaults on,
-  so disabling it is explicit. The reviewed quote expires at 2026-10-22 00:00 UTC;
-  code must not silently extend it.
+  so disabling it is explicit. The reviewed quote expires at 2026-10-24 00:00 UTC;
+  code must not silently extend it. This is the same activity and cumulative
+  RMB20 budget, not another allocation. The expired request remains unpushed.
 - Before each actual HTTP request, fsync a RMB3 reservation. The documented
   1,048,576-token context and 512 output cap cost less than this even at peak rates.
   Trusted, consistent usage alone releases the difference. Unknown status, usage,
@@ -84,7 +85,14 @@ child, with the exact marker from `preflight.marker(H)`. Repository variables
 Only `feat/20261021-companion-life-v1` is allowed. The dedicated environment must
 require `XiaoZheBrother`, disallow admin bypass, and allow that owner to review
 own pushes. Before and after environment approval, preflight verifies current
-SHA, event, full run/job history and exact owner approval. Read-only Actions
+SHA, event, full run/job history and exact owner approval. Secret-free
+preflight also requires a full twenty-minute session remaining in the reviewed
+quote. The same wall/monotonic window spans event and metadata reads, admission
+open/flush/fsync and final success. Expired or too-late requests fail without
+authorizing the provider-secret step, even if an admission write stalled.
+Registration-only
+inspection remains available after expiry; it cannot authorize any request.
+Read-only Actions
 metadata tokens are never passed to the product. The provider key appears in one
 paid step only, then remains solely inside the fixed upstream transport; the
 child process receives an allowlisted clean environment and a short-lived

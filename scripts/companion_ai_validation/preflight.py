@@ -19,6 +19,8 @@ from typing import Any, Callable, Mapping, NoReturn, cast
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
+from scripts.companion_ai_validation.broker import PRICE_VALID_UNTIL, SESSION_SECONDS
+
 REPOSITORY = "offercontext/offerPilot"
 BRANCH = "feat/20261021-companion-life-v1"
 WORKFLOW = ".github/workflows/companion-real-ai.yml"
@@ -387,9 +389,23 @@ class GitHubReader:
             raise Blocked("GITHUB_READ_UNAVAILABLE") from None
 
 
-def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader) -> dict[str, Any]:
+def start_quote_window() -> float:
+    return time.monotonic() + (PRICE_VALID_UNTIL - time.time())
+
+
+def check_quote_window(deadline: float) -> None:
+    demand(time.time() + SESSION_SECONDS <= PRICE_VALID_UNTIL
+           and time.monotonic() + SESSION_SECONDS <= deadline, "PRICE_REVIEW_EXPIRED")
+
+
+def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader,
+              quote_deadline: float | None = None) -> dict[str, Any]:
     ctx = validate_context(env)
     demand(phase in ("before", "paid"), "INVALID_PHASE")
+    # This step has no provider key. Keep the CLI's same monotonic anchor across
+    # event reads, metadata/approval reads and the durable admission handoff.
+    deadline = start_quote_window() if quote_deadline is None else quote_deadline
+    check_quote_window(deadline)
     workflow_path = f"actions/workflows/{WORKFLOW.rsplit('/', 1)[-1]}"
     current = single(read, f"actions/runs/{ctx.run_id}")
     workflow = single(read, workflow_path)
@@ -406,6 +422,7 @@ def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader) -
     validate_history(ctx, runs, jobs, current, workflow, phase)
     if phase == "paid":
         validate_review(single(read, f"actions/runs/{ctx.run_id}/approvals"), environment_id)
+    check_quote_window(deadline)
     return {"ok": True, "helper_sha": ctx.helper_sha, "request_sha": ctx.request_sha}
 
 
@@ -444,8 +461,10 @@ def inspect_metadata(read: Reader) -> dict[str, Any]:
             "reviewer_id": REVIEWER_ID, "protection_shape_verified": True}
 
 
-def write_admission(path: str, ctx: Context) -> None:
+def write_admission(path: str, ctx: Context, quote_deadline: float | None = None) -> None:
     """An admission is a local handoff, not a reusable approval or budget reset."""
+    deadline = start_quote_window() if quote_deadline is None else quote_deadline
+    check_quote_window(deadline)
     record = {"schema": 1, "source_sha": ctx.request_sha, "helper_sha": ctx.helper_sha,
               "run_id": str(ctx.run_id), "checked_at": int(time.time())}
     try:
@@ -457,6 +476,9 @@ def write_admission(path: str, ctx: Context) -> None:
             os.fsync(stream.fileno())
     except Exception:
         raise Blocked("ADMISSION_WRITE_BLOCKED") from None
+    # A slow open/flush/fsync must not report successful admission. The workflow
+    # never exposes the provider secret after a nonzero preflight exit.
+    check_quote_window(deadline)
 
 
 class SafeParser(argparse.ArgumentParser):
@@ -493,11 +515,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.request_sha is not None:
             env[REQUEST_VAR] = args.request_sha
         ctx = validate_context(env)
+        deadline = start_quote_window()
+        check_quote_window(deadline)
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        check_quote_window(deadline)
         result = preflight(phase=args.phase, env=env, event=event,
-                           read=GitHubReader(os.environ.get("GH_TOKEN", "")))
+                           read=GitHubReader(os.environ.get("GH_TOKEN", "")),
+                           quote_deadline=deadline)
         if args.admission_file:
-            write_admission(args.admission_file, ctx)
+            write_admission(args.admission_file, ctx, deadline)
+        check_quote_window(deadline)
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as error:

@@ -123,7 +123,8 @@ def test_workflow_has_one_secret_step_and_no_pr_or_write_path():
     assert "environment: offerpilot-companion-ai-20261021" in workflow
     assert workflow.count("github.sha == vars.OFFERPILOT_COMPANION_AI_REQUEST_SHA") == 2
     assert "persist-credentials: true" not in workflow
-    assert 'preflight.py --phase paid' in workflow
+    for phase in ("inspect", "before", "paid"):
+        assert f"python -m scripts.companion_ai_validation.preflight --phase {phase}" in workflow
     assert "artifacts/companion-ai/summary.json" in workflow
     assert "artifacts/companion-ai/budget.jsonl" in workflow
 
