@@ -61,9 +61,20 @@ _REFERENCE_PREFIX = (
     "virtual 字段仅是虚拟活动；actual_user_participation 仅证明明确的应用内参与操作，"
     "不证明现实行为。约定不等于完成，空参与记录不代表用户参加过。"
     "recent_shared_choice 是一次有来源的选择，不是用户偏好；prior_activity 不属于当前活动。"
-    "recall_status 为 ambiguous_activity 时先问哪一次，source_unavailable 时如实说明没有可核实来源。"
+    "recall_explanation 只解释来源状态，不补充经历。"
     "不得把这些数据写成用户事实、已确认记忆或求职事实。当前请求优先。\n"
 )
+
+_RECALL_EXPLANATIONS = {
+    "ambiguous_activity": "有多个可能的活动，尚未确定是哪一项；不表示从未有过共同选择。",
+    "source_unavailable": "当前缺少可核验的选择来源，无法核实；不表示从未发生。",
+}
+
+
+def _set_recall_status(data: dict[str, object], status: str) -> None:
+    # These meanings are derived from the bounded lookup result, not generated
+    # history or a suggested answer. Keep ambiguity distinct from absent proof.
+    data.update(recall_status=status, recall_explanation=_RECALL_EXPLANATIONS[status])
 
 
 _REFERENTIAL_LIFE = re.compile(
@@ -197,7 +208,7 @@ def read_companion_context(
     target_activity_id = None
     if target is not None:
         if len({_OBJECT_TEMPLATES[item[0]] for item in _OBJECT_WORD.finditer(query)}) > 1:
-            data["recall_status"] = "ambiguous_activity"
+            _set_recall_status(data, "ambiguous_activity")
             return data
         template_id = _OBJECT_TEMPLATES[target["object"]]
         data["requested_virtual_object"] = template_id
@@ -205,7 +216,7 @@ def read_companion_context(
             connection, identity, activity, template_id, target.groupdict().get("reference", ""),
         )
         if recall_status is not None:
-            data["recall_status"] = recall_status
+            _set_recall_status(data, recall_status)
             return data  # Never substitute an unrelated current object or choice.
     kind = "color" if target is not None and "颜色" in query else (
         "name" if target is not None and any(word in query for word in ("叫", "名字", "起名", "取名")) else None
@@ -217,7 +228,7 @@ def read_companion_context(
             recent["virtual_activity_ref"] = {"template_id": _OBJECT_TEMPLATES[target["object"]]}
         data["recent_shared_choice"] = recent
     elif target is not None and kind is not None:
-        data["recall_status"] = "source_unavailable"
+        _set_recall_status(data, "source_unavailable")
     if target is not None and (
         not isinstance(activity, dict) or activity.get("id") != target_activity_id
     ):
@@ -245,8 +256,10 @@ def read_companion_context(
         "id": activity_id,
         "title": _short_text(activity.get("title")),
         "status": status,
-        "step_index": step,
+        # Human progress is explicit; keep zero-based storage out of model prose.
+        "step_number": step + 1,
         "step_count": total,
+        "is_final_step": step == total - 1,
         "step_title": _short_text(activity.get("step_title")),
     }
     wish = life.get("wish")

@@ -167,3 +167,34 @@ def test_current_binding_backfill_does_not_overwrite_conflicting_existing_metada
     assert CompanionRepository(sessions).read(1000) == before
     with sessions() as session:
         assert session.scalar(select(CompanionEvent)).template_id == 'cloud_catalog'
+
+
+@pytest.mark.parametrize('previous_persona', ['companion-v1.2', 'companion-v1.3'])
+def test_v14_expression_upgrade_preserves_waiting_life_and_fences_old_window_once(
+    tmp_path, previous_persona,
+):
+    sessions = init_database(tmp_path / 'persona-upgrade.db')
+    repo = CompanionRepository(sessions)
+    for action in ('app_open', 'join'):
+        before = repo.read(1000)
+        repo.apply_event(CompanionEventCommand(identity=before['identity'],
+            expected_revision=before['revision'], command_id=uuid4(), event=action,
+            activity_id=before['state']['activity']['id'] if before['state']['activity'] else None), 1000)
+    before = repo.read(1000)
+    with sessions() as session:
+        session.get(CompanionState, 1).persona_version = previous_persona
+        session.commit()
+    restored_repo = CompanionRepository(sessions)
+    restored = restored_repo.read(1000)
+    assert restored['persona_version'] == PERSONA_VERSION
+    assert restored['identity'] == before['identity']
+    assert restored['revision'] == before['revision'] + 1
+    assert restored['state'] == before['state']
+    assert restored['state']['activity']['status'] == 'waiting_shared'
+    assert restored['shared_participation'] == before['shared_participation']
+    assert restored['recent_events'] == before['recent_events']
+    assert CompanionRepository(sessions).read(1000) == restored
+    with pytest.raises(CompanionConflict, match='revision_conflict'):
+        restored_repo.apply_event(CompanionEventCommand(identity=before['identity'],
+            expected_revision=before['revision'], command_id=uuid4(), event='pause',
+            activity_id=before['state']['activity']['id']), 1001)

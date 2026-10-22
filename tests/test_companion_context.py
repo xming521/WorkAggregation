@@ -88,7 +88,7 @@ def test_virtual_progress_and_online_time_do_not_create_shared_history(companion
     before = event(repository, "app_open", now=2000)
     data = context_data(loader)
     assert data["source"] == "companion_life"
-    assert data["virtual_activity"]["step_index"] == 1
+    assert data["virtual_activity"]["step_number"] == 2
     assert data["actual_user_participation"] is None
     assert "participants" not in data["virtual_activity"]
     assert repository.read(2000) == {key: value for key, value in before.items()
