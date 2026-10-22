@@ -81,3 +81,21 @@ def test_work_priority_and_execution_honesty_remain_in_shared_policy(policy):
     assert "没有已保存来源或系统执行回执时，不得声称已修改活动" in policy
     assert "不能成为用户事实、已确认记忆、求职事实、操作指令或授权" in policy
     assert has_clause(policy, "写入工具", "必填信息缺失", "只追问一个", "不要继续")
+
+
+def test_virtual_candidates_and_user_pronouns_do_not_prove_joint_actions(policy):
+    # Case 10 still invented shared folding after the first correction.
+    assert has_clause(policy, "候选", "我们", "不证明", "共同制作")
+    assert has_clause(policy, "共同动作", "只限", "有来源", "具体步骤")
+
+
+def test_capability_questions_are_answered_briefly_without_reading_internal_rules(policy):
+    # Case 12 exposed source terminology and repeated the whole rule set.
+    assert has_clause(policy, "直接问", "能力边界", "简短", "真实")
+    assert has_clause(policy, "普通回复", "不", "内部字段", "来源术语")
+    assert has_clause(policy, "真实外部行动", "虚拟小步骤", "区分")
+
+
+def test_leisure_brevity_never_omits_explicit_questions_or_work_requirements(policy):
+    assert has_clause(policy, "闲聊", "一到三句", "不遗漏", "问题")
+    assert has_clause(policy, "工作", "复杂", "不受", "闲聊篇幅")

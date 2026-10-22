@@ -1,6 +1,6 @@
 """Model-facing facts distinguish progress, ambiguous recall and missing sources.
 
-These regressions come from the twelve real replies in run 39736858377. They
+These regressions come from real replies in runs 39736858377 and 39746585328. They
 verify the supplied facts, not a stubbed model's ability to follow them.
 """
 import json
@@ -81,3 +81,40 @@ def test_exact_source_choice_does_not_receive_ambiguous_or_missing_explanation(l
     assert data['recent_shared_choice']['value'] == '棉花糖号'
     assert data['recent_shared_choice']['scope'] == 'shared_step_only'
     assert data['recent_shared_choice']['step_kind'] == 'name'
+
+
+def test_same_type_candidates_are_not_shared_making_evidence(life):
+    # Real run 39746585328 case 10: "我们" plus two candidates became
+    # "一起叠过" despite an empty actual-participation projection.
+    choose(life, '叫棉花糖号吧')
+    for _ in range(3):
+        next_activity(life)
+    choose(life, '叫小月亮号吧')
+    before = life[1].read()
+    data = read(life, '我们的小船叫什么？')
+    assert data['actual_user_participation'] is None
+    assert data['virtual_activity'] is None
+    assert data['requested_virtual_object'] == 'paper_boat'
+    explanation = data['recall_explanation']
+    assert '同类虚拟对象' in explanation
+    assert '不证明' in explanation and '共同制作' in explanation
+    message = companion_context_message(data)
+    assert explanation in message.content
+    assert '用户称呼' in message.content and '我们' in message.content
+    assert '不是共同制作证据' in message.content
+    assert life[1].read() == before
+
+
+def test_multiple_object_types_are_not_mislabeled_same_type_or_shared_making(life):
+    choose(life, '叫棉花糖号吧')
+    before = life[1].read()
+    data = read(life, '我们的小船和我们的云朵叫什么？')
+    assert data['recall_status'] == 'ambiguous_activity'
+    assert 'requested_virtual_object' not in data
+    assert data['actual_user_participation'] is None
+    assert data['virtual_activity'] is None
+    explanation = data['recall_explanation']
+    assert '多个对象类型' in explanation and '同类' not in explanation
+    assert '不证明' in explanation and '共同制作' in explanation
+    assert '棉花糖号' not in companion_context_message(data).content
+    assert life[1].read() == before
