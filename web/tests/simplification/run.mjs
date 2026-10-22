@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { loadHaruAssetExpectations, observeHaruAssets } from '../../../desktop/live2d-assets.mjs';
 import { createSimplificationFixture, knowledgeTitle, referenceTitle, frozenEvidence, allowedWrites } from './fixture-api.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -36,6 +37,7 @@ report.source.dist = {};
 for (const file of ['index.html', ...(await readdir(path.join(dist, 'assets'))).filter(file => /\.(js|css)$/.test(file)).map(file => `assets/${file}`)]) {
   report.source.dist[file] = hash(await readFile(path.join(dist, file)));
 }
+let haruAssetExpectations;
 let browser;
 const counts = (api, method, pathname) => api.requests.filter(request => request.method === method && request.path === pathname);
 const writes = api => api.requests.filter(request => request.method !== 'GET');
@@ -161,6 +163,7 @@ async function runCase(name, options, work) {
   });
   await context.routeWebSocket('**/*', socket => { result.forbiddenNetwork.push(`WebSocket ${socket.url()}`); socket.close(); });
   const page = await context.newPage();
+  const haruAssets = observeHaruAssets(page, { origin, expected: haruAssetExpectations });
   page.setDefaultTimeout(12000);
   page.on('pageerror', error => result.pageErrors.push(error.message));
   page.on('console', message => { if (['error', 'warning'].includes(message.type())) result.console.push({ level: message.type(), text: message.text() }); });
@@ -168,17 +171,21 @@ async function runCase(name, options, work) {
   console.log(`START ${name}`);
   try {
     await work({ page, api, check, result, snap: label => screenshot(page, result, label) });
+    result.live2dAssets = await haruAssets.finish();
     check('No unmocked API endpoint', api.unexpected.length === 0, JSON.stringify(api.unexpected));
     check('No external network or websocket attempt', result.forbiddenNetwork.length === 0, JSON.stringify(result.forbiddenNetwork));
     check('No uncaught browser runtime error', result.pageErrors.length === 0, JSON.stringify(result.pageErrors));
     check('Every write is an explicitly synthetic operation', writes(api).every(request => allowedWrites.has(`${request.method} ${request.path}`)));
+    assert.equal(result.live2dAssets.status, 'passed', 'All four Haru responses must complete with source/dist bytes');
     result.status = 'passed'; console.log(`PASS ${name}`);
   } catch (error) {
+    result.live2dAssets ||= await haruAssets.finish();
     result.status = 'failed'; result.error = error.stack || String(error);
     report.failures.push({ name, error: result.error }); console.error(`FAIL ${name}: ${error.message}`);
     await screenshot(page, result, 'failure').catch(error => { result.screenshotError = String(error); });
     await writeFile(path.join(output, `${name}-failure-dom.txt`), await page.locator('body').innerText().catch(() => 'DOM unavailable'));
   } finally {
+    haruAssets.dispose();
     api.releaseAll();
     result.apiRequests = api.requests; result.unmockedApi = api.unexpected; result.finishedAt = new Date().toISOString();
     await context.tracing.stop({ path: path.join(output, `${name}-trace.zip`) });
@@ -189,6 +196,7 @@ async function runCase(name, options, work) {
 }
 
 try {
+  haruAssetExpectations = await loadHaruAssetExpectations({ sourceRoot: path.join(root, 'public'), servedRoot: dist });
   const executablePath = process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
   browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), headless: true, args: ['--no-sandbox'] });
   report.browser = { engine: 'Chromium', version: browser.version(), headless: true, executablePath: executablePath || 'Playwright managed Chromium' };

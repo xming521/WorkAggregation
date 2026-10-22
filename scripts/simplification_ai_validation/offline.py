@@ -14,7 +14,7 @@ from scripts.simplification_ai_validation.broker import require_linux
 ROOT = Path(__file__).resolve().parents[2]
 SUITE = "scripts/simplification_ai_validation/tests"
 MANIFEST = Path(__file__).with_name("offline-nodes.json")
-EXPECTED_COUNT = 244
+EXPECTED_COUNT = 287
 
 
 def source_digest() -> str:

@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { loadHaruAssetExpectations, observeHaruAssets } from '../live2d-assets.mjs';
 import { waitForDialogSettled, waitForPaintedCharacter } from './dialog-readiness.mjs';
 import { loadOriginalEvidence } from './retry.mjs';
 import { preferenceObservation, assertDevToolsPreference, assertDevToolsProbe, probeDevToolsDisabled } from './security.mjs';
@@ -287,6 +288,27 @@ async function launch(number, locale) {
   assert.deepEqual(haruRead, { blocked: true }, 'Haru must remain unable to read the backend; a timeout or HTTP 401 is not equivalent');
   assert.equal(await ownerHealth(), 200, 'trusted backend must remain available after Haru read denial');
   active.info.haruApiReadIsolation = { ownerHealthBeforeAndAfter: 200, haruGetBlockedBeforeHttp: true, onlyReadRequests: true };
+  if (number === 1) {
+    // One read-only reload after identity, origin and security verification;
+    // attach before navigation so initial cached requests cannot be missed.
+    await launchPhase('haru-observed-assets-reload');
+    const expectedHaruAssets = await loadHaruAssetExpectations({
+      sourceRoot: path.join(productRoot, 'web', 'public'), servedRoot: path.join(paths.install, 'resources', 'web'),
+    });
+    const haruAssets = observeHaruAssets(active.haru, { origin: active.origin, expected: expectedHaruAssets });
+    try {
+      await active.haru.reload({ waitUntil: 'domcontentloaded' });
+      await active.haru.getByRole('main', { name: TEXT[locale].haru, exact: true }).waitFor();
+      active.info.live2dAssets = await haruAssets.finish();
+      await saveReport();
+      ensureSafe();
+      assert.equal(active.info.live2dAssets.status, 'passed', 'All four Haru responses must complete with source/installed bytes');
+    } finally {
+      active.info.live2dAssets ||= await haruAssets.finish();
+      haruAssets.dispose();
+      await saveReport();
+    }
+  }
   await launchPhase('observe-tray-and-expand-haru');
   await app.evaluate(({ Tray }) => {
     const original = Tray.prototype.setContextMenu;

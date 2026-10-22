@@ -12,10 +12,13 @@ from scripts.simplification_ai_validation.tests.test_simplification_ai_driver im
 
 
 @pytest.fixture
-def admission():
+def admission(monkeypatch):
     now = gate.PRICE_VALID_UNTIL - 3600
-    record = {"schema": 1, "source_sha": "b" * 40, "helper_sha": "a" * 40,
-              "run_id": "123", "checked_at": int(now)}
+    monkeypatch.setattr(gate.time, "time", lambda: now)
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 1000.0)
+    record = {"schema": 2, "source_sha": "b" * 40, "helper_sha": "a" * 40,
+              "run_id": "123", "checked_at": now, "checked_monotonic": 1000.0,
+              "boot_id": gate.boot_identity(), "price_window": gate.PriceWindow.capture().record()}
     metadata = {"GITHUB_SHA": "b" * 40, "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1",
                 "GITHUB_EVENT_NAME": "push", "GITHUB_REPOSITORY": "offercontext/offerPilot",
                 "GITHUB_REF": "refs/heads/feat/20261021-product-simplification"}
@@ -24,7 +27,7 @@ def admission():
 
 def test_admission_is_exact_current_run_and_fresh(admission):
     record, metadata, now = admission
-    assert run.check_admission(record, metadata, now) == "b" * 40
+    assert run.check_admission(record, metadata, gate.PriceWindow.capture()) [0] == "b" * 40
 
 
 @pytest.mark.parametrize("key,value", [
@@ -36,21 +39,23 @@ def test_bad_run_identity_never_admits(admission, key, value):
     record, metadata, now = admission
     metadata[key] = value
     with pytest.raises(gate.GateError, match="admission_identity"):
-        run.check_admission(record, metadata, now)
+        run.check_admission(record, metadata, gate.PriceWindow.capture())
 
 
 @pytest.mark.parametrize("age", [-1, 121])
-def test_stale_or_future_admission_is_not_reusable(admission, age):
+def test_stale_or_future_admission_is_not_reusable(admission, age, monkeypatch):
     record, metadata, now = admission
+    monkeypatch.setattr(gate.time, "time", lambda: now + age)
     with pytest.raises(gate.GateError, match="admission_expired"):
-        run.check_admission(record, metadata, now + age)
+        run.check_admission(record, metadata, gate.PriceWindow.capture())
 
 
-def test_admission_cannot_extend_reviewed_price_window(admission):
+def test_admission_cannot_extend_reviewed_price_window(admission, monkeypatch):
     record, metadata, _ = admission
     record["checked_at"] = int(gate.PRICE_VALID_UNTIL - 89)
+    monkeypatch.setattr(gate.time, "time", lambda: record["checked_at"])
     with pytest.raises(gate.GateError, match="price_review_expired"):
-        run.check_admission(record, metadata, record["checked_at"])
+        run.check_admission(record, metadata, gate.PriceWindow.capture())
 
 
 def test_clean_environment_drops_every_inherited_key(monkeypatch):
@@ -144,7 +149,7 @@ def test_main_never_inherits_provider_secret_into_git_or_driver(tmp_path, monkey
                    run.BASE_NAME: gate.BASE_URL, run.MODEL_NAME: gate.MODEL,
                    "SSLKEYLOGFILE": "synthetic-untrusted-file", "GH_TOKEN": "synthetic-gh-token"}
     monkeypatch.setattr(run.os, "environ", environment)
-    monkeypatch.setattr(run.time, "time", lambda: now)
+    monkeypatch.setattr(gate.time, "time", lambda: now)
     monkeypatch.setattr(sys, "argv", ["run", "--live", "--admission-file", str(path),
                                      "--evidence-dir", str(tmp_path / "evidence")])
     commands = []
@@ -157,12 +162,14 @@ def test_main_never_inherits_provider_secret_into_git_or_driver(tmp_path, monkey
                                            record["source_sha"].encode() if len(commands) == 1 else b"")
 
     class Transport:
-        def __init__(self, key):
+        def __init__(self, key, price_window):
+            self.price_window = price_window
             assert key == "synthetic-secret-do-not-inherit"
             assert "synthetic" not in json.dumps(environment)
 
-    def execute(transport, sha, evidence):
+    def execute(transport, sha, evidence, price_window):
         assert isinstance(transport, Transport)
+        assert transport.price_window is price_window
         assert sha == record["source_sha"]
         assert "synthetic" not in json.dumps(environment)
         return {"matrix": {"passed": True}}
@@ -197,7 +204,7 @@ def test_expired_price_refuses_before_provider_key_git_or_transport(
             return super().get(key, default)
 
     monkeypatch.setattr(run.os, "environ", GuardedEnvironment(metadata))
-    monkeypatch.setattr(run.time, "time", lambda: now)
+    monkeypatch.setattr(gate.time, "time", lambda: now)
     monkeypatch.setattr(run.subprocess, "run", forbidden)
     monkeypatch.setattr(run, "HTTPSUpstream", forbidden)
     monkeypatch.setattr(run, "execute", forbidden)
@@ -208,3 +215,174 @@ def test_expired_price_refuses_before_provider_key_git_or_transport(
         "passed": False, "error_code": "price_review_expired",
     }
     assert not (tmp_path / "evidence").exists()
+
+
+@pytest.mark.parametrize("boundary", ["between_steps", "admission_read", "checkout", "metadata"])
+@pytest.mark.parametrize("failure", ["stale", "elapsed", "quote"])
+def test_paid_handoff_stall_refuses_before_key_and_execute(
+        tmp_path, monkeypatch, capsys, admission, boundary, failure):
+    """Use the actual writer, but only fake metadata, clocks, git and key."""
+    import sys
+    from types import SimpleNamespace
+    from scripts.simplification_ai_validation import preflight
+
+    _, metadata, _ = admission
+    initial = gate.PRICE_VALID_UNTIL - (1201 if failure == "quote" else 3600)
+    wall, mono = [initial], [1000.0]
+    monkeypatch.setattr(gate.time, "time", lambda: wall[0])
+    monkeypatch.setattr(gate.time, "monotonic", lambda: mono[0])
+    path = tmp_path / "admission.json"
+    preflight.write_admission(str(path), preflight.Context("a" * 40, "b" * 40, 123, 77))
+    observed = {"key": 0, "execute": 0, "git": 0}
+
+    def stall():
+        # Wall rollback hides both expired freshness and an incomplete session.
+        mono[0] += 2 if failure == "quote" else 121
+        wall[0] += 121 if failure == "elapsed" else 0
+
+    class Environment(dict):
+        def pop(self, key, *args):
+            if key == run.KEY_NAME:
+                observed["key"] += 1
+            return super().pop(key, *args)
+
+        def get(self, key, default=None):
+            if key == run.MODEL_NAME and boundary == "metadata":
+                stall()
+            return super().get(key, default)
+
+    environment = Environment({**metadata, run.KEY_NAME: "synthetic-only",
+                               run.BASE_NAME: gate.BASE_URL, run.MODEL_NAME: gate.MODEL})
+    read = Path.read_bytes
+
+    def delayed_read(target):
+        result = read(target)
+        if target == path and boundary == "admission_read":
+            stall()
+        return result
+
+    def git(*args, **kwargs):
+        observed["git"] += 1
+        if observed["git"] == 1:
+            if boundary == "checkout":
+                stall()
+            return SimpleNamespace(stdout=b"b" * 40)
+        return SimpleNamespace(stdout=b"")
+
+    def execute(*args, **kwargs):
+        observed["execute"] += 1
+        return {"matrix": {"passed": True}}
+
+    monkeypatch.setattr(run.os, "environ", environment)
+    monkeypatch.setattr(Path, "read_bytes", delayed_read)
+    monkeypatch.setattr(run.subprocess, "run", git)
+    monkeypatch.setattr(run, "execute", execute)
+    monkeypatch.setattr(sys, "argv", ["run", "--live", "--admission-file", str(path),
+                                     "--evidence-dir", str(tmp_path / "evidence")])
+    if boundary == "between_steps":
+        stall()
+    assert run.main() == 1
+    assert observed["key"] == observed["execute"] == 0
+    assert json.loads(capsys.readouterr().out)["error_code"] in {
+        "admission_expired", "price_review_expired",
+    }
+    assert not (tmp_path / "evidence").exists()
+
+
+@pytest.mark.parametrize("damage", [
+    "legacy", "bool_schema", "float_schema", "extra", "missing", "other_boot",
+    "checked_nan", "checked_inf", "checked_bool", "checked_text", "checked_negative",
+    "mono_nan", "mono_bool", "mono_future", "mono_before_anchor", "mono_huge",
+    "window_extra", "window_missing", "window_bool", "window_inf", "window_nan",
+    "window_negative", "deadline_extended", "deadline_text", "wall_bool", "wall_future",
+])
+def test_untrusted_handoff_clock_is_rejected(admission, damage):
+    record, metadata, _ = admission
+    if damage == "legacy":
+        record["schema"] = 1
+    elif damage == "bool_schema":
+        record["schema"] = True
+    elif damage == "float_schema":
+        record["schema"] = 2.0
+    elif damage == "extra":
+        record["other"] = 1
+    elif damage == "missing":
+        del record["checked_monotonic"]
+    elif damage == "other_boot":
+        record["boot_id"] = "00000000-0000-0000-0000-000000000000"
+    elif damage.startswith("checked_"):
+        record["checked_at"] = {"nan": float("nan"), "inf": float("inf"), "bool": True,
+                                "text": str(record["checked_at"]), "negative": -1}[
+                                    damage.removeprefix("checked_")]
+    elif damage.startswith("mono_"):
+        record["checked_monotonic"] = {"nan": float("nan"), "bool": True,
+                                       "future": 1001, "before_anchor": 999,
+                                       "huge": 10 ** 1000}[damage.removeprefix("mono_")]
+    elif damage == "window_extra":
+        record["price_window"]["other"] = 1
+    elif damage == "window_missing":
+        del record["price_window"]["monotonic"]
+    elif damage.startswith("window_"):
+        record["price_window"]["monotonic"] = {
+            "bool": True, "inf": float("inf"), "nan": float("nan"), "negative": -1,
+        }[damage.removeprefix("window_")]
+    elif damage == "deadline_extended":
+        record["price_window"]["deadline"] += 1
+    elif damage == "deadline_text":
+        record["price_window"]["deadline"] = str(record["price_window"]["deadline"])
+    elif damage == "wall_bool":
+        record["price_window"]["wall"] = True
+    else:
+        record["price_window"]["wall"] += 1
+        record["price_window"]["deadline"] -= 1
+    with pytest.raises(gate.GateError, match="admission_required|invalid_clock"):
+        run.check_admission(record, metadata, gate.PriceWindow.capture())
+
+
+@pytest.mark.parametrize("boundary", ["admission", "key", "transport", "broker"])
+def test_monotonic_rollback_is_never_reanchored(tmp_path, monkeypatch, admission, boundary):
+    record, metadata, _ = admission
+    entry = gate.PriceWindow.capture()
+    _, window = run.check_admission(record, metadata, entry)
+    transport = gate.HTTPSUpstream("synthetic-only", window)
+    broker = gate.Broker(tmp_path / "budget.jsonl", lambda body: (200, b"{}"), "b" * 40, window)
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 999.0)
+    try:
+        with pytest.raises(gate.GateError, match="invalid_clock"):
+            if boundary == "admission":
+                run.check_admission(record, metadata, entry)
+            elif boundary == "key":
+                run.check_freshness(record, window)
+            elif boundary == "transport":
+                transport._check_window(2000)
+            else:
+                broker._check_window()
+    finally:
+        broker.close()
+
+
+def test_valid_cross_process_handoff_shares_earliest_quote_until_last_boundary(
+        tmp_path, monkeypatch, admission):
+    record, metadata, now = admission
+    # The next process starts 20 seconds later while wall time rolls back by 20.
+    mono = [1020.0]
+    monkeypatch.setattr(gate.time, "monotonic", lambda: mono[0])
+    entry = gate.PriceWindow.capture()
+    _, window = run.check_admission(record, metadata, entry)
+    assert window.deadline == record["price_window"]["deadline"] < entry.deadline
+    transport = gate.HTTPSUpstream("synthetic-only", window)
+    mono[0] += 10
+    broker = gate.Broker(tmp_path / "budget.jsonl", lambda body: (200, b"{}"), "b" * 40, window)
+    try:
+        assert transport._price_window is broker._price_window is window
+        assert transport._price_deadline == broker._price_deadline == 4600
+        # All constructors have run, but no network/provider request has occurred.
+        mono[0] = window.deadline - gate.REQUEST_SECONDS + 1
+        for check in (broker._check_window, lambda: transport._check_window(mono[0] + 90)):
+            with pytest.raises(gate.GateError, match="price_review_expired"):
+                check()
+        assert broker.summary()["request_count"] == 0
+        assert record["boot_id"] not in json.dumps(broker.summary())
+        assert "boot_id" not in (tmp_path / "budget.jsonl").read_text()
+    finally:
+        broker.close()

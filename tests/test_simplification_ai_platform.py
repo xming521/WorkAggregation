@@ -1,6 +1,6 @@
 """Portable contracts for the explicitly Linux-only paid-validation helper.
 
-The 244 Linux helper cases live in its mandatory companion gate, not in the
+The 287 Linux helper cases live in its mandatory companion gate, not in the
 Windows product manifest. These tests run unchanged on Windows and Linux.
 """
 import copy
@@ -9,7 +9,7 @@ import socket
 
 import pytest
 
-from scripts.simplification_ai_validation import broker, offline, run
+from scripts.simplification_ai_validation import broker, offline, preflight, run
 
 
 @pytest.mark.parametrize("platform", ["win32", "darwin", "freebsd13"])
@@ -43,6 +43,12 @@ def test_unsupported_platform_refuses_before_files_network_or_secret(
                 elif entrypoint == "transport":
                     broker.HTTPSUpstream(UnreadableKey())
                 elif entrypoint == "offline":
+                    with pytest.raises(broker.GateError, match="^linux_only_helper$"):
+                        preflight.preflight(phase="paid", env={}, event={}, read=forbidden)
+                    with pytest.raises(broker.GateError, match="^linux_only_helper$"):
+                        preflight.write_admission(str(path), preflight.Context("", "", 1, 1))
+                    assert preflight.main(["--phase", "paid"]) == 1
+                    assert '"error_code": "linux_only_helper"' in capsys.readouterr().out
                     offline.main()
                 else:
                     run.execute(forbidden, "a" * 40, path)
@@ -54,8 +60,8 @@ def test_linux_manifest_preserves_all_203_cases_outside_product_testpaths():
     from scripts.test_shards.gate import validate_node_id
 
     nodes = offline.expected_nodes()
-    # All 203 original nodes plus 41 fixed-quote and expiry regressions.
-    assert len(nodes) == 244
+    # All 244 existing nodes plus 43 same-boot paid-handoff clock regressions.
+    assert len(nodes) == 287
     for node in nodes:
         validate_node_id(node)
     assert {node.split("::")[0].rsplit("/", 1)[-1] for node in nodes} == {

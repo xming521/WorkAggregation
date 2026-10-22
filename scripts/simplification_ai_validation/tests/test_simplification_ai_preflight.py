@@ -23,8 +23,8 @@ POLICIES_PATH = f"{ENV_PATH}/deployment-branch-policies"
 def pinned_fake_workflow(monkeypatch):
     monkeypatch.setattr(p, "WORKFLOW_ID", WORKFLOW_ID)
     # Offline history tests must outlive the fixed live quote.
-    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - 3600)
-    monkeypatch.setattr(p.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr(gate.time, "time", lambda: gate.PRICE_VALID_UNTIL - 3600)
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 1000.0)
 
 
 def run(number, sha, current=False):
@@ -424,10 +424,13 @@ def test_redirects_and_http_failures_do_not_expose_remote_error_bodies(monkeypat
 
 def test_admission_is_minimal_fresh_and_exclusive(tmp_path, monkeypatch):
     path = tmp_path / "admission.json"
-    monkeypatch.setattr(p.time, "time", lambda: 1792594800)
+    monkeypatch.setattr(gate.time, "time", lambda: 1792594800)
     p.write_admission(str(path), p.Context(H, R, 2, REPO_ID))
-    assert json.loads(path.read_text()) == {"schema": 1, "source_sha": R, "helper_sha": H,
-                                           "run_id": "2", "checked_at": 1792594800}
+    assert json.loads(path.read_text()) == {
+        "schema": 2, "source_sha": R, "helper_sha": H, "run_id": "2",
+        "checked_at": 1792594800, "checked_monotonic": 1000.0,
+        "boot_id": gate.boot_identity(), "price_window": gate.PriceWindow.capture().record(),
+    }
     assert path.stat().st_mode & 0o777 == 0o600
     original = path.read_bytes()
     with pytest.raises(p.Blocked, match="ADMISSION_WRITE_BLOCKED"):
@@ -479,7 +482,7 @@ def test_missing_or_recreated_workflow_id_is_blocked(monkeypatch, pin):
 @pytest.mark.parametrize("remaining", [-1, 89, 1199],
                          ids=["expired", "under-90-seconds", "under-20-minutes"])
 def test_price_window_refuses_before_github_reads(monkeypatch, phase, remaining):
-    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
+    monkeypatch.setattr(gate.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
     calls = []
     with pytest.raises(p.Blocked, match="^PRICE_REVIEW_EXPIRED$"):
         execute(fixture(phase), phase, calls)
@@ -508,7 +511,7 @@ def test_cli_price_window_refuses_before_reader_credentials_or_admission(
             return super().__getitem__(key)
 
     monkeypatch.setattr(p.os, "environ", GuardedEnvironment(env))
-    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
+    monkeypatch.setattr(gate.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
     monkeypatch.setattr(p, "GitHubReader", forbidden)
     monkeypatch.setattr(p, "write_admission", forbidden)
     admission = tmp_path / "admission.json"
@@ -546,7 +549,7 @@ def test_quote_window_rechecked_after_github_and_owner_checks(
         pytest.fail("A quote that expires during GitHub checks must not write admission")
 
     monkeypatch.setattr(p.os, "environ", env)
-    monkeypatch.setattr(p.time, "time", lambda: now[0])
+    monkeypatch.setattr(gate.time, "time", lambda: now[0])
     monkeypatch.setattr(p, "GitHubReader", lambda token: read)
     monkeypatch.setattr(p, "write_admission", forbidden)
     args = ["--phase", phase]
@@ -564,7 +567,7 @@ def test_quote_window_rechecked_after_github_and_owner_checks(
 @pytest.mark.parametrize("phase", ["before", "paid"])
 @pytest.mark.parametrize("remaining", [1200, 1201])
 def test_full_session_window_remains_admissible(monkeypatch, phase, remaining):
-    monkeypatch.setattr(p.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
+    monkeypatch.setattr(gate.time, "time", lambda: gate.PRICE_VALID_UNTIL - remaining)
     assert execute(fixture(phase), phase) == {"ok": True, "helper_sha": H, "request_sha": R}
 
 
@@ -600,8 +603,8 @@ def test_monotonic_session_window_survives_wall_rollback_before_admission(
         pytest.fail("Wall-clock rollback must not grant a fresh session or admission")
 
     monkeypatch.setattr(p.os, "environ", env)
-    monkeypatch.setattr(p.time, "time", lambda: wall[0])
-    monkeypatch.setattr(p.time, "monotonic", lambda: mono[0])
+    monkeypatch.setattr(gate.time, "time", lambda: wall[0])
+    monkeypatch.setattr(gate.time, "monotonic", lambda: mono[0])
     monkeypatch.setattr(p, "GitHubReader", reader)
     monkeypatch.setattr(p, "write_admission", forbidden)
     args = ["--phase", phase]
@@ -669,8 +672,8 @@ def test_stalled_handoffs_never_report_success_or_admit_expired_quote(
         stall()
 
     monkeypatch.setattr(p.os, "environ", GuardedEnvironment(env))
-    monkeypatch.setattr(p.time, "time", lambda: wall[0])
-    monkeypatch.setattr(p.time, "monotonic", lambda: mono[0])
+    monkeypatch.setattr(gate.time, "time", lambda: wall[0])
+    monkeypatch.setattr(gate.time, "monotonic", lambda: mono[0])
     monkeypatch.setattr(p, "GitHubReader", reader)
     if boundary == "event":
         monkeypatch.setattr(p.Path, "read_text", stalled_read)

@@ -10,7 +10,9 @@ import copy
 import hashlib
 import http.client
 import json
+import math
 import os
+import re
 import secrets
 import ssl
 import stat
@@ -57,6 +59,79 @@ def require_linux() -> None:
     """This helper requires real Linux journal durability; never emulate it."""
     if sys.platform != "linux" or os.name != "posix":
         raise GateError("linux_only_helper")
+
+
+def clock_number(value: Any) -> float:
+    if type(value) not in (int, float):
+        raise GateError("invalid_clock")
+    try:
+        number = float(value)
+    except OverflowError:
+        raise GateError("invalid_clock") from None
+    if not math.isfinite(number) or number < 0:
+        raise GateError("invalid_clock")
+    return number
+
+
+def boot_identity() -> str:
+    """Linux monotonic timestamps may only cross processes on this same boot."""
+    require_linux()
+    try:
+        value = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        raise GateError("clock_identity_unavailable") from None
+    if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value):
+        raise GateError("clock_identity_unavailable")
+    return value
+
+
+class PriceWindow:
+    """One fixed quote anchor, carried through the same Linux paid job."""
+
+    def __init__(self, wall: float, monotonic: float):
+        self.wall = clock_number(wall)
+        self.monotonic = clock_number(monotonic)
+        self.deadline = self.monotonic + (PRICE_VALID_UNTIL - self.wall)
+        if not math.isfinite(self.deadline):
+            raise GateError("invalid_clock")
+        self._last_monotonic = self.monotonic
+
+    @classmethod
+    def capture(cls) -> PriceWindow:
+        require_linux()
+        # A pause between reads only shortens this anchor's usable window.
+        monotonic = time.monotonic()
+        return cls(time.time(), monotonic)
+
+    def record(self) -> dict[str, float]:
+        return {"wall": self.wall, "monotonic": self.monotonic, "deadline": self.deadline}
+
+    @classmethod
+    def restore(cls, record: Any) -> PriceWindow:
+        if not isinstance(record, dict) or set(record) != {"wall", "monotonic", "deadline"}:
+            raise GateError("invalid_clock")
+        window = cls(record["wall"], record["monotonic"])
+        if clock_number(record["deadline"]) != window.deadline:
+            raise GateError("invalid_clock")
+        return window
+
+    def tighten(self, entry: PriceWindow) -> None:
+        if self.monotonic > entry.monotonic:
+            raise GateError("invalid_clock")
+        self.deadline = min(self.deadline, entry.deadline)
+        self._last_monotonic = max(self._last_monotonic, entry._last_monotonic)
+
+    def check(self, seconds: int) -> tuple[float, float]:
+        before = clock_number(time.monotonic())
+        wall = clock_number(time.time())
+        monotonic = clock_number(time.monotonic())
+        if before < self._last_monotonic or monotonic < before:
+            raise GateError("invalid_clock")
+        self._last_monotonic = monotonic
+        if (wall + seconds > PRICE_VALID_UNTIL
+                or monotonic + seconds > self.deadline):
+            raise GateError("price_review_expired")
+        return wall, monotonic
 
 
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -209,18 +284,17 @@ def _expected_repair(operation: str, original: dict[str, Any], category: str) ->
 
 class HTTPSUpstream:
     """One direct verified TLS connection per attempt; never an SDK/proxy opener."""
-    def __init__(self, key: str):
+    def __init__(self, key: str, price_window: PriceWindow | None = None):
         require_linux()
         if not key or any(c.isspace() for c in key):
             raise GateError("credential_missing")
         self._key = key
         self._deadline = time.monotonic() + SESSION_SECONDS
-        self._price_deadline = time.monotonic() + (PRICE_VALID_UNTIL - time.time())
+        self._price_window = price_window if price_window is not None else PriceWindow.capture()
+        self._price_deadline = self._price_window.deadline
 
     def _check_window(self, request_deadline: float) -> None:
-        if (time.time() + REQUEST_SECONDS > PRICE_VALID_UNTIL
-                or time.monotonic() + REQUEST_SECONDS > self._price_deadline):
-            raise GateError("price_review_expired")
+        self._price_window.check(REQUEST_SECONDS)
         if time.monotonic() + REQUEST_SECONDS > self._deadline:
             raise GateError("session_deadline")
         if time.monotonic() >= request_deadline:
@@ -272,13 +346,14 @@ class HTTPSUpstream:
 
 class Broker:
     def __init__(self, journal_path: Path, send: Callable[[bytes], tuple[int, bytes]],
-                 source_sha: str):
+                 source_sha: str, price_window: PriceWindow | None = None):
         require_linux()
         if len(source_sha) != 40 or any(c not in "0123456789abcdef" for c in source_sha):
             raise GateError("source_sha")
         self._lock = threading.Lock()
         self._deadline = time.monotonic() + SESSION_SECONDS
-        self._price_deadline = time.monotonic() + (PRICE_VALID_UNTIL - time.time())
+        self._price_window = price_window if price_window is not None else PriceWindow.capture()
+        self._price_deadline = self._price_window.deadline
         self._halt = threading.Event()
         self._send = send
         self._token = ""
@@ -376,9 +451,7 @@ class Broker:
         return payload
 
     def _check_window(self) -> None:
-        if (time.time() + REQUEST_SECONDS > PRICE_VALID_UNTIL
-                or time.monotonic() + REQUEST_SECONDS > self._price_deadline):
-            raise GateError("price_review_expired")
+        self._price_window.check(REQUEST_SECONDS)
         if time.monotonic() + REQUEST_SECONDS > self._deadline:
             raise GateError("session_deadline")
 

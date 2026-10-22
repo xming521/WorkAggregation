@@ -14,12 +14,13 @@ import os
 from pathlib import Path
 import re
 import ssl
-import time
 from typing import Any, Callable, Mapping, NoReturn, cast
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
-from scripts.simplification_ai_validation.broker import PRICE_VALID_UNTIL, SESSION_SECONDS
+from scripts.simplification_ai_validation.broker import (
+    SESSION_SECONDS, GateError, PriceWindow, boot_identity, require_linux,
+)
 
 REPOSITORY = "offercontext/offerPilot"
 BRANCH = "feat/20261021-product-simplification"
@@ -52,14 +53,15 @@ def demand(condition: bool, code: str) -> None:
         raise Blocked(code)
 
 
-def check_price_window(deadline: float | None = None) -> float:
-    """Require a full session without extending the quote on wall-clock rollback."""
-    if deadline is None:
-        # Read monotonic first so a stalled clock read only shortens the window.
-        deadline = time.monotonic() + (PRICE_VALID_UNTIL - time.time())
-    demand(time.time() + SESSION_SECONDS <= PRICE_VALID_UNTIL
-           and time.monotonic() + SESSION_SECONDS <= deadline, "PRICE_REVIEW_EXPIRED")
-    return deadline
+def check_price_window(deadline: PriceWindow | None = None) -> PriceWindow:
+    """Keep the same quote clock through every preflight read and its handoff."""
+    require_linux()
+    try:
+        window = deadline if deadline is not None else PriceWindow.capture()
+        window.check(SESSION_SECONDS)
+        return window
+    except GateError:
+        raise Blocked("PRICE_REVIEW_EXPIRED") from None
 
 
 def positive(value: Any) -> bool:
@@ -396,7 +398,8 @@ class GitHubReader:
 
 
 def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader,
-              price_deadline: float | None = None) -> dict[str, Any]:
+              price_deadline: PriceWindow | None = None) -> dict[str, Any]:
+    require_linux()
     ctx = validate_context(env)
     demand(phase in ("before", "paid"), "INVALID_PHASE")
     price_deadline = check_price_window(price_deadline)
@@ -421,11 +424,15 @@ def preflight(*, phase: str, env: Mapping[str, str], event: Any, read: Reader,
     return {"ok": True, "helper_sha": ctx.helper_sha, "request_sha": ctx.request_sha}
 
 
-def write_admission(path: str, ctx: Context, price_deadline: float | None = None) -> None:
+def write_admission(path: str, ctx: Context, price_deadline: PriceWindow | None = None) -> None:
     """Only a successful preflight makes this local handoff usable, never its existence."""
     price_deadline = check_price_window(price_deadline)
-    record = {"schema": 1, "source_sha": ctx.request_sha, "helper_sha": ctx.helper_sha,
-              "run_id": str(ctx.run_id), "checked_at": int(time.time())}
+    boot = boot_identity()
+    checked_at, checked_monotonic = price_deadline.check(SESSION_SECONDS)
+    record = {"schema": 2, "source_sha": ctx.request_sha, "helper_sha": ctx.helper_sha,
+              "run_id": str(ctx.run_id), "checked_at": checked_at,
+              "checked_monotonic": checked_monotonic, "boot_id": boot,
+              "price_window": price_deadline.record()}
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -446,6 +453,7 @@ class SafeParser(argparse.ArgumentParser):
 
 def main(argv: list[str] | None = None) -> int:
     try:
+        require_linux()
         parser = SafeParser(add_help=False)
         parser.add_argument("--phase", choices=("before", "paid"), required=True)
         parser.add_argument("--helper-sha")
@@ -476,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as error:
-        code = str(error) if isinstance(error, Blocked) else "VALIDATION_BLOCKED"
+        code = str(error) if isinstance(error, (Blocked, GateError)) else "VALIDATION_BLOCKED"
         print(json.dumps({"ok": False, "error_code": code}, sort_keys=True))
         return 1
 

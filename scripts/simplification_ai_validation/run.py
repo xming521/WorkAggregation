@@ -12,12 +12,12 @@ from contextlib import contextmanager
 from pathlib import Path
 import subprocess
 import tempfile
-import time
 from typing import Any, Callable, Iterator
 
 from scripts.simplification_ai_validation.broker import (
-    BASE_URL, MODEL, OPERATIONS, OUTPUT_TOKENS, CONTEXT_TOKENS, PRICE_VALID_UNTIL,
-    REQUEST_SECONDS, Broker, GateError, HTTPSUpstream, encode, serve, require_linux,
+    BASE_URL, MODEL, OPERATIONS, OUTPUT_TOKENS, CONTEXT_TOKENS,
+    SESSION_SECONDS, Broker, GateError, HTTPSUpstream, PriceWindow, boot_identity,
+    clock_number, decode, encode, serve, require_linux,
 )
 
 KEY_NAME = "OFFERPILOT_SIMPLIFICATION_DEEPSEEK_20261021"
@@ -35,9 +35,12 @@ def clean_environment() -> None:
     })
 
 
-def check_admission(record: Any, metadata: dict[str, str], now: float) -> str:
-    expected = {"schema", "source_sha", "helper_sha", "run_id", "checked_at"}
-    if not isinstance(record, dict) or set(record) != expected or record["schema"] != 1:
+def check_admission(record: Any, metadata: dict[str, str],
+                    entry: PriceWindow) -> tuple[str, PriceWindow]:
+    expected = {"schema", "source_sha", "helper_sha", "run_id", "checked_at",
+                "checked_monotonic", "boot_id", "price_window"}
+    if (not isinstance(record, dict) or set(record) != expected
+            or type(record["schema"]) is not int or record["schema"] != 2):
         raise GateError("admission_required")
     sha = record["source_sha"]
     helper = record["helper_sha"]
@@ -52,12 +55,25 @@ def check_admission(record: Any, metadata: dict[str, str], now: float) -> str:
             or metadata.get("GITHUB_REPOSITORY") != "offercontext/offerPilot"
             or metadata.get("GITHUB_REF") != "refs/heads/feat/20261021-product-simplification"):
         raise GateError("admission_identity")
-    checked = record["checked_at"]
-    if type(checked) is not int or not 0 <= now - checked <= 120:
+    if record["boot_id"] != boot_identity():
+        raise GateError("invalid_clock")
+    window = PriceWindow.restore(record["price_window"])
+    checked = clock_number(record["checked_monotonic"])
+    if (not window.monotonic <= checked <= entry.monotonic
+            or clock_number(record["checked_at"]) < window.wall):
+        raise GateError("invalid_clock")
+    window.tighten(entry)
+    check_freshness(record, window)
+    return sha, window
+
+
+def check_freshness(record: dict[str, Any], window: PriceWindow) -> None:
+    # Full-session quote admission is checked again after all I/O, before key access.
+    now, monotonic = window.check(SESSION_SECONDS)
+    checked = clock_number(record["checked_at"])
+    checked_monotonic = clock_number(record["checked_monotonic"])
+    if not 0 <= now - checked <= 120 or not 0 <= monotonic - checked_monotonic <= 120:
         raise GateError("admission_expired")
-    if now + REQUEST_SECONDS > PRICE_VALID_UNTIL:
-        raise GateError("price_review_expired")
-    return sha
 
 
 def write_config(data_dir: Path, base_url: str, token: str) -> None:
@@ -82,14 +98,14 @@ def write_config(data_dir: Path, base_url: str, token: str) -> None:
 
 
 def execute(send: Callable[[bytes], tuple[int, bytes]], source_sha: str,
-            evidence_dir: Path) -> dict[str, Any]:
+            evidence_dir: Path, price_window: PriceWindow | None = None) -> dict[str, Any]:
     require_linux()
     # Defer production imports until runtime environment is sanitized by main.
     # Offline callers are protected by pytest's early loopback-only network guard.
     from scripts.simplification_ai_validation.driver import MatrixFailure, run_matrix
 
     evidence_dir.mkdir(parents=True, exist_ok=False)
-    broker = Broker(evidence_dir / "budget.jsonl", send, source_sha)
+    broker = Broker(evidence_dir / "budget.jsonl", send, source_sha, price_window)
     outcome: dict[str, Any] = {"passed": False, "error_code": "incomplete"}
     try:
         with tempfile.TemporaryDirectory(prefix="offerpilot-simplification-owned-") as owned:
@@ -143,8 +159,10 @@ def main() -> int:
         keys = ("GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_EVENT_NAME",
                 "GITHUB_REPOSITORY", "GITHUB_REF")
         metadata = {name: os.environ.get(name, "") for name in keys}
-        source_sha = check_admission(json.loads(args.admission_file.read_bytes()),
-                                     metadata, time.time())
+        entry = PriceWindow.capture()
+        entry.check(SESSION_SECONDS)
+        record = decode(args.admission_file.read_bytes())
+        source_sha, price_window = check_admission(record, metadata, entry)
         # Verify checked-out files, not merely a supplied environment string.
         git_environment = {"PATH": os.defpath, "GIT_CONFIG_NOSYSTEM": "1",
                            "GIT_CONFIG_GLOBAL": os.devnull}
@@ -158,12 +176,13 @@ def main() -> int:
             raise GateError("checkout_changed")
         if os.environ.get(BASE_NAME) != BASE_URL or os.environ.get(MODEL_NAME) != MODEL:
             raise GateError("provider_metadata_mismatch")
+        check_freshness(record, price_window)
         # Read the one explicitly authorized environment secret only after all gates.
         key = os.environ.pop(KEY_NAME, "")
         clean_environment()
-        transport = HTTPSUpstream(key)
+        transport = HTTPSUpstream(key, price_window)
         key = ""
-        report = execute(transport, source_sha, args.evidence_dir)
+        report = execute(transport, source_sha, args.evidence_dir, price_window)
         print(json.dumps(report, sort_keys=True))
         return 0 if report["matrix"]["passed"] else 1
     except BaseException as exc:
