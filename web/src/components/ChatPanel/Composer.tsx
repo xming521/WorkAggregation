@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input, Button } from 'antd';
 import { SendOutlined, PictureOutlined } from '@ant-design/icons';
@@ -24,6 +25,7 @@ interface Props {
   onAddImages?: (files: File[]) => void;
   onRemoveImage?: (key: string) => void;
   onRetryImage?: (draft: ChatImageDraft) => void;
+  onCapabilitySend?: Props['onSend'];
   onSend: (text: string) => void | boolean | SendMessageOutcome | Promise<void | boolean | SendMessageOutcome>;
 }
 
@@ -48,7 +50,9 @@ export default function Composer({
   onRemoveImage,
   onRetryImage,
   onSend,
+  onCapabilitySend = onSend,
 }: Props) {
+  const locale = useLocale();
   const [localValue, setLocalValue] = useState('');
   const [sel, setSel] = useState(0);
   const [onboardingFocusActive, setOnboardingFocusActive] = useState(false);
@@ -95,7 +99,7 @@ export default function Composer({
     return capabilities.filter(
       (c) => c.label.toLowerCase().includes(slashQuery) || c.hint.toLowerCase().includes(slashQuery),
     );
-  }, [slashQuery, capabilities]);
+  }, [slashQuery, capabilities, locale]);
 
   async function pickCapability(cap: Capability) {
     const needsMore = /[：:]$/.test(cap.prompt.trim());
@@ -105,7 +109,7 @@ export default function Composer({
       return;
     }
 
-    const sent = await onSend(cap.prompt);
+    const sent = await onCapabilitySend(cap.prompt);
     if (shouldClearAfterSend(sent)) {
       setValue('');
       setSel(0);
@@ -137,7 +141,7 @@ export default function Composer({
       }}
     >
       {quickQuestions.length > 0 ? (
-        <div className={styles.quickQuestions} aria-label="快捷提问">
+        <div className={styles.quickQuestions} aria-label={t("快捷提问")}>
           {quickQuestions.map((question, index) => (
             <button
               key={question}
@@ -158,15 +162,15 @@ export default function Composer({
       {menuOpen && items.length > 0 && (
         <SlashMenu items={items} selected={sel} onSelect={pickCapability} onHover={setSel} />
       )}
-      {imageDrafts.length ? <div className={styles.imageRail} aria-label="待发送图片" aria-live="polite">
+      {imageDrafts.length ? <div className={styles.imageRail} aria-label={t("待发送图片")} aria-live="polite">
         {imageDrafts.map((draft, imageIndex) => <div key={draft.key} className={styles.imageDraft}>
-          <ChatImagePreview image={draft.reference} localUrl={draft.previewUrl} label={`图片 ${imageIndex + 1}`} />
+          <ChatImagePreview image={draft.reference} localUrl={draft.previewUrl} label={t("图片 {index}", { index: imageIndex + 1 })} />
           <span className={styles.imageName} title={draft.name}>{draft.name}</span>
-          {draft.status === 'uploading' ? <span role="status">上传中…</span> : null}
+          {draft.status === 'uploading' ? <span role="status">{t("上传中…")}</span> : null}
           {draft.error ? <span role="alert" className={styles.imageError}>{draft.error}</span> : null}
           <div>
-            {draft.status === 'error' ? <Button size="small" type="text" disabled={disabled} onClick={() => onRetryImage?.(draft)}>重试</Button> : null}
-            <Button size="small" type="text" disabled={disabled} aria-label={`移除${draft.name}`} onClick={() => onRemoveImage?.(draft.key)}>移除</Button>
+            {draft.status === 'error' ? <Button size="small" type="text" disabled={disabled} onClick={() => onRetryImage?.(draft)}>{t("重试")}</Button> : null}
+            <Button size="small" type="text" disabled={disabled} aria-label={`移除${draft.name}`} onClick={() => onRemoveImage?.(draft.key)}>{t("移除")}</Button>
           </div>
         </div>)}
       </div> : null}
@@ -174,8 +178,8 @@ export default function Composer({
         {onAddImages ? <>
           <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden
             onChange={(event) => { onAddImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
-          <Button type="text" icon={<PictureOutlined />} aria-label="添加图片"
-            title={imageDisabledReason || '选择、粘贴或拖入图片（最多 4 张）'}
+          <Button type="text" icon={<PictureOutlined />} aria-label={t("添加图片")}
+            title={imageDisabledReason || t("选择、粘贴或拖入图片（最多 4 张）")}
             disabled={disabled || Boolean(imageDisabledReason)} onClick={() => fileInputRef.current?.click()} />
         </> : null}
         <Input.TextArea
@@ -219,7 +223,7 @@ export default function Composer({
               void submit();
             }
           }}
-          placeholder={placeholder ?? '问问领航员，或输入 / 唤起能力'}
+          placeholder={placeholder ?? t("问问领航员，或输入 / 唤起能力")}
           autoSize={{ minRows: 1, maxRows: 4 }}
           variant="borderless"
           disabled={disabled}
@@ -230,7 +234,7 @@ export default function Composer({
           icon={<SendOutlined />}
           disabled={disabled || imageBlocked || (!value.trim() && !imageDrafts.length)}
           onClick={() => void submit()}
-          aria-label="发送"
+          aria-label={t("发送")}
         />
       </div>
       <div className={styles.hint}>
@@ -238,9 +242,7 @@ export default function Composer({
         {disabledReason ? (
           <span>{disabledReason}</span>
         ) : (
-          <span>
-            输入 <kbd>/</kbd> 唤起能力 · <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行
-          </span>
+          <span>{t("输入 ")}<kbd>/</kbd>{t(" 唤起能力 · ")}<kbd>Enter</kbd>{t(" 发送 · ")}<kbd>Shift+Enter</kbd>{t(" 换行")}</span>
         )}
       </div>
     </div>

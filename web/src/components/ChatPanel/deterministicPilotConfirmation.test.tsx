@@ -235,6 +235,42 @@ describe('deterministic Pilot JD confirmation card', () => {
     expect([...container.querySelectorAll('#haru-chat-window button')].some((button) => button.textContent === '重试')).toBe(false);
   });
 
+  it('retries only the original images even when newer image drafts exist', async () => {
+    let owner!: PilotConversationController;
+    function Observe() { owner = usePilotConversationController(); return null; }
+    let finish!: (response: unknown) => void;
+    chatState.streamChat.mockRejectedValueOnce(new Error('not admitted'))
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => root?.render(<AntApp><AssistantSurfaceProvider><Observe /><ChatPanel open variant="page" onClose={vi.fn()} /></AssistantSurfaceProvider></AntApp>));
+    const image = { id: 'original', sha256: 'hash', mime_type: 'image/png', size_bytes: 10, width: 2, height: 2, normalization_version: 'image-normalize-v1' };
+    act(() => owner.imageDrafts.reference(image, {}, 'new:workspace:'));
+    await act(async () => { await owner.sendMessage('', { includeImageDrafts: true }); });
+    act(() => owner.imageDrafts.reference({ ...image, id: 'newer' }, {}, 'new:workspace:'));
+    await act(async () => owner.retryLastMessage());
+    expect(chatState.streamChat.mock.calls[1][2].image_attachment_ids).toEqual(['original']);
+    expect(owner.turns.find((turn) => turn.role === 'user')?.image_attachments?.map((item) => item.id)).toEqual(['original']);
+    expect(owner.imageDrafts.drafts.map((item) => item.reference?.id)).toEqual(['original', 'newer']);
+    await act(async () => finish({ type: 'message', conversation_id: 501, message: 'received' }));
+  });
+
+  it.each(['整理面试故事', '查看表达成长'])('clears consumed local navigation text without consuming images: %s', async (text) => {
+    let owner!: PilotConversationController;
+    function Observe() { owner = usePilotConversationController(); return null; }
+    const navigate = vi.fn();
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => root?.render(<AntApp><AssistantSurfaceProvider><Observe /><ChatPanel open variant="page" onClose={vi.fn()} onOpenInterviewStoryLibrary={navigate} onOpenVoiceCoachingGrowth={navigate} /></AssistantSurfaceProvider></AntApp>));
+    act(() => {
+      owner.setComposerDraft(text);
+      owner.imageDrafts.reference({ id: 'unsent', sha256: 'hash', mime_type: 'image/png', size_bytes: 10, width: 2, height: 2, normalization_version: 'v1' }, {}, 'new:workspace:');
+    });
+    await act(async () => { await owner.sendMessage(text); });
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(owner.composerDraft).toBe('');
+    expect(owner.imageDrafts.drafts).toHaveLength(1);
+    expect(chatState.streamChat).not.toHaveBeenCalled();
+  });
+
   it('never includes a shared image draft in a quick action send', async () => {
     let owner!: PilotConversationController;
     function Observe() { owner = usePilotConversationController(); return null; }

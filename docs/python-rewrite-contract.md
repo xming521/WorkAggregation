@@ -216,7 +216,44 @@ Python schema rules:
 - Add explicit tests that create a legacy-style database and run Python migration on it.
 - Resume upload compatibility must keep relative DB paths like `resumes/<id>_<basename>.pdf`; note that current file write plus DB update is best-effort rather than transactional.
 
+## Current Mock Interview Execution Boundary
+
+Quick practice and application-event interviews share only the finite question/feedback
+execution path in `mock_interview_execution.py`: frozen provider input, validated output,
+claim-fenced commit, and sanitized failure/trace handling. Context selection, admission,
+and replay remain in the HTTP adapters and existing repository; the repository remains
+the sole owner of claims, recovery state, and compare-and-set writes. No automatic provider
+retry is introduced; the existing validator still permits at most one format repair.
+The two contexts retain their error codes, context fields, history, and explicit review
+confirmation. A new JD or archived practice case does not rewrite an existing frozen attempt.
+
 ## CLI Contract
+
+**2026-10-21 current analysis contract:** JD analysis, resume matching, and notes-to-question
+generation use the same finite workflows in CLI and HTTP. The older source behavior in the
+historical table below is superseded for these commands:
+
+- Independent text remains `oc analyze --jd "…"` or
+  `oc resume match --resume <id> --jd "…"`; `--jd -` still reads stdin.
+- Linked analysis requires an explicitly selected current saved version:
+  `oc analyze --app <id> --jd-version <version-id>` or
+  `oc resume match --resume <id> --app <id> --jd-version <version-id>`.
+  Save JD text in the application's job-description editor first; the version ID is returned
+  by `GET /api/applications/<id>/job-description` under `current.id`.
+- `--app … --jd …` is rejected, even when text equals the saved version. Neither entry point
+  substitutes a current version for supplied text or invents a source association. Stale
+  versions and versions changed during generation fail without saving an analysis/match.
+- HTTP linked requests use `application_id` and `jd_version_id`, with no `jd_text` field.
+  Invalid version input stays 422, source conflict stays 409, unavailable AI stays 503,
+  and provider/JSON failures stay 502. CLI business failures exit 2 and include the same
+  stable error code in JSON; linked-input failures explain the flag migration.
+- `jd_url` / `--jd-url` remains record-only and cannot be used to fetch JD text.
+- These three workflows share prompts, question normalization/deduplication, and bounded
+  model JSON parsing (128 KiB UTF-8). JSON objects may retain Markdown fences for legacy
+  compatibility, but duplicate keys, non-finite numbers, and oversized/invalid JSON are
+  rejected without publishing output. User-visible errors do not echo raw provider errors
+  or model response content. The generic parser's defaults for other AI domains are unchanged.
+
 
 Root command is `oc`, currently implemented with Cobra in `internal/cli`.
 Python should use Typer, but command names, flags, required inputs, outputs, and

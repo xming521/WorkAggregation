@@ -4,15 +4,18 @@ import hashlib
 import base64
 import json
 import os
+import sys
 import time
 import uuid
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
-from litellm import completion
+from litellm import acompletion, completion
 
 from offerpilot.ai.types import Assistant, Message, ToolCall
+from offerpilot.ai.provider_stream import interruptible_stream, provider_control
+from offerpilot.ai.control import AgentLoopControlError
 from offerpilot.ai.tool_runtime.contracts import (
     ProviderToolContract,
     materialize_provider_payloads,
@@ -239,13 +242,18 @@ class ConfiguredAIClient:
                 return assistant
             except Exception as exc:
                 last_error = exc
+                diagnostic = (exc.diagnostic if isinstance(exc, ProviderCallError) else
+                              _provider_failure_diagnostic(
+                                  provider, exc, correlation_id=correlation_id,
+                                  elapsed_ms=int((time.perf_counter() - started) * 1000),
+                              ))
                 _try_audit_provider_result(
                     provider,
                     status="error",
                     elapsed_ms=int((time.perf_counter() - started) * 1000),
-                    http_status=_provider_status_code(exc),
-                    provider_request_id_hash=_provider_request_id(exc),
-                    failure_category=_classify_provider_failure(exc),
+                    http_status=diagnostic["http_status"],
+                    provider_request_id_hash=diagnostic["provider_request_id"],
+                    failure_category=diagnostic["failure_category"],
                 )
                 if index + 1 < len(providers):
                     self._emit(
@@ -253,17 +261,13 @@ class ConfiguredAIClient:
                         f"AI provider {provider.id} failed; trying fallback {providers[index + 1].id}",
                     )
                     continue
-                diagnostic = _provider_failure_diagnostic(
-                    provider,
-                    exc,
-                    correlation_id=correlation_id,
-                    elapsed_ms=int((time.perf_counter() - started) * 1000),
-                )
                 self._emit(
                     "WARNING",
                     "ai_provider_failure "
                     + json.dumps(diagnostic, ensure_ascii=True, separators=(",", ":")),
                 )
+                if isinstance(exc, ProviderCallError):
+                    raise
                 raise ProviderCallError(diagnostic) from exc
         if last_error is not None:
             raise last_error
@@ -292,6 +296,8 @@ class ConfiguredAIClient:
                 if index > 0:
                     self._emit("INFO", f"AI fallback provider {provider.id} succeeded")
                 return assistant
+            except AgentLoopControlError:
+                raise
             except Exception as exc:
                 last_error = exc
                 if emitted_delta:
@@ -320,6 +326,20 @@ class ConfiguredAIClient:
         return self._complete_with_provider(provider, messages, [],
             timeout_seconds=timeout_seconds, output_limit=1024,
             disable_thinking=_is_deepseek_v4_provider(provider))
+
+    def test_connection(self) -> Assistant:
+        """Probe the selected provider once, without tools or fallback."""
+        provider = next((item for item in self._candidate_providers() if item.api_key), None)
+        if provider is None:
+            raise ValueError("AI provider unavailable")
+        return self._complete_with_provider(
+            provider,
+            [Message(role="user", content="Reply with OK.")],
+            [],
+            timeout_seconds=15,
+            output_limit=64,
+            disable_thinking=_is_deepseek_v4_provider(provider),
+        )
 
     def _complete_with_provider(
         self,
@@ -350,10 +370,7 @@ class ConfiguredAIClient:
         if timeout_seconds is not None:
             payload["timeout"] = timeout_seconds
             payload["num_retries"] = 0
-        if output_limit is not None:
-            payload["max_tokens"] = min(output_limit, provider.max_output_tokens or output_limit)
-        elif any(message.images for message in messages):
-            payload["max_tokens"] = provider.max_output_tokens or DEFAULT_OUTPUT_RESERVE
+        payload["max_tokens"] = _effective_output_limit(provider, output_limit)
         if disable_thinking:
             payload["extra_body"] = {"thinking": {"type": "disabled"}}
 
@@ -396,9 +413,8 @@ class ConfiguredAIClient:
             "messages": self._messages_payload(provider, messages),
             "api_key": provider.api_key,
             "stream": True,
+            "max_tokens": _effective_output_limit(provider),
         }
-        if any(message.images for message in messages):
-            payload["max_tokens"] = provider.max_output_tokens or DEFAULT_OUTPUT_RESERVE
         api_base = provider.base_url.rstrip("/") if force_api_base else _litellm_api_base(provider)
         if api_base:
             payload["api_base"] = api_base
@@ -412,31 +428,52 @@ class ConfiguredAIClient:
         content_parts: list[str] = []
         tool_calls: dict[int, dict[str, Any]] = {}
         provider_blocks: dict[str, Any] = {}
-        for chunk in _private_image_completion(provider, payload, private=any(message.images for message in messages)):
-            delta = _first_choice_delta(chunk)
-            piece = _get(delta, "content")
-            if piece:
-                text = str(piece)
-                content_parts.append(text)
-                on_delta(text)
-            reasoning_content = _get(delta, "reasoning_content")
-            if reasoning_content:
-                provider_blocks["reasoning_content"] = str(
-                    provider_blocks.get("reasoning_content") or ""
-                ) + str(reasoning_content)
-            for raw_call in _get(delta, "tool_calls") or []:
-                index = int(_get(raw_call, "index") or 0)
-                current = tool_calls.setdefault(index, {"id": "", "name": "", "args": ""})
-                call_id = _get(raw_call, "id")
-                if call_id:
-                    current["id"] = str(call_id)
-                function = _get(raw_call, "function") or {}
-                name = _get(function, "name")
-                if name:
-                    current["name"] = str(name)
-                arguments = _get(function, "arguments")
-                if arguments:
-                    current["args"] = str(current["args"]) + str(arguments)
+        check_active = provider_control()
+        stream = _private_image_completion(
+            provider, payload, private=any(message.images for message in messages),
+            invoke=lambda: interruptible_stream(lambda: acompletion(**payload), check_active)
+            if check_active is not None else completion(**payload),
+        )
+        try:
+            for chunk in stream:
+                delta = _first_choice_delta(chunk)
+                piece = _get(delta, "content")
+                if piece:
+                    text = str(piece)
+                    content_parts.append(text)
+                    on_delta(text)
+                reasoning_content = _get(delta, "reasoning_content")
+                if reasoning_content:
+                    provider_blocks["reasoning_content"] = str(
+                        provider_blocks.get("reasoning_content") or ""
+                    ) + str(reasoning_content)
+                for raw_call in _get(delta, "tool_calls") or []:
+                    index = int(_get(raw_call, "index") or 0)
+                    current = tool_calls.setdefault(index, {"id": "", "name": "", "args": ""})
+                    call_id = _get(raw_call, "id")
+                    if call_id:
+                        current["id"] = str(call_id)
+                    function = _get(raw_call, "function") or {}
+                    name = _get(function, "name")
+                    if name:
+                        current["name"] = str(name)
+                    arguments = _get(function, "arguments")
+                    if arguments:
+                        current["args"] = str(current["args"]) + str(arguments)
+
+        finally:
+            # LiteLLM's synchronous wrapper exposes its SDK stream but has no
+            # close method of its own. Closing that stream releases the HTTP
+            # response on success, callback failure and control cancellation.
+            underlying = getattr(stream, "completion_stream", stream)
+            close = getattr(underlying, "close", None)
+            active_error = sys.exc_info()[0] is not None
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    if not active_error:
+                        raise AgentLoopControlError("provider stream cleanup failed") from None
 
         calls = [
             ToolCall(
@@ -458,9 +495,13 @@ class ConfiguredAIClient:
             self._on_provider_event(level, message)
 
 
-def _private_image_completion(provider: AIProviderProfile, payload: dict[str, Any], *, private: bool) -> Any:
+def _private_image_completion(
+    provider: AIProviderProfile, payload: dict[str, Any], *, private: bool,
+    invoke: Callable[[], Any] | None = None,
+) -> Any:
+    call = invoke if invoke is not None else lambda: completion(**payload)
     if not private:
-        return completion(**payload)
+        return call()
     started = time.monotonic()
 
     def safe_error(error: Exception) -> ProviderCallError:
@@ -470,7 +511,9 @@ def _private_image_completion(provider: AIProviderProfile, payload: dict[str, An
         ))
 
     try:
-        result = completion(**payload)
+        result = call()
+    except AgentLoopControlError:
+        raise
     except Exception as exc:
         raise safe_error(exc) from None
     if not payload.get("stream"):
@@ -479,15 +522,20 @@ def _private_image_completion(provider: AIProviderProfile, payload: dict[str, An
     def chunks() -> Any:
         try:
             yield from result
+        except AgentLoopControlError:
+            raise
         except Exception as exc:
             raise safe_error(exc) from None
         finally:
-            close = getattr(result, "close", None)
+            underlying = getattr(result, "completion_stream", result)
+            close = getattr(underlying, "close", None)
+            active_error = sys.exc_info()[0] is not None
             if callable(close):
                 try:
                     close()
                 except Exception:
-                    pass
+                    if not active_error:
+                        raise AgentLoopControlError("provider stream cleanup failed") from None
     return chunks()
 
 
@@ -504,7 +552,15 @@ def _litellm_model(provider: AIProviderProfile) -> str:
 def _is_deepseek_v4_provider(provider: AIProviderProfile) -> bool:
     hostname = (urlparse(provider.base_url).hostname or "").lower()
     model = provider.model.rsplit("/", 1)[-1].strip().lower()
-    return hostname == "api.deepseek.com" and model in {"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-flash"}
+    return hostname == "api.deepseek.com" and model in {
+        "deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro",
+    }
+
+
+def _effective_output_limit(provider: AIProviderProfile, output_limit: int | None = None) -> int:
+    # Match the output reserve used by preflight, including legacy zero-valued profiles.
+    configured_limit = provider.max_output_tokens or DEFAULT_OUTPUT_RESERVE
+    return min(configured_limit, output_limit) if output_limit is not None else configured_limit
 
 
 def _profile_from_frozen_candidate(candidate: FrozenProviderCandidate) -> AIProviderProfile:

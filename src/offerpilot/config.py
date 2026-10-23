@@ -52,6 +52,7 @@ class Config(BaseModel):
     local_port: int = DEFAULT_PORT
     chat_auto_approve_writes: bool = False
     onboarding_force_open: bool = False
+    onboarding_dismissed: bool = False
     active_provider_id: str = DEFAULT_PROVIDER_ID
     fallback_provider_id: str = ""
     multimodal_provider_id: str = ""

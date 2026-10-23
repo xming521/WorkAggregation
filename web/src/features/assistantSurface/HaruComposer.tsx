@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { CloseOutlined, PictureOutlined, SendOutlined } from '@ant-design/icons';
 import ChatImagePreview from '@/components/ChatPanel/ChatImagePreview';
@@ -24,6 +25,7 @@ interface Props {
 
 export default function HaruComposer({ value, onChange, onSend, disabled, placeholder, inputRef,
   drafts, imageDisabledReason, onAdd, onRemove, onRetry, activePreviewKey, onPreviewChange, stopAction, children }: Props) {
+  useLocale();
   const fileRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
@@ -36,7 +38,7 @@ export default function HaruComposer({ value, onChange, onSend, disabled, placeh
   const submit = () => { if (!sendDisabled) onSend(); };
   const add = (files: File[]) => {
     if (!files.length) return;
-    if (uploadBlocked) { setEntryError(imageDisabledReason ?? '当前暂不能添加图片，请先完成任务或确认操作。'); return; }
+    if (uploadBlocked) { setEntryError(imageDisabledReason ?? t("当前暂不能添加图片，请先完成任务或确认操作。")); return; }
     setEntryError(undefined); onAdd(files);
   };
 
@@ -52,23 +54,23 @@ export default function HaruComposer({ value, onChange, onSend, disabled, placeh
       event.preventDefault(); event.stopPropagation(); dragDepth.current = 0; setDragging(false);
       add(Array.from(event.dataTransfer.files));
     }}>
-    {drafts.length > 0 ? <div className={styles.imageTray} aria-label="待发送图片" aria-live="polite">
+    {drafts.length > 0 ? <div className={styles.imageTray} aria-label={t("待发送图片")} aria-live="polite">
       {drafts.map((draft, index) => <div key={draft.key} className={styles.imageDraft}>
-        <ChatImagePreview image={draft.reference} localUrl={draft.previewUrl} label={`图片 ${index + 1}`} compact
+        <ChatImagePreview image={draft.reference} localUrl={draft.previewUrl} label={t("图片 {index}", { index: index + 1 })} compact
           previewVisible={onPreviewChange ? activePreviewKey === `draft:${draft.key}` : undefined}
           onPreviewVisibleChange={onPreviewChange ? (visible) => onPreviewChange(visible ? `draft:${draft.key}` : undefined) : undefined} />
-        <button type="button" className={styles.imageRemove} aria-label={`移除图片 ${index + 1}：${draft.name}`}
+        <button type="button" className={styles.imageRemove} aria-label={t("移除图片 {index}：{name}", { index: index + 1, name: draft.name })}
           disabled={disabled} onClick={() => onRemove(draft.key)}><CloseOutlined /></button>
         <span className={styles.imageStatus} role={draft.status === 'uploading' ? 'status' : undefined}>
-          {draft.status === 'uploading' ? '上传中…' : draft.status === 'error' ? '上传失败' : '已就绪'}
+          {draft.status === 'uploading' ? t("上传中…") : draft.status === 'error' ? t("上传失败") : t("已就绪")}
         </span>
         {draft.status === 'error' ? <button type="button" className={styles.imageRetry}
-          disabled={uploadBlocked} aria-label={`重试图片 ${index + 1}`} onClick={() => onRetry(draft)}>重试</button> : null}
+          disabled={uploadBlocked} aria-label={t("重试图片 {index}", { index: index + 1 })} onClick={() => onRetry(draft)}>{t("重试")}</button> : null}
       </div>)}
     </div> : null}
-    <label htmlFor="haru-composer" className={styles.srOnly}>给 Haru 发消息</label>
+    <label htmlFor="haru-composer" className={styles.srOnly}>{t("给 Haru 发消息")}</label>
     <textarea id="haru-composer" ref={inputRef} rows={2} value={value} disabled={disabled}
-      placeholder={placeholder ?? '问 Haru，也可以粘贴截图…'}
+      placeholder={placeholder ?? t('问 Haru…')}
       aria-describedby="haru-image-hint haru-image-errors"
       onChange={(event) => onChange(event.target.value)}
       onPaste={(event) => {
@@ -85,13 +87,13 @@ export default function HaruComposer({ value, onChange, onSend, disabled, placeh
     <div className={styles.composerTools}>
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden
         onChange={(event) => { add(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
-      <button type="button" aria-label="添加图片" disabled={uploadBlocked || drafts.length >= 4}
-        title={imageDisabledReason ?? '选择、粘贴或拖入图片（最多 4 张）'} onClick={() => fileRef.current?.click()}><PictureOutlined /></button>
+      <button type="button" aria-label={t("添加图片")} disabled={uploadBlocked || drafts.length >= 4}
+        title={imageDisabledReason ?? t("选择、粘贴或拖入图片（最多 4 张）")} onClick={() => fileRef.current?.click()}><PictureOutlined /></button>
       <span id="haru-image-hint" className={styles.imageHint}>
-        {dragging && !uploadBlocked ? '松开，添加到这条消息' : imageDisabledReason
-          ?? (imagesPending ? '图片就绪后即可发送' : drafts.length ? `${drafts.length} / 4 张 · 可直接发送图片` : '粘贴或拖入图片 · 最多 4 张')}
+        {dragging && !uploadBlocked ? t("松开，添加到这条消息") : imageDisabledReason
+          ?? (imagesPending ? t("图片就绪后即可发送") : drafts.length ? t("{count} / 4 张 · 可直接发送图片", { count: drafts.length }) : t("粘贴或拖入图片 · 最多 4 张"))}
       </span>
-      {stopAction ?? <button type="button" className={styles.sendButton} aria-label="发送消息"
+      {stopAction ?? <button type="button" className={styles.sendButton} aria-label={t("发送消息")}
         disabled={sendDisabled} onClick={submit}><SendOutlined /></button>}
     </div>
     <div id="haru-image-errors" className={styles.imageErrors}>

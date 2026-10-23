@@ -3,13 +3,14 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import DateTime, create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from offerpilot.models import Base
+from offerpilot.job_mail import models as _job_mail_models  # noqa: F401
 # Import feature model modules before ``Base.metadata.create_all`` so their
 # tables are registered on the shared declarative metadata.  These imports are
 # intentionally kept here (the database composition root) rather than relying
@@ -83,6 +84,7 @@ def init_database(db_path: Path) -> SessionFactory:
             BEGIN SELECT RAISE(ABORT, 'immutable image resource'); END
         """))
     _record_migration(engine, "0034_chat_image_messages", "Add immutable image resources and message references")
+    _record_migration(engine, "0033_job_mail_review", "Add isolated mail evidence, proposals, previews and atomic receipts")
     runtime_columns_changed = [
         _ensure_column(engine, "pilot_executions", "protocol", "TEXT NOT NULL DEFAULT 'legacy'"),
         _ensure_column(engine, "pilot_executions", "runtime_epoch", "TEXT"),
@@ -1003,26 +1005,31 @@ def _recover_knowledge_runtime(engine, data_dir: Path) -> None:  # type: ignore[
         }
         if "knowledge_jobs" not in tables:
             return
-        # 用 Python 端 now.isoformat() 与写入侧 datetime.now(timezone.utc) 保持时区与
-        # 格式一致；CURRENT_TIMESTAMP 在 SQLite 返回无 tz 的 "YYYY-MM-DD HH:MM:SS"，
-        # 与带 +00:00 的 ISO 字符串按字节比较时结果不稳定。
-        now_iso = datetime.now(timezone.utc).isoformat()
+        # 先锁定 writer，再采样时刻与读取 lease，不能覆盖并发续租。
+        # SQLite raw adapter/ORM 的日期文本格式不同，使用 typed datetime 精确比较。
+        conn.execute(text("BEGIN IMMEDIATE"))
+        moment = datetime.now(timezone.utc)
+        now_iso = moment.isoformat()
         stale_jobs = conn.execute(
             text(
                 """
-                SELECT id, kind, source_id, attempt_id, snapshot_id
+                SELECT id, kind, source_id, attempt_id, snapshot_id, lease_expires_at
                 FROM knowledge_jobs
                 WHERE status = 'running'
                   AND kind != 'delete'
                   AND lease_expires_at IS NOT NULL
-                  AND lease_expires_at < :now
                 """
-            ),
-            {"now": now_iso},
+            ).columns(lease_expires_at=DateTime(timezone=True)),
         ).fetchall()
         if not stale_jobs:
             return
-        for job_id, kind, source_id, attempt_id, snapshot_id in stale_jobs:
+        for job_id, kind, source_id, attempt_id, snapshot_id, expiry in stale_jobs:
+            expiry = (
+                expiry.replace(tzinfo=timezone.utc)
+                if expiry.tzinfo is None else expiry.astimezone(timezone.utc)
+            )
+            if expiry > moment:
+                continue
             conn.execute(
                 text(
                     """
@@ -1848,6 +1855,10 @@ def _ensure_scoped_tool_authority_schema(engine) -> None:  # type: ignore[no-unt
     )
 
     with engine.begin() as conn:
+        # sqlite3's legacy mode does not BEGIN for DDL. Hold the database write
+        # lock across the entire guard replacement so concurrent initializers
+        # cannot interleave DROP/CREATE, and failures restore the old guard set.
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
         conversation_triggers = (
             "trg_conversations_scope_insert",
             "trg_conversations_scope_update",

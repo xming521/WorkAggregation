@@ -2,6 +2,7 @@
 import { act, createRef, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setLocale } from '@/i18n';
 import HaruComposer from './HaruComposer';
 
 vi.mock('@/components/ChatPanel/ChatImagePreview', () => ({ default: () => <span>图片预览</span> }));
@@ -17,9 +18,18 @@ function mount(overrides: Partial<ComponentProps<typeof HaruComposer>> = {}) {
 }
 const send = () => host.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')!;
 beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
-afterEach(() => { act(() => root.unmount()); host.remove(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); setLocale('zh-CN'); });
 
 describe('Haru image composer', () => {
+  it('translates image controls without losing the current draft', () => {
+    mount({ value: '用户的草稿', drafts: [{ ...ready, status: 'error' }] });
+    const composer = host.querySelector('textarea')!;
+    act(() => setLocale('en-US'));
+    expect(composer.value).toBe('用户的草稿');
+    expect(host.querySelector('[aria-label="Add images"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Retry image 1"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Images to send"]')).not.toBeNull();
+  });
   it('allows image-only submission but never submits while an upload failed or is in progress', () => {
     const props = mount();
     expect(send().disabled).toBe(false);

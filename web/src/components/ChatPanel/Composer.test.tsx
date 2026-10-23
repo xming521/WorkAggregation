@@ -35,6 +35,20 @@ afterEach(() => {
 });
 
 describe('Composer quick questions', () => {
+  it('routes immediate slash commands separately from explicit image submission', async () => {
+    const onSend = vi.fn().mockResolvedValue('sent');
+    const onCapabilitySend = vi.fn().mockResolvedValue('sent');
+    const draft = { key: 'image', scopeKey: 'new', scope: {}, name: '截图', previewUrl: 'blob:preview', status: 'ready' as const };
+    const cap = { id: 'list', group: 'test', label: 'List', hint: 'List items', prompt: 'List my items', icon: () => null };
+    const view = render(<Composer capabilities={[cap]} imageDrafts={[draft]} onSend={onSend} onCapabilitySend={onCapabilitySend} />);
+    act(() => changeValue(view.querySelector('textarea')!, '/'));
+    await act(async () => view.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(onCapabilitySend).toHaveBeenCalledWith('List my items');
+    expect(onSend).not.toHaveBeenCalled();
+    expect(view.querySelector('[aria-label="待发送图片"]')).not.toBeNull();
+    await act(async () => view.querySelector<HTMLButtonElement>('[aria-label="发送"]')!.click());
+    expect(onSend).toHaveBeenCalledWith('');
+  });
   it('sends a ready image without text, and blocks an uploading or failed image', async () => {
     const onSend = vi.fn().mockResolvedValue('sent');
     const draft = { key: 'image', scopeKey: 'new', scope: {}, name: '截图', previewUrl: 'blob:preview', status: 'ready' as const };

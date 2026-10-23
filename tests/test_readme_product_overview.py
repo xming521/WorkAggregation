@@ -38,7 +38,7 @@ def test_readme_references_five_readable_product_screenshots():
 def test_readme_keeps_pilot_and_offer_negotiation_visible():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "Pilot AI 助手" in readme
+    assert "Pilot 求职 Agent" in readme
     assert "Haru" in readme
     assert "谈薪" in readme
     assert "默认需要你的确认" in readme

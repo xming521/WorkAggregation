@@ -16,6 +16,29 @@ from offerpilot.chat_images import ChatImageStore, ImageInputError
 from offerpilot.db import init_database
 
 
+@pytest.fixture(autouse=True)
+def stub_async_transport(monkeypatch):
+    """Use each test's synchronous fake through the new controlled I/O path."""
+    async def complete(**kwargs):
+        result = model_client.completion(**kwargs)
+        class Stream:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                try:
+                    return next(result)
+                except StopIteration:
+                    raise StopAsyncIteration from None
+
+            async def aclose(self):
+                close = getattr(result, "close", None)
+                if callable(close):
+                    close()
+        return Stream()
+    monkeypatch.setattr(model_client, "acompletion", complete)
+
+
 def picture(size=(80, 40), kind="PNG"):
     out = BytesIO()
     Image.new("RGB", size, "white").save(out, format=kind)
@@ -309,7 +332,8 @@ def test_omitted_history_images_restore_text_fallback_candidates(tmp_path, monke
             calls.append(kwargs)
             if kwargs['model'].endswith('test-vision'):
                 raise RuntimeError('primary unavailable')
-            return {'choices': [{'message': {'content': '本轮未读取原图'}}]}
+            message = {'content': '本轮未读取原图'}
+            return iter([{'choices': [{'delta': message}]}]) if kwargs.get('stream') else {'choices': [{'message': message}]}
         monkeypatch.setattr(model_client, 'completion', complete)
         follow = client.post('/api/chat', json={'message': '继续讨论', 'conversation_id': first.json()['conversation_id']})
         assert follow.status_code == 200, follow.text
@@ -353,3 +377,103 @@ def test_image_tool_proposal_survives_restart_and_requires_confirmation(tmp_path
         saved = client.get(f"/api/chat/conversations/{pending['conversation_id']}").json()
         assert saved[0]['image_attachments'] == [ref]
         assert len(image_calls) >= 2
+
+
+@pytest.mark.parametrize("kind", ["timeout", "http"])
+def test_private_image_error_preserves_safe_diagnostics(tmp_path, monkeypatch, kind):
+    from offerpilot.ai.types import Message
+    from offerpilot.ai.client import ConfiguredAIClient, ProviderCallError
+    store = ChatImageStore(init_database(tmp_path / "data.db"), tmp_path)
+    ref = store.upload(picture(), context_type="workspace", context_ref="")
+    provider = AIProviderProfile(id="vision", model="vision", api_key="key",
+                                 supports_vision=True, context_window=131072)
+    client = ConfiguredAIClient(Config(providers=[provider], active_provider_id="vision"),
+                                image_reader=store.read_for_model)
+    class HttpFailure(Exception):
+        status_code = 503
+        request_id = "private-request-id"
+    error = TimeoutError("SECRET_IMAGE") if kind == "timeout" else HttpFailure("SECRET_IMAGE")
+    def fail(**kwargs):
+        raise error
+    monkeypatch.setattr(model_client, "completion", fail)
+    audit = []
+    monkeypatch.setattr(model_client, "_try_audit_provider_result", lambda *args, **kwargs: audit.append(kwargs))
+    with pytest.raises(ProviderCallError) as caught:
+        client.complete([Message("user", "", images=(ref,))], [])
+    diagnostic = caught.value.diagnostic
+    assert diagnostic["failure_category"] == ("network_timeout" if kind == "timeout" else "provider_http_5xx")
+    assert diagnostic["timeout"] is (kind == "timeout")
+    assert diagnostic["http_status"] == (None if kind == "timeout" else 503)
+    assert audit[0]["failure_category"] == diagnostic["failure_category"]
+    assert "SECRET_IMAGE" not in str(caught.value) + str(diagnostic) + str(audit)
+    assert "private-request-id" not in str(diagnostic) + str(audit)
+
+
+@pytest.mark.parametrize("phase", ["open", "read"])
+def test_private_async_stream_failure_redacts_and_closes(tmp_path, monkeypatch, phase):
+    from offerpilot.ai.types import Message
+    from offerpilot.ai.client import ConfiguredAIClient, ProviderCallError
+    from offerpilot.ai.provider_stream import provider_control_scope
+    store = ChatImageStore(init_database(tmp_path / "data.db"), tmp_path)
+    ref = store.upload(picture(), context_type="workspace", context_ref="")
+    provider = AIProviderProfile(id="vision", model="vision", api_key="key",
+                                 supports_vision=True, context_window=131072)
+    client = ConfiguredAIClient(Config(providers=[provider], active_provider_id="vision"),
+                                image_reader=store.read_for_model)
+    closed = []
+    class Stream:
+        emitted = False
+        def __aiter__(self):
+            return self
+        async def __anext__(self):
+            if not self.emitted:
+                self.emitted = True
+                return {"choices": [{"delta": {"content": "safe"}}]}
+            raise RuntimeError("data:image/png;base64,SECRET_IMAGE")
+        async def aclose(self):
+            closed.append(True)
+    async def complete(**kwargs):
+        if phase == "open":
+            raise RuntimeError("data:image/png;base64,SECRET_IMAGE")
+        return Stream()
+    monkeypatch.setattr(model_client, "acompletion", complete)
+    deltas = []
+    with provider_control_scope(lambda: None):
+        with pytest.raises(ProviderCallError) as caught:
+            client.stream_complete([Message("user", "", images=(ref,))], [], deltas.append)
+    assert "SECRET_IMAGE" not in str(caught.value) + str(caught.value.diagnostic)
+    assert deltas == ([] if phase == "open" else ["safe"])
+    assert closed == ([] if phase == "open" else [True])
+
+
+@pytest.mark.parametrize("value", [None, "img_" + "1" * 32, ["https://example.com/private.png"],
+    ["../../private"], ["img_" + "1" * 32] * 2, ["img_" + str(i) * 32 for i in range(5)]])
+def test_image_ids_reject_external_paths_duplicates_and_excess(value):
+    from offerpilot.image_contracts import image_ids
+    with pytest.raises(ImageInputError):
+        image_ids(value)
+
+
+def test_image_message_and_call_byte_limits():
+    from offerpilot.image_contracts import ImageReference, image_references, require_image_call_limits
+    refs = tuple(ImageReference("img_" + str(i) * 32, "a" * 64, "image/png",
+                                8 * 1024 * 1024, 100, 100) for i in range(3))
+    with pytest.raises(ImageInputError, match="image_total_size_exceeded"):
+        image_references(refs)
+    with pytest.raises(ImageInputError, match="image_context_size_exceeded"):
+        require_image_call_limits(refs)
+
+
+def test_upload_strips_metadata_and_rejects_oversized_dimensions():
+    from PIL.PngImagePlugin import PngInfo
+    from offerpilot.chat_images import normalize_image
+    source = BytesIO()
+    metadata = PngInfo()
+    metadata.add_text("private", "sensitive-metadata")
+    Image.new("RGB", (10, 10), "white").save(source, format="PNG", pnginfo=metadata)
+    content, _, _, _ = normalize_image(source.getvalue())
+    assert b"sensitive-metadata" not in content
+    with Image.open(BytesIO(content)) as image:
+        assert not image.info
+    with pytest.raises(ImageInputError, match="image_dimensions_exceeded"):
+        normalize_image(picture((10001, 1)))
