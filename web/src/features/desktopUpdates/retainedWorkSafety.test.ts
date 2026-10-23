@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { applicationJdBaselineForOpen, desktopUpdateTaskGuard, retainedWorkSafety, type RetainedWorkBuckets } from './retainedWorkSafety';
+import { applicationJdBaselineForOpen, desktopUpdateTaskGuard, retainedWorkSafety as compatibilitySafety, applicationJdRetainedWorkSafety, offerNegotiationRetainedWorkSafety, interviewRetainedWorkSafety, type RetainedWorkBuckets } from './retainedWorkSafety';
 import type { InterviewStoryDraft } from '@/components/InterviewStoryDrawer';
 import type { ApplicationJdDraft } from '@/types/applicationJdVersion';
 import type { OfferNegotiationDraft } from '@/components/OfferNegotiationDrawer';
 import type { ProductActionOwnerDraft } from '@/features/reviewReadiness/contracts';
+import { readRetainedOwnerSafety } from '@/features/coreTaskSurface/registry';
+
+// Run every existing golden/negative fixture through both the compatibility
+// projection and registered per-domain projections. Expected values stay intact.
+function retainedWorkSafety(value: RetainedWorkBuckets) {
+  const projection = readRetainedOwnerSafety({
+    'application.jd': () => applicationJdRetainedWorkSafety(value),
+    'application.offer_review': () => offerNegotiationRetainedWorkSafety(value),
+    'interview.retained': () => interviewRetainedWorkSafety(value),
+  });
+  expect(projection).toEqual(compatibilitySafety(value));
+  return projection;
+}
 
 const clean = { hasDraft: false, activeRun: false, pendingApproval: false };
 const buckets = (): RetainedWorkBuckets => ({ adaptivePractice: {}, applicationJd: {}, offerNegotiation: {}, offerNegotiationPilot: {}, reviewReadiness: {}, knowledgeCapture: {}, interviewPreparation: {}, interviewStory: {}, preparationAttempts: {}, reviewAttempts: {} });

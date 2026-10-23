@@ -92,11 +92,11 @@ const WAITING_STATUSES: ApplicationStatus[] = ['pending', 'applied', 'written_te
 const PREPARE_KINDS: PipelineInsightKind[] = [
   'offer_deadline',
   'interview_soon',
+  'event_upcoming',
+  'application_deadline',
   'material_kit_incomplete',
   'question_due',
 ];
-const DEFAULT_WEEKLY_TARGET = 6;
-const FOLLOWUP_TARGET = 3;
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function parseDate(value?: string): dayjs.Dayjs | null {
@@ -167,7 +167,7 @@ function buildMetrics(
   offers: Offer[],
   materialKits: MaterialKitViewModel[] | null | undefined,
   practiceStats: PracticeStats | null | undefined,
-  weeklyTarget: number,
+  weeklyTarget: number | undefined,
   now: dayjs.Dayjs,
 ): MissionMetric[] {
   const weekStart = now.locale('en').startOf('week');
@@ -193,22 +193,25 @@ function buildMetrics(
     return Boolean(deadline && deadline.diff(now, 'hour', true) >= 0 && deadline.diff(now, 'hour', true) <= 48);
   }).length;
 
+  const target = weeklyTarget != null && Number.isFinite(weeklyTarget) && weeklyTarget > 0 ? weeklyTarget : undefined;
+
   return [
     {
       kind: 'applications',
       label: t("本周投递"),
       current: weeklyApplications,
-      target: weeklyTarget,
-      state: stateForProgress(weeklyApplications, weeklyTarget),
-      reason: t("本周已新增 {weeklyApplications} 个投递，目标 {weeklyTarget} 个。", { weeklyApplications: weeklyApplications, weeklyTarget: weeklyTarget }),
+      target,
+      state: stateForProgress(weeklyApplications, target ?? 0),
+      reason: target == null
+        ? t("本周已新增 {weeklyApplications} 个投递。", { weeklyApplications })
+        : t("本周已新增 {weeklyApplications} 个投递，目标 {weeklyTarget} 个。", { weeklyApplications, weeklyTarget: target }),
       targetView: 'board',
     },
     {
       kind: 'followups',
       label: t("跟进节奏"),
       current: staleCount,
-      target: staleCount > 0 ? FOLLOWUP_TARGET : 0,
-      state: staleCount === 0 ? 'on_track' : staleCount >= FOLLOWUP_TARGET ? 'blocked' : 'watch',
+      state: staleCount === 0 ? 'on_track' : 'watch',
       reason: staleCount === 0 ? t("暂无明显停滞的活跃投递。") : t("{staleCount} 个活跃投递需要跟进。", { staleCount: staleCount }),
       targetView: 'reminders',
     },
@@ -344,7 +347,7 @@ function buildHeadline(metrics: MissionMetric[], actions: PipelineInsight[], rea
   const blocked = readiness.find((item) => item.readiness === 'blocked');
   if (blocked) return t("先解除 {companyName} 的准备阻塞。", { companyName: blocked.companyName });
 
-  const behind = metrics.find((metric) => metric.state === 'behind');
+  const behind = metrics.find((metric) => metric.kind === 'applications' && metric.target != null && metric.state === 'behind');
   if (behind) return t("{label}落后于本周目标。", { label: behind.label });
 
   return t("本周节奏稳定，保持跟进和准备即可。");
@@ -358,7 +361,7 @@ export function deriveMissionControl({
   practiceStats,
   insights,
   healthLabel,
-  weeklyTarget = DEFAULT_WEEKLY_TARGET,
+  weeklyTarget,
   now = dayjs(),
 }: DeriveMissionControlInput): MissionControlSummary {
   const current = dayjs(now);

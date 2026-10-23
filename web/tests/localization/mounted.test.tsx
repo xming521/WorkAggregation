@@ -97,6 +97,30 @@ describe('real AppShell localization with strict synthetic API fixtures', () => 
   });
 
 
+  it('keeps one grouped companion setting without a second job inbox, and retains it through AI settings', async () => {
+    await mount('settings');
+    const lifeSettings = await waitForUi('companion settings', () => document.querySelector<HTMLElement>('section[aria-labelledby="companion-life-settings-title"]') ?? undefined);
+    expect(document.querySelectorAll('section[aria-labelledby="companion-life-settings-title"]')).toHaveLength(1);
+    expect(lifeSettings.querySelector('[aria-label="开启虚拟日常"]')?.getAttribute('aria-checked')).toBe('false');
+    expect(document.querySelector('[data-companion-life]')).toBeNull();
+    expect(document.querySelector('section[aria-labelledby="proactive-settings-title"]')).not.toBeNull();
+    expect(state.api.requests.filter((request: any) => request.path === '/api/proactive/jobs')).toEqual([]);
+    expect(document.getElementById('settings-ai-privacy')!.compareDocumentPosition(lifeSettings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lifeSettings.compareDocumentPosition(document.getElementById('settings-connections')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await click('配置 AI');
+    await waitForUi('AI settings return action', () => buttons('返回设置')[0]);
+    expect(document.querySelector('section[aria-labelledby="companion-life-settings-title"]')).toBe(lifeSettings);
+    expect(lifeSettings.closest('section[aria-hidden="true"]')).not.toBeNull();
+    await switchLocale('en-US');
+    await click('Back to settings');
+    expect(document.querySelector('section[aria-labelledby="companion-life-settings-title"]')).toBe(lifeSettings);
+    expect(lifeSettings.closest('section[aria-hidden="true"]')).toBeNull();
+    expect(chineseUi()).toEqual([]);
+    expect(document.querySelector('[aria-label="Enable proactive tasks"]')).not.toBeNull();
+    expect(writes()).toHaveLength(0);
+    expect(state.api.unexpected).toEqual([]);
+  });
+
   it('does not translate retained user and AI message bodies when the shared Pilot UI switches language', async () => {
     state.api = createFixtureApi({ retainedConversation: true }); await mount('pilot');
     const title = [...document.querySelectorAll<HTMLElement>('button,[role="button"]')].find((el) => el.textContent?.includes('Synthetic retained conversation'))!;
@@ -108,8 +132,8 @@ describe('real AppShell localization with strict synthetic API fixtures', () => 
   });
   it('keeps the interview practice surface selected while language changes, with no model or write request', async () => {
     await mount('interview'); await switchLocale('en-US');
-    const tab = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((el) => el.textContent === 'Interview practice')!;
-    await act(async () => tab.click()); await flush(); await click('Start interview practice');
+    expect(document.querySelector('[data-testid="free-practice-workspace"]')).not.toBeNull();
+    await click(t('快速模拟'));
     for (let i = 0; i < 4; i++) await flush();
     expect(document.querySelector('[data-testid="interview-practice-surface"]')).not.toBeNull();
     const before = writes().length; await switchLocale('zh-CN');

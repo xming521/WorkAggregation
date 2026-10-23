@@ -51,6 +51,20 @@ async function go(page, view = 'dashboard') {
   if (view === 'pilot') await page.getByRole('button', { name: /^(退出沉浸模式，返回原页面|Exit immersive mode and return to the previous page)$/ }).waitFor();
   else await page.locator('#root').waitFor({ state: 'visible' });
 }
+async function openCompanionSettings(page) {
+  await go(page, 'settings');
+  await page.getByRole('navigation', { name: /^(设置分组|Settings groups)$/ })
+    .getByRole('button', { name: /^(AI 与隐私|AI and privacy)$/ }).click();
+  await settings(page).waitFor();
+  check('companion settings remain within the grouped AI/privacy section', await settings(page).evaluate(node => {
+    const group = document.getElementById('settings-ai-privacy');
+    const nextGroup = document.getElementById('settings-connections');
+    return !!group && !!nextGroup
+      && !!(group.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
+      && !!(node.compareDocumentPosition(nextGroup) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }));
+  await settings(page).scrollIntoViewIfNeeded();
+}
 async function openDetails(page) {
   await status(page).click(); await details(page).waitFor();
   await until('detail command controls settle', async () => await button(page, 'close').isVisible()
@@ -162,7 +176,11 @@ try {
     dirty: execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }).trim(),
     lockSha256: createHash('sha256').update(await readFile(path.join(web, 'package-lock.json'))).digest('hex'),
     distIndexSha256: createHash('sha256').update(index).digest('hex') };
-  browser = await chromium.launch({ headless: true });
+  const executablePath = process.env.CHROMIUM_PATH;
+  browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), headless: true });
+  report.browser = { engine: 'Chromium', version: browser.version(), headless: true,
+    executablePath: executablePath || chromium.executablePath(),
+    source: executablePath ? 'CHROMIUM_PATH' : 'Playwright managed Chromium' };
 
   for (const [locale, width] of [['zh-CN', 1280], ['en-US', 900]]) {
     await runCase(`read-close-refresh-${locale}-${width}`, { locale, width }, async ({ page, api }) => {
@@ -303,7 +321,7 @@ try {
   });
 
   await runCase('hidden-settings-language-off-job', { locale: 'zh-CN' }, async ({ page, api }) => {
-    await go(page, 'settings'); await settings(page).waitFor();
+    await openCompanionSettings(page);
     await until('settings ready', () => settings(page).getByRole('switch', { name: names.enabled }).isEnabled());
     const before = api.snapshot();
     api.permit('settings'); await settings(page).getByRole('switch', { name: names.hide }).click();
@@ -335,7 +353,7 @@ try {
   });
 
   await runCase('two-window-stale-cas-refresh', { width: 900 }, async ({ page, context, api }) => {
-    await go(page, 'settings'); const second = await context.newPage(); await go(second, 'settings');
+    await openCompanionSettings(page); const second = await context.newPage(); await openCompanionSettings(second);
     for (const current of [page, second]) await until('both settings windows ready', () => settings(current).getByRole('switch', { name: names.enabled }).isEnabled());
     const initial = api.snapshot(); api.permit('settings');
     await settings(page).getByRole('switch', { name: names.hide }).click();
@@ -371,6 +389,7 @@ try {
   await writeFile(path.join(output, 'requests.json'), JSON.stringify({ requests: report.requests, api: allApi, failures: report.requestFailures }, null, 2));
   await writeFile(path.join(output, 'report.txt'), [
     `Companion browser gate: ${report.status.toUpperCase()}`, `Commit: ${report.source?.commit || 'unavailable'}`, `Tree: ${report.source?.tree || 'unavailable'}`,
+    `Browser: ${report.browser?.engine || 'unavailable'} ${report.browser?.version || ''}; executable: ${report.browser?.executablePath || 'unavailable'}`,
     'Scope: actual production UI + Chromium + local synthetic API only. Not backend persistence or model-quality proof.',
     ...report.scenarios.map(scenario => `${scenario.status.toUpperCase()} ${scenario.name} (${scenario.width}x${scenario.height}, ${scenario.locale})`),
     `Assertions: ${report.assertions.length}; API requests: ${allApi.length}; page errors: ${report.pageErrors.length}; network violations: ${report.networkViolations.length}`,

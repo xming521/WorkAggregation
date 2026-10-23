@@ -6,7 +6,6 @@ import JobMailSettings from '@/features/jobMail/JobMailSettings';
 import ContextPolicySettings from './ContextPolicySettings';
 import ConfirmedMemorySettings from './ConfirmedMemorySettings';
 import ProactiveSettings from './ProactiveSettings';
-import ProactiveInbox from './ProactiveInbox';
 import DesktopUpdatesCard from './DesktopUpdatesCard';
 import { ApiOutlined, CopyOutlined, DownloadOutlined, FileSearchOutlined, ReloadOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,11 +13,11 @@ import { Alert, Button, Divider, Empty, Input, Pagination, Select, Skeleton, Spa
 import { exportBackup, getLogs, getSettings, getSettingsBackup, type LogEntry, type LogsPage, type Settings } from '@/services/chat';
 import { ONBOARDING_QUERY_KEY, setOnboardingForceOpen } from '@/services/onboarding';
 import { buildDiagnosticsText } from '@/lib/diagnostics';
-import OfflineWhisperModelCard from '@/features/mockInterviewVoice/OfflineWhisperModelCard';
 import type { PilotMascotAnimationLevel } from '@/features/pilotMascot/pilotMascotPreference';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 
 const AISettingsDrawer = lazy(() => import('./AISettingsDrawer'));
+const OfflineWhisperModelCard = lazy(() => import('@/features/mockInterviewVoice/OfflineWhisperModelCard'));
 
 interface Props {
   aiSettingsRequest?: number;
@@ -48,6 +47,8 @@ export default function SettingsView({
   const locale = useLocale();
   const queryClient = useQueryClient();
   const [localeSaving, setLocaleSaving] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [voiceOpened, setVoiceOpened] = useState(false);
   const [logLevel, setLogLevel] = useState('');
   const [logPage, setLogPage] = useState(1);
   const [lastLogsPage, setLastLogsPage] = useState<LogsPage>();
@@ -62,7 +63,8 @@ export default function SettingsView({
     queryKey: ['runtime-logs', LOG_PAGE_SIZE, logOffset, logLevel],
     queryFn: () => getLogs(LOG_PAGE_SIZE, logOffset, logLevel),
     placeholderData: keepPreviousData,
-    refetchInterval: logPage === 1 ? 15000 : false,
+    enabled: diagnosticsOpen && !aiSettingsOpen,
+    refetchInterval: diagnosticsOpen && !aiSettingsOpen && logPage === 1 ? 15000 : false,
   });
   const reopenOnboardingMutation = useMutation({
     mutationFn: () => setOnboardingForceOpen(true),
@@ -122,19 +124,16 @@ export default function SettingsView({
     });
   }
 
-  if (aiSettingsOpen) {
-    return (
-      <Suspense fallback={<Skeleton active paragraph={{ rows: 8 }} />}>
-        <AISettingsDrawer open onClose={() => setAISettingsOpen(false)} />
-      </Suspense>
-    );
-  }
-
   return (
+    <>
+    {aiSettingsOpen && <Suspense fallback={<Skeleton active paragraph={{ rows: 8 }} />}>
+      <AISettingsDrawer open onClose={() => setAISettingsOpen(false)} />
+    </Suspense>}
     <section
+      aria-hidden={aiSettingsOpen || undefined}
       style={{
         maxWidth: 1040,
-        display: 'grid',
+        display: aiSettingsOpen ? 'none' : 'grid',
         gap: 20,
       }}
     >
@@ -143,6 +142,14 @@ export default function SettingsView({
           {t("设置")}</Typography.Title>
       </div>
 
+      <nav aria-label={t('设置分组')}><Space wrap>
+        <Button type="link" onClick={() => document.getElementById('settings-general')?.scrollIntoView({ block: 'start' })}>{t('通用与外观')}</Button>
+        <Button type="link" onClick={() => document.getElementById('settings-ai-privacy')?.scrollIntoView({ block: 'start' })}>{t('AI 与隐私')}</Button>
+        <Button type="link" onClick={() => document.getElementById('settings-connections')?.scrollIntoView({ block: 'start' })}>{t('连接与自动任务')}</Button>
+        <Button type="link" onClick={() => document.getElementById('data-backup-settings-title')?.scrollIntoView({ block: 'start' })}>{t('数据与备份')}</Button>
+        <Button type="link" onClick={() => document.getElementById('settings-diagnostics')?.scrollIntoView({ block: 'start' })}>{t('高级与诊断')}</Button>
+      </Space></nav>
+      <Typography.Title id="settings-general" level={3}>{t('通用与外观')}</Typography.Title>
       <section style={panelStyle} aria-labelledby="language-settings-title">
         <Typography.Title id="language-settings-title" level={4} style={panelTitleStyle}>{t('界面语言')}</Typography.Title>
         <Select
@@ -159,89 +166,6 @@ export default function SettingsView({
           style={{ width: 220, maxWidth: '100%' }}
         />
         <Typography.Text type="secondary">{t('立即切换并保存在此设备；不会翻译你输入的内容或已有 AI 回复。')}</Typography.Text>
-      </section>
-
-      <section style={panelStyle}>
-        <Space align="start" size={12}>
-          <span style={panelIconStyle}>
-            <ApiOutlined />
-          </span>
-          <div>
-            <Typography.Title level={4} style={panelTitleStyle}>
-              {t("AI 与模型")}</Typography.Title>
-            <Typography.Text style={{ color: 'var(--op-muted)' }}>
-              {t("管理模型供应商、模型、密钥与写入确认策略。")}</Typography.Text>
-          </div>
-        </Space>
-        <Divider style={{ margin: 0 }} />
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: 12,
-          }}
-        >
-          <RuntimeField label={t("运行模式")} value={formatRuntimeMode(settings?.runtime_mode)} />
-          <RuntimeField label={t("后端版本")} value={settings?.version ?? '-'} />
-          <RuntimeField label={t("密钥状态")} value={settings?.has_api_key ? t("已配置") : t("未配置")} />
-
-        </div>
-        <details style={detailsStyle}>
-          <summary style={detailsSummaryStyle}>{t("高级运行信息")}</summary>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 12 }}>
-            <RuntimeField label={t("多供应商")} value={t("{value0} 个", { value0: settings?.providers.length ?? 0 })} />
-            <RuntimeField label="Fallback" value={fallbackLabel(settings)} />
-            <RuntimeField label={t("日志级别")} value={settings?.log_level ?? '-'} />
-            <RuntimeField label={t("访问控制")} value={settings?.auth_enabled ? t("已开启") : t("未开启")} />
-          </div>
-        </details>
-        <div>
-          <Space wrap>
-            <Button type="primary" icon={<SettingOutlined />} onClick={() => setAISettingsOpen(true)}>
-              {t("配置 AI")}</Button>
-          </Space>
-        </div>
-      </section>
-
-      <JobMailSettings />
-      <DesktopUpdatesCard />
-
-      <ContextPolicySettings />
-      <ConfirmedMemorySettings />
-      <CompanionLifeSettings />
-      <ProactiveSettings />
-      <ProactiveInbox />
-
-      <section style={panelStyle} aria-labelledby="data-backup-settings-title">
-        <Space align="start" size={12}>
-          <span style={panelIconStyle}><DownloadOutlined /></span>
-          <div>
-            <Typography.Title id="data-backup-settings-title" level={4} style={panelTitleStyle}>{t("数据与备份")}</Typography.Title>
-            <Typography.Text style={{ color: 'var(--op-muted)' }}>{t("导出本机设置或完整工作区数据。")}</Typography.Text>
-          </div>
-        </Space>
-        <Divider style={{ margin: 0 }} />
-        <RuntimeField label={t("数据目录")} value={settings?.data_dir ?? '-'} />
-        <div>
-          <Space wrap>
-            <Button
-              icon={<DownloadOutlined />}
-              loading={backupMutation.isPending}
-              onClick={() => backupMutation.mutate()}
-            >
-              {t("导出备份")}</Button>
-            <Button
-              icon={<DownloadOutlined />}
-              onClick={() => void exportBackup('/backups/export').catch(() => message.error(liveText(() => t("完整数据导出失败"))))}
-            >
-              {t("导出完整数据")}</Button>
-            <Button
-              loading={reopenOnboardingMutation.isPending}
-              onClick={() => reopenOnboardingMutation.mutate()}
-            >
-              {t("重新打开新手引导")}</Button>
-          </Space>
-        </div>
       </section>
 
       <section style={panelStyle} aria-labelledby="pilot-mascot-settings-title">
@@ -319,9 +243,97 @@ export default function SettingsView({
         </Typography.Text>
       </section>
 
+      <DesktopUpdatesCard />
+      <Typography.Title id="settings-ai-privacy" level={3}>{t("AI 与隐私")}</Typography.Title>
+      <section style={panelStyle}>
+        <Space align="start" size={12}>
+          <span style={panelIconStyle}>
+            <ApiOutlined />
+          </span>
+          <div>
+            <Typography.Title level={4} style={panelTitleStyle}>
+              {t("AI 与模型")}</Typography.Title>
+            <Typography.Text style={{ color: 'var(--op-muted)' }}>
+              {t("管理模型供应商、模型、密钥与写入确认策略。")}</Typography.Text>
+          </div>
+        </Space>
+        <Divider style={{ margin: 0 }} />
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <RuntimeField label={t("运行模式")} value={formatRuntimeMode(settings?.runtime_mode)} />
+          <RuntimeField label={t("后端版本")} value={settings?.version ?? '-'} />
+          <RuntimeField label={t("密钥状态")} value={settings?.has_api_key ? t("已配置") : t("未配置")} />
+
+        </div>
+        <details style={detailsStyle}>
+          <summary style={detailsSummaryStyle}>{t("高级运行信息")}</summary>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 12 }}>
+            <RuntimeField label={t("多供应商")} value={t("{value0} 个", { value0: settings?.providers.length ?? 0 })} />
+            <RuntimeField label="Fallback" value={fallbackLabel(settings)} />
+            <RuntimeField label={t("日志级别")} value={settings?.log_level ?? '-'} />
+            <RuntimeField label={t("访问控制")} value={settings?.auth_enabled ? t("已开启") : t("未开启")} />
+          </div>
+        </details>
+        <div>
+          <Space wrap>
+            <Button type="primary" icon={<SettingOutlined />} onClick={() => setAISettingsOpen(true)}>
+              {t("配置 AI")}</Button>
+          </Space>
+        </div>
+      </section>
+
+      <ContextPolicySettings />
+      <ConfirmedMemorySettings />
+      <CompanionLifeSettings />
+
+      <Typography.Title id="settings-connections" level={3}>{t("连接与自动任务")}</Typography.Title>
+      <Typography.Paragraph type="secondary">{t("这里只管理连接、权限和自动任务范围；提醒、邮件待审与任务结果统一在今日待办处理。")}</Typography.Paragraph>
+      <JobMailSettings />
+      <ProactiveSettings />
+
+      <section style={panelStyle} aria-labelledby="data-backup-settings-title">
+        <Space align="start" size={12}>
+          <span style={panelIconStyle}><DownloadOutlined /></span>
+          <div>
+            <Typography.Title id="data-backup-settings-title" level={4} style={panelTitleStyle}>{t("数据与备份")}</Typography.Title>
+            <Typography.Text style={{ color: 'var(--op-muted)' }}>{t("导出本机设置或完整工作区数据。")}</Typography.Text>
+          </div>
+        </Space>
+        <Divider style={{ margin: 0 }} />
+        <RuntimeField label={t("数据目录")} value={settings?.data_dir ?? '-'} />
+        <div>
+          <Space wrap>
+            <Button
+              icon={<DownloadOutlined />}
+              loading={backupMutation.isPending}
+              onClick={() => backupMutation.mutate()}
+            >
+              {t("导出备份")}</Button>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={() => void exportBackup('/backups/export').catch(() => message.error(liveText(() => t("完整数据导出失败"))))}
+            >
+              {t("导出完整数据")}</Button>
+            <Button
+              loading={reopenOnboardingMutation.isPending}
+              onClick={() => reopenOnboardingMutation.mutate()}
+            >
+              {t("重新打开新手引导")}</Button>
+          </Space>
+        </div>
+      </section>
+
       <section style={panelStyle} aria-labelledby="voice-settings-title">
         <Typography.Title id="voice-settings-title" level={4} style={panelTitleStyle}>{t("语音")}</Typography.Title>
-        <OfflineWhisperModelCard />
+        <details style={detailsStyle} onToggle={(event) => { if (event.currentTarget.open) setVoiceOpened(true); }}>
+          <summary style={detailsSummaryStyle}>{t('管理离线语音模型')}</summary>
+          {voiceOpened && <Suspense fallback={<Skeleton active paragraph={{ rows: 2 }} />}><OfflineWhisperModelCard /></Suspense>}
+        </details>
       </section>
 
       <section style={panelStyle}>
@@ -330,13 +342,13 @@ export default function SettingsView({
             <FileSearchOutlined />
           </span>
           <div style={{ flex: 1 }}>
-            <Typography.Title level={4} style={panelTitleStyle}>
+            <Typography.Title id="settings-diagnostics" level={4} style={panelTitleStyle}>
               {t("高级与诊断")}</Typography.Title>
             <Typography.Text style={{ color: 'var(--op-muted)' }}>
               {t("最近的本地运行日志。")}</Typography.Text>
           </div>
         </Space>
-        <details style={detailsStyle}>
+        <details style={detailsStyle} open={diagnosticsOpen} onToggle={(event) => setDiagnosticsOpen(event.currentTarget.open)}>
           <summary style={detailsSummaryStyle}>{t("查看运行日志与诊断")}</summary>
           <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
             <Space wrap>
@@ -408,6 +420,7 @@ export default function SettingsView({
         </details>
       </section>
     </section>
+    </>
   );
 }
 

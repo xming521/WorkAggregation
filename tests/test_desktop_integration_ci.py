@@ -13,6 +13,12 @@ WORKFLOW = (ROOT / ".github/workflows/desktop-windows.yml").read_text(encoding="
 HISTORICAL = ROOT / ".github/validation/historical-workflows"
 
 
+def _job(name: str) -> str:
+    match = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  [\w-]+:|\Z)", WORKFLOW, re.M | re.S)
+    assert match, f"Missing job: {name}"
+    return match.group(1)
+
+
 def test_mail_native_lock_job_keeps_the_startup_guard_and_locked_dependencies():
     mail = (ROOT / ".github/workflows/job-mail-assistant.yml").read_text(encoding="utf-8")
     native = mail.split("  windows-native-lock:\n", 1)[1]
@@ -55,12 +61,18 @@ def test_prs_use_full_read_only_merge_candidate_validation_without_duplicate_can
     for forbidden in ("pull_request_target", "secrets.", "environment:", "contents: write",
                       "actions: write", "workflow_run:", "-RealAi", "cancel-in-progress:"):
         assert forbidden not in WORKFLOW
-    checkouts = re.findall(
-        r"      - uses: actions/checkout@v4\n(.*?)(?=      - |\Z)", WORKFLOW, re.S,
-    )
-    assert len(checkouts) == 4
-    for checkout in checkouts:
-        assert "fetch-depth: 0" in checkout
+    for job in ("validation-package", "pytest-manifest", "pytest-shards", "full-regression",
+                "simplification-helper-safety"):
+        checkouts = re.findall(
+            r"      - uses: actions/checkout@([^\n]+)\n(.*?)(?=      - |\Z)", _job(job), re.S,
+        )
+        assert len(checkouts) == 1, job
+        revision, checkout = checkouts[0]
+        if job == "simplification-helper-safety":
+            assert revision == "11d5960a326750d5838078e36cf38b85af677262 # v4"
+        else:
+            assert revision == "v4"
+            assert "fetch-depth: 0" in checkout
         assert "persist-credentials: false" in checkout
         # Default checkout binds to github.sha: the PR merge candidate, not head.
         assert not re.search(r"^\s+ref:", checkout, re.M)
@@ -72,10 +84,37 @@ def test_package_only_escape_hatch_is_bound_to_old_push_branch():
     expression = ("github.event_name == 'push' && "
                   "github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && "
                   "startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')")
-    assert WORKFLOW.count(expression) == 4
     assert f'WINDOWS_PACKAGE_ONLY: "${{{{ {expression} }}}}"' in WORKFLOW
+    for job in ("pytest-manifest", "pytest-shards", "full-regression",
+                "simplification-helper-safety"):
+        guard = f"!({expression})"
+        if job == "full-regression":
+            guard = f"always() && {guard}"
+        assert re.findall(r'^    if: (.+)$', _job(job), re.M) == [
+            f'"${{{{ {guard} }}}}"',
+        ], f"Mode guard for {job} must stay bound to the old push branch"
     assert "timeout-minutes: 120" in WORKFLOW and "max-parallel: 2" in WORKFLOW
     assert "scripts/release-gate.ps1 -Install -PytestEvidence pytest-evidence" in WORKFLOW
+
+
+@pytest.mark.parametrize("job", [
+    "pytest-manifest", "pytest-shards", "full-regression", "simplification-helper-safety",
+])
+@pytest.mark.parametrize("damage", ["remove-condition", "remove-push", "remove-branch"])
+def test_package_only_contract_rejects_missing_or_widened_job_guard(monkeypatch, job, damage):
+    original = _job(job)
+    if damage == "remove-condition":
+        changed = re.sub(r'^    if: .+\n', "", original, count=1, flags=re.M)
+    elif damage == "remove-push":
+        changed = original.replace("github.event_name == 'push' && ", "", 1)
+    else:
+        changed = original.replace(
+            "github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && ", "", 1,
+        )
+    assert changed != original
+    monkeypatch.setitem(globals(), "WORKFLOW", WORKFLOW.replace(original, changed, 1))
+    with pytest.raises(AssertionError, match=f"Mode guard for {job}"):
+        test_package_only_escape_hatch_is_bound_to_old_push_branch()
 
 
 def test_mail_upgrade_and_socketpair_guards_run_in_early_windows_job():

@@ -650,10 +650,10 @@ async function resumeFlows(qa, page) {
     await form.waitFor({ state: 'hidden' });
     qa.observed('real PDF picker surface; upload disabled without file; cancel returns to library');
   });
-  await qa.run('S15', 'resume-editor-create-save-reopen', ['素材库', '简历', '和 Haru 创建初稿'], async () => {
+  await qa.run('S15', 'resume-editor-create-save-reopen', ['素材库', '简历', '新建空白简历'], async () => {
     await navigate(page, 'resumes');
     // Source creates BLANK_RESUME_CONTENT locally; no model call behind this button.
-    saved = await responseFromUI(page, /^\/api\/resumes$/, 'POST', () => btn(page.locator('[aria-label="创建基础简历入口"]'), '和 Haru 创建初稿').click());
+    saved = await responseFromUI(page, /^\/api\/resumes$/, 'POST', () => btn(page.locator('[aria-label="创建基础简历入口"]'), '新建空白简历').click());
     qa.fixture('resume', saved.id);
     const editor = region(page, '编辑简历');
     await editor.waitFor();
@@ -737,10 +737,10 @@ async function interviewFlows(qa, page) {
     }
     qa.observed('all three nested interview tabs select and render');
   });
-  await qa.run('S09', 'quick-and-review-practice-readiness', ['面试', '面试练习', '开始面试练习'], async () => {
+  await qa.run('S09', 'quick-and-review-practice-readiness', ['面试', '面试练习', '快速模拟'], async () => {
     await navigate(page, 'interview');
     await page.getByRole('tab', exact('面试练习')).click();
-    await btn(page.getByTestId('free-practice-workspace'), '开始面试练习').click();
+    await btn(page.getByTestId('free-practice-workspace'), '快速模拟').click();
     const surface = page.getByTestId('interview-practice-surface');
     await surface.waitFor();
     const quick = page.getByTestId('interview-readiness-center');
@@ -786,7 +786,7 @@ async function interviewFlows(qa, page) {
 
 async function knowledgeFlows(qa, page) {
   for (const [label, title, key] of [['上传 Markdown / Text', '上传 Markdown / Text 资料', 'text'], ['上传图文资料', '上传图文资料', 'bundle'], ['粘贴正文', '粘贴正文', 'paste']]) {
-    await qa.run('S18', `knowledge-${key}-cancel`, ['素材库', '参考资料', label], async () => {
+    await qa.run('S18', `knowledge-${key}-cancel`, ['素材库', '参考知识', label], async () => {
       await navigate(page, 'knowledge'); await btn(page, label).click();
       await dialog(page, title).waitFor();
       await captureWidths(qa, page, `knowledge-${key}-input`);
@@ -801,7 +801,7 @@ async function knowledgeFlows(qa, page) {
       qa.observed('real input dialog opens at all native widths; cancel returns to sources');
     });
   }
-  await qa.run('S19', 'knowledge-local-text-detail', ['参考资料', '粘贴正文'], async () => {
+  await qa.run('S19', 'knowledge-local-text-detail', ['参考知识', '粘贴正文'], async () => {
     await navigate(page, 'knowledge'); await btn(page, '粘贴正文').click();
     const form = dialog(page, '粘贴正文');
     await btn(form, '开始导入').click();
@@ -836,7 +836,7 @@ async function knowledgeFlows(qa, page) {
 }
 
 async function storyFlows(qa, page) {
-  await qa.run('S17', 'manual-story-save-and-reopen', ['素材库', '经历素材', '新建故事'], async () => {
+  await qa.run('S17', 'manual-story-save-and-reopen', ['素材库', '我的经历', '新建故事'], async () => {
     await navigate(page, 'reviews'); await btn(page, '新建故事').click();
     const form = dialog(page, '整理面试故事');
     await form.waitFor(); await qa.capture('story-empty-source-picker');

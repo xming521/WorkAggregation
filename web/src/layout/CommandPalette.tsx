@@ -10,7 +10,23 @@ export interface Command {
   key: string;
   label: string;
   hint?: string;
+  destination?: ViewMode;
+  aliases?: string[];
   run: () => void;
+}
+
+export function mergeDestinationCommands(commands: Command[]): Command[] {
+  const merged: Command[] = [];
+  for (const command of commands) {
+    const existing = command.destination && merged.find((item) => item.destination === command.destination);
+    if (existing) existing.aliases = [...new Set([...(existing.aliases ?? []), command.label, ...(command.aliases ?? [])])];
+    else merged.push({ ...command });
+  }
+  return merged;
+}
+
+export function matchesCommand(command: Command, keyword: string): boolean {
+  return [command.label, ...(command.aliases ?? [])].some((text) => text.toLowerCase().includes(keyword.trim().toLowerCase()));
 }
 
 function commandOptionId(key: string): string {
@@ -76,6 +92,7 @@ export function buildPipelineNavigationCommands(
     key: item.key,
     label: item.label,
     hint: item.hint,
+    destination: item.view as ViewMode,
     run: () => {
       onNavigate(item.view as ViewMode);
       onClose();
@@ -127,25 +144,25 @@ export default function CommandPalette({
   }, [open, q]);
 
   const actions: Command[] = useMemo(
-    () => [
+    () => mergeDestinationCommands([
       { key: 'add', label: t("添加投递"), hint: t("动作"), run: () => { onAddApplication(); onClose(); } },
-      { key: 'resume-library', label: t("打开简历库"), hint: t("简历"), run: () => { onOpenResume(); onClose(); } },
-      { key: 'new-resume', label: t("新建简历"), hint: t("在简历库创建薄版"), run: () => { onOpenResume(); onClose(); } },
-      { key: 'uploadResume', label: t("上传简历"), hint: t("PDF 到简历库"), run: () => { onUploadResume?.(); onClose(); } },
+      { key: 'resume-library', label: t("打开简历库"), hint: t("简历"), destination: 'resumes', aliases: [t("新建简历")], run: () => { onOpenResume(); onClose(); } },
+      ...(onUploadResume ? [{ key: 'uploadResume', label: t("上传简历"), hint: t("PDF 到简历库"), run: () => { onUploadResume(); onClose(); } }] : []),
       { key: 'haru', label: t("问 Haru"), hint: t("助手"), run: () => { onOpenChat(); onClose(); } },
-      { key: 'pilot', label: t("打开 Pilot 工作区"), hint: t("助手"), run: () => { onOpenPilot?.(); onClose(); } },
-      { key: 'settings', label: t("打开设置"), hint: t("设置"), run: () => { onOpenSettings(); onClose(); } },
+      ...(onOpenPilot ? [{ key: 'pilot', label: t("打开 Pilot 工作区"), hint: t("助手"), run: () => { onOpenPilot(); onClose(); } }] : []),
+      { key: 'settings', label: t("打开设置"), hint: t("设置"), destination: 'settings', run: () => { onOpenSettings(); onClose(); } },
       ...buildPipelineNavigationCommands(onNavigate, onClose),
       ...MODULE_NAV.map((item) => ({
         key: `nav-${item.key}`,
         label: t("前往 {value0}", { value0: item.label }),
         hint: t("导航"),
+        destination: item.defaultView,
         run: () => {
           onNavigate(item.defaultView);
           onClose();
         },
       })),
-    ],
+    ]),
     [onAddApplication, onOpenResume, onUploadResume, onOpenChat, onOpenPilot, onOpenSettings, onNavigate, onClose, getLocale()]
   );
 
@@ -169,7 +186,7 @@ export default function CommandPalette({
   const appMatches = buildApplicationSearchCommands(applications, kw, onOpenDetail, onClose);
 
   const actionMatches = kw
-    ? actions.filter((c) => c.label.toLowerCase().includes(kw))
+    ? actions.filter((c) => matchesCommand(c, kw))
     : actions;
 
   const items = [...appMatches, ...pipelineCommands, ...actionMatches];

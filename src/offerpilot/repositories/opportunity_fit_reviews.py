@@ -15,9 +15,7 @@ from offerpilot.ai.agent_contracts import ChatModel
 from offerpilot.ai.opportunity_fit_reviews import (
     OpportunityFitModelError,
     build_source_snapshot,
-    generate_deep_review,
     generate_deep_review_v2,
-    generate_triage,
     generate_triage_v2,
 )
 from offerpilot.models import (
@@ -637,65 +635,6 @@ class OpportunityFitReviewsRepository:
             session.refresh(current_stage)
             return current_stage, True
 
-    def create_triage(
-        self,
-        application_id: int,
-        resume_id: int,
-        jd_text: str,
-        jd_source_label: str,
-        candidate_assertions: list[str],
-        idempotency_key: str,
-        model: ChatModel,
-    ) -> tuple[OpportunityFitReview, bool]:
-        with self._session_factory() as session:
-            application = _visible_application(session, application_id)
-            if application is None:
-                raise OpportunityFitReviewNotFound()
-            existing = _find_by_idempotency(session, application_id, idempotency_key)
-            if existing is not None:
-                return _normalize_review_timestamps(existing), False
-            snapshot = _build_snapshot(
-                session,
-                application,
-                resume_id,
-                jd_text,
-                jd_source_label,
-                candidate_assertions,
-            )
-
-        triage = generate_triage(model, snapshot)
-        snapshot_json = canonical_json(snapshot)
-        triage_json = canonical_json(triage.payload)
-        fingerprint = sha256_text(snapshot_json)
-
-        with self._session_factory() as session:
-            session.execute(text("BEGIN IMMEDIATE"))
-            if _visible_application(session, application_id) is None:
-                raise OpportunityFitReviewNotFound()
-            existing = _find_by_idempotency(session, application_id, idempotency_key)
-            if existing is not None:
-                return _normalize_review_timestamps(existing), False
-            review = OpportunityFitReview(
-                application_id=application_id,
-                resume_id=resume_id,
-                idempotency_key=idempotency_key,
-                source_fingerprint_sha256=fingerprint,
-                source_snapshot_json=snapshot_json,
-                triage_json=triage_json,
-                triage_sha256=sha256_text(triage_json),
-            )
-            session.add(review)
-            try:
-                session.commit()
-            except IntegrityError:
-                session.rollback()
-                existing = _find_by_idempotency(session, application_id, idempotency_key)
-                if existing is None:
-                    raise
-                return _normalize_review_timestamps(existing), False
-            session.refresh(review)
-            return _normalize_review_timestamps(review), True
-
     def list(self, application_id: int) -> list[OpportunityFitReview]:
         statement = (
             select(OpportunityFitReview)
@@ -712,38 +651,6 @@ class OpportunityFitReviewsRepository:
         with self._session_factory() as session:
             review = _visible_review(session, application_id, review_id)
             return _normalize_review_timestamps(review) if review is not None else None
-
-    def create_deep_review(
-        self,
-        application_id: int,
-        review_id: int,
-        model: ChatModel,
-    ) -> tuple[OpportunityFitReview, bool]:
-        with self._session_factory() as session:
-            review = _visible_review(session, application_id, review_id)
-            if review is None:
-                raise OpportunityFitReviewNotFound()
-            if review.deep_review_json is not None:
-                return _normalize_review_timestamps(review), False
-            snapshot = _parse_stored_object(review.source_snapshot_json, "source snapshot")
-            triage = _parse_stored_object(review.triage_json, "triage")
-
-        deep_review = generate_deep_review(model, snapshot, triage)
-        deep_review_json = canonical_json(deep_review.payload)
-
-        with self._session_factory() as session:
-            session.execute(text("BEGIN IMMEDIATE"))
-            review = _visible_review(session, application_id, review_id)
-            if review is None:
-                raise OpportunityFitReviewNotFound()
-            if review.deep_review_json is not None:
-                return _normalize_review_timestamps(review), False
-            review.deep_review_json = deep_review_json
-            review.deep_review_sha256 = sha256_text(deep_review_json)
-            review.deep_reviewed_at = datetime.now(timezone.utc)
-            session.commit()
-            session.refresh(review)
-            return _normalize_review_timestamps(review), True
 
 
 def _build_snapshot(
@@ -801,18 +708,6 @@ def _visible_review(
         .where(OpportunityFitReview.id == review_id)
         .where(Application.deleted_at.is_(None))
         .where(Application.source.in_(HUMAN_APPLICATION_SOURCES))
-    )
-
-
-def _find_by_idempotency(
-    session: Session,
-    application_id: int,
-    idempotency_key: str,
-) -> OpportunityFitReview | None:
-    return session.scalar(
-        select(OpportunityFitReview)
-        .where(OpportunityFitReview.application_id == application_id)
-        .where(OpportunityFitReview.idempotency_key == idempotency_key)
     )
 
 
@@ -999,13 +894,6 @@ def _verify_confirmation_token(
     return hmac.compare_digest(signature, expected) and hmac.compare_digest(
         _hash_token(token), stage.confirmation_token_hash
     )
-
-
-def _parse_stored_object(value: str, name: str) -> dict[str, Any]:
-    try:
-        return parse_json_object(name, value)
-    except JsonContractError as exc:
-        raise OpportunityFitReviewConflictError(str(exc)) from exc
 
 
 def _normalize_review_timestamps(review: OpportunityFitReview) -> OpportunityFitReview:

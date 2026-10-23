@@ -1,5 +1,7 @@
 import { pipelineActionId } from '@/lib/pipelineInsights';
 import { t, useLocale, getLocale } from '@/i18n';
+import ProactiveInbox from '@/components/ProactiveInbox';
+import { useReminderCandidates } from '@/lib/useReminderCandidates';
 import JobMailInbox from '@/features/jobMail/JobMailInbox';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -41,6 +43,9 @@ function defineKindFilterOptions<const Options extends readonly { value: Pipelin
 const KIND_FILTER_OPTIONS = defineKindFilterOptions([
   { value: 'all', get label() { return t("全部行动"); } },
   { value: 'offer_deadline', get label() { return t("Offer 截止"); } },
+  { value: 'application_deadline', get label() { return t("截止提醒"); } },
+  { value: 'interview_review', get label() { return t("面试复盘提醒"); } },
+  { value: 'event_upcoming', get label() { return t("日程临近"); } },
   { value: 'interview_soon', get label() { return t("面试临近"); } },
   { value: 'stale_application', get label() { return t("投递待跟进"); } },
   { value: 'no_next_event', get label() { return t("缺少下一步"); } },
@@ -82,6 +87,7 @@ export default function RemindersView({ onNavigate, onOpenDetailById }: Props) {
   const { data: rawApps = [] } = useQuery({ queryKey: ['applications'], queryFn: () => listApplications() });
   const { data: rawEvents = [] } = useQuery({ queryKey: ['events'], queryFn: () => listEvents() });
   const { data: rawOffers = [] } = useQuery({ queryKey: ['offers'], queryFn: () => listOffers() });
+  const reminderCandidatesQ = useReminderCandidates();
   const practiceStatsQ = useQuery({
     queryKey: ['questions', 'stats'],
     queryFn: () => getPracticeStats(),
@@ -94,8 +100,8 @@ export default function RemindersView({ onNavigate, onOpenDetailById }: Props) {
   const offers = rawOffers ?? [];
 
   const insights = useMemo(
-    () => deriveActionHints({ apps, events, offers, practiceStats: practiceStatsQ.data, weeklyTarget: 6, now }),
-    [apps, events, offers, practiceStatsQ.data, now, getLocale()],
+    () => deriveActionHints({ apps, events, offers, practiceStats: practiceStatsQ.data, reminderCandidates: reminderCandidatesQ.isError ? [] : reminderCandidatesQ.data, now }),
+    [apps, events, offers, practiceStatsQ.data, reminderCandidatesQ.data, reminderCandidatesQ.isError, now, getLocale()],
   );
 
   const filteredInsights = useMemo(() => {
@@ -153,6 +159,12 @@ export default function RemindersView({ onNavigate, onOpenDetailById }: Props) {
   return (
     <div className={styles.wrap}>
       <JobMailInbox onNavigate={onNavigate} onOpenDetailById={onOpenDetailById} />
+      <ProactiveInbox representedCandidateIds={filteredInsights.filter((item) => item.candidate).map((item) => item.id)} />
+      {reminderCandidatesQ.isPending && <div role="status">{t("正在加载提醒")}</div>}
+      {reminderCandidatesQ.isError && <div role="alert">
+        {t("提醒加载失败，请重试")}
+        <button type="button" onClick={() => void reminderCandidatesQ.refetch()}>{t("重试")}</button>
+      </div>}
       <div className={styles.toolbar}>
         <Input.Search
           allowClear
@@ -165,8 +177,10 @@ export default function RemindersView({ onNavigate, onOpenDetailById }: Props) {
       </div>
 
       {filteredInsights.length === 0 ? (
+        reminderCandidatesQ.isPending || reminderCandidatesQ.isError ? null : (
         <div className={styles.empty}>
           {t("暂无匹配的流程行动。可以新增投递、复习到期题目，或整理一次复盘来保持节奏。")}</div>
+        )
       ) : (
         GROUPS.map(({ key, label }) => {
           const items = filteredInsights.filter((item) => item.priority === key);

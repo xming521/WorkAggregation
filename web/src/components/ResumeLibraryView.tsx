@@ -73,16 +73,16 @@ export default function ResumeLibraryView({
 
   const resumesQuery = useQuery({ queryKey: ['resumes'], queryFn: listResumes });
 
-  const createDialogMut = useMutation({
+  const createBlankMut = useMutation({
     mutationFn: () =>
       createResume({
-        title: t("Haru 对话初稿简历"),
-        source: 'dialog',
+        title: t("空白简历"),
+        source: 'manual',
         content_json: BLANK_RESUME_CONTENT,
         career_intent: BLANK_RESUME_CONTENT.career_intent,
       }),
     onSuccess: (res) => {
-      message.success(liveText(() => t("已创建初稿简历")));
+      message.success(liveText(() => t("已创建空白简历")));
       qc.invalidateQueries({ queryKey: ['resumes'] });
       qc.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY });
       setEditing(res);
@@ -325,10 +325,10 @@ export default function ResumeLibraryView({
           />
           <Button
             icon={<PlusOutlined />}
-            loading={createDialogMut.isPending}
-            onClick={() => createDialogMut.mutate()}
+            loading={createBlankMut.isPending}
+            onClick={() => createBlankMut.mutate()}
           >
-             {t("和 Haru 创建初稿")}</Button>
+             {t("新建空白简历")}</Button>
            <Button icon={<CloudUploadOutlined />} onClick={() => setUploadOpen(true)}>{t("上传现有简历")}</Button>
            <Dropdown menu={{ items: [{ key: 'sample', label: t("用样例开始"), icon: <FileAddOutlined />, onClick: () => sampleMut.mutate() }] }}>
              <Button icon={<MoreOutlined />} loading={sampleMut.isPending}>{t("更多创建方式")}</Button>
@@ -342,8 +342,8 @@ export default function ResumeLibraryView({
           <div className={styles.emptyTitle}>{t("还没有简历")}</div>
           <div className={styles.emptyHint}>{t("选择一个入口开始，之后都可以在编辑器里补全结构化章节。")}</div>
           <div className={styles.emptyActions}>
-            <button className={styles.emptyAction} type="button" onClick={() => createDialogMut.mutate()}>
-               <div className={styles.emptyActionTitle}>{t("和 Haru 创建初稿")}</div>
+            <button className={styles.emptyAction} type="button" onClick={() => createBlankMut.mutate()}>
+               <div className={styles.emptyActionTitle}>{t("新建空白简历")}</div>
               <div className={styles.emptyActionDesc}>{t("先生成可编辑的空结构，再逐章补充。")}</div>
             </button>
             <button className={styles.emptyAction} type="button" onClick={() => setUploadOpen(true)}>

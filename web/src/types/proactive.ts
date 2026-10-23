@@ -36,6 +36,11 @@ export interface ProactiveSettingsResponse {
 export interface ProactiveJob {
   id: string;
   kind: ProactiveJobKind;
+  candidate_id?: string;
+  subject_type?: 'application' | 'application_event';
+  subject_id?: number;
+  reason_code?: string;
+  source_revision?: string;
   application_id: number;
   event_id: number | null;
   state: ProactiveJobState;
@@ -89,4 +94,9 @@ export const PROACTIVE_STATE_LABELS: Record<ProactiveJobState, string> = {
 
 export function isProactiveJobActive(state: ProactiveJobState): boolean {
   return state === 'pending' || state === 'leased' || state === 'running';
+}
+
+/** Companion delivery shares the queue, never the application task surfaces. */
+export function isApplicationProactiveJob(job: ProactiveJob): boolean {
+  return job.kind !== 'companion_life';
 }

@@ -193,3 +193,24 @@ it('projects a pending wish only while the existing eligible bid is shown and ne
   expect(life.bid).not.toBeNull();
   expect(life.mirror?.detail).toBe(companionLifeExpression(declined.state.activity, t));
 });
+
+it.each(['work', 'approval', 'mockInterview', 'hidden'] as const)('discards an in-flight life invitation after %s interrupts it, without replaying on return', async (interruption) => {
+  await render();
+  const pending = deferred<Awaited<ReturnType<typeof claimCompanionBid>>>();
+  vi.mocked(claimCompanionBid).mockReturnValueOnce(pending.promise).mockResolvedValue(null);
+  await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+  expect(claimCompanionBid).toHaveBeenCalledTimes(1);
+  if (interruption === 'work') { controller = { ...controller, loading: true }; await render(); }
+  else if (interruption === 'approval') { controller = { ...controller, pending: {} as PilotConversationController['pending'] }; await render(); }
+  else if (interruption === 'mockInterview') await act(async () => life.setMockInterview(true));
+  else await act(async () => life.setPresentationAvailable(false));
+  await act(async () => pending.resolve({ id: 'interrupted-bid', kind: 'companion_life', result_text: 'not a job reminder', source_identity: 'one', source_revision: 4 }));
+  expect(life.bid).toBeNull();
+  if (interruption === 'work') { controller = { ...controller, loading: false }; await render(); }
+  else if (interruption === 'approval') { controller = { ...controller, pending: null }; await render(); }
+  else if (interruption === 'mockInterview') await act(async () => life.setMockInterview(false));
+  else await act(async () => life.setPresentationAvailable(true));
+  expect(life.bid).toBeNull();
+  expect(sendCompanionCommand).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(sendCompanionCommand).mock.calls[0][0]).toMatchObject({ body: { event: 'app_open' } });
+});

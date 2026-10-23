@@ -12,97 +12,16 @@ from sqlalchemy.orm import sessionmaker
 
 from offerpilot.ai.types import Assistant
 from offerpilot.db import init_database
-from offerpilot.models import OpportunityFitReview
+from tests.fixtures.opportunity_fit_v1_history import seed_v1_history
 from offerpilot.models import OpportunityFitReviewSession, OpportunityFitReviewStage
 from offerpilot.repositories.applications import ApplicationCreate, ApplicationsRepository
 from offerpilot.repositories.application_jd_versions import ApplicationJDService
 from offerpilot.repositories.opportunity_fit_reviews import (
     OpportunityFitReviewConflictError,
-    OpportunityFitReviewNotFound,
     OpportunityFitReviewsRepository,
 )
 from offerpilot.ai.opportunity_fit_reviews import OpportunityFitModelError
 from offerpilot.repositories.resumes import ResumeCreate, ResumesRepository
-
-
-def _triage() -> dict[str, object]:
-    return {
-        "recommendation": "hold",
-        "hard_constraints": [
-            {
-                "id": "location",
-                "requirement": "Shanghai office",
-                "status": "unknown",
-                "explanation": "Availability is not in the resume.",
-                "evidence_refs": [
-                    {"source": "jd", "path": "/text", "excerpt": "Kubernetes preferred"}
-                ],
-            }
-        ],
-        "fit_signals": [
-            {
-                "id": "api",
-                "statement": "Existing API work is relevant.",
-                "evidence_refs": [
-                    {"source": "resume", "path": "/raw_text", "excerpt": "Built APIs"}
-                ],
-            }
-        ],
-        "gaps": [
-            {
-                "id": "kubernetes",
-                "requirement": "Kubernetes production experience",
-                "kind": "preferred",
-                "candidate_status": "unknown",
-                "evidence_refs": [
-                    {"source": "jd", "path": "/text", "excerpt": "Kubernetes preferred"},
-                    {"source": "resume", "path": "/raw_text", "excerpt": "Built APIs"}
-                ],
-            }
-        ],
-        "deadline": {"status": "not_stated", "text": "", "evidence_refs": []},
-        "next_questions": ["Can you work in Shanghai?"],
-    }
-
-
-def _deep() -> dict[str, object]:
-    return {
-        "strengths": [
-            {
-                "id": "api",
-                "statement": "API implementation is a strength.",
-                "evidence_refs": [
-                    {"source": "resume", "path": "/raw_text", "excerpt": "Built APIs"}
-                ],
-            }
-        ],
-        "gaps_to_address": [
-            {
-                "id": "kubernetes",
-                "statement": "Kubernetes experience needs confirmation.",
-                "evidence_refs": [
-                    {"source": "resume", "path": "/raw_text", "excerpt": "Built APIs"}
-                ],
-            }
-        ],
-        "questions_to_clarify": [
-            {"id": "location", "statement": "Confirm Shanghai availability.", "evidence_refs": []}
-        ],
-        "recommended_path": "clarify_first",
-        "next_actions": [
-            {"id": "assertion", "label": "补充事实", "kind": "add_assertion"}
-        ],
-    }
-
-
-class ReviewModel:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def complete(self, messages, tools):  # type: ignore[no-untyped-def]
-        self.calls += 1
-        payload = _triage() if self.calls % 2 == 1 else _deep()
-        return Assistant(content=json.dumps(payload, ensure_ascii=False))
 
 
 def _v2_triage() -> dict[str, object]:
@@ -287,103 +206,6 @@ def _add_jd_version(factory, application_id: int) -> int:
         expected_current_version_id=None,
         idempotency_key="repository-jd-version-01",
     ).version.id
-
-
-def test_create_triage_persists_minimal_immutable_snapshot_and_is_idempotent(tmp_path) -> None:
-    factory, application, resume = _ready(tmp_path)
-    repository = OpportunityFitReviewsRepository(factory)
-    model = ReviewModel()
-
-    review, created = repository.create_triage(
-        application.id,
-        resume.id,
-        "Kubernetes preferred",
-        "Recruiter copy",
-        ["I can work in Shanghai."],
-        "d4b4b5e8-0a3a-4a3e-8e4d-6bc7a04d36b0",
-        model,
-    )
-
-    assert created is True
-    stored = json.loads(review.source_snapshot_json)
-    assert stored["application"] == {
-        "id": application.id,
-        "company_name": "Acme",
-        "position_name": "Backend",
-    }
-    assert stored["resume"]["content_json"]["raw_text"] == "Built APIs"
-    assert stored["candidate_assertions"] == [{"index": 0, "text": "I can work in Shanghai."}]
-    assert "notes" not in stored["application"]
-
-    replay, replay_created = repository.create_triage(
-        application.id,
-        resume.id,
-        "different JD",
-        "different source",
-        [],
-        "d4b4b5e8-0a3a-4a3e-8e4d-6bc7a04d36b0",
-        model,
-    )
-    assert replay_created is False
-    assert replay.id == review.id
-    assert model.calls == 1
-
-
-def test_create_triage_does_not_leave_record_when_application_deleted_during_model_call(tmp_path) -> None:
-    factory, application, resume = _ready(tmp_path)
-    repository = OpportunityFitReviewsRepository(factory)
-
-    class DeletesApplicationModel(ReviewModel):
-        def complete(self, messages, tools):  # type: ignore[no-untyped-def]
-            ApplicationsRepository(factory).delete(application.id)
-            return super().complete(messages, tools)
-
-    with pytest.raises(OpportunityFitReviewNotFound):
-        repository.create_triage(
-            application.id,
-            resume.id,
-            "Kubernetes preferred",
-            "copy",
-            [],
-            "26b4dd35-75e6-4d3f-8806-3cb7bc9f3e2e",
-            DeletesApplicationModel(),
-        )
-
-    with factory() as session:
-        assert list(session.scalars(select(OpportunityFitReview))) == []
-
-
-def test_deep_review_reads_saved_snapshot_and_is_idempotent(tmp_path) -> None:
-    factory, application, resume = _ready(tmp_path)
-    repository = OpportunityFitReviewsRepository(factory)
-    model = ReviewModel()
-    review, _created = repository.create_triage(
-        application.id,
-        resume.id,
-        "Kubernetes preferred",
-        "copy",
-        [],
-        "1b9f9d39-dfbd-464e-8bb0-4a50b09b5e5c",
-        model,
-    )
-
-    first, created = repository.create_deep_review(application.id, review.id, model)
-    replay, replay_created = repository.create_deep_review(application.id, review.id, model)
-
-    assert created is True
-    assert replay_created is False
-    assert first.id == replay.id == review.id
-    assert json.loads(first.deep_review_json or "{}")["recommended_path"] == "clarify_first"
-    assert model.calls == 2
-
-
-def test_hidden_application_and_resume_are_not_readable(tmp_path) -> None:
-    factory, application, resume = _ready(tmp_path)
-    repository = OpportunityFitReviewsRepository(factory)
-    ApplicationsRepository(factory).delete(application.id)
-
-    with pytest.raises(OpportunityFitReviewNotFound):
-        repository.create_triage(application.id, resume.id, "JD", "copy", [], "f6f71c9f-6e8d-4c9f-9d5f-1cc3d9687382", ReviewModel())
 
 
 def test_v2_triage_creates_one_root_and_stage_and_replays_same_key(tmp_path) -> None:
@@ -1071,3 +893,30 @@ def test_v2_deep_same_key_across_roots_returns_idempotency_conflict(tmp_path) ->
             "deep-shared-key",
             V2ReviewModel(),
         )
+
+
+def test_v1_history_remains_byte_preserved_after_database_reinitialization(tmp_path) -> None:
+    factory, application, resume = _ready(tmp_path)
+    saved = seed_v1_history(factory, application.id, resume.id)
+    init_database(tmp_path / "data.db")
+    repository = OpportunityFitReviewsRepository(factory)
+    listed = repository.list(application.id)
+    assert [item.id for item in listed] == [saved.id]
+    detail = repository.get(application.id, saved.id)
+    assert detail is not None
+    for field in ("source_snapshot_json", "triage_json", "deep_review_json", "source_fingerprint_sha256",
+                  "triage_sha256", "deep_review_sha256", "proposal_schema_version"):
+        assert getattr(detail, field) == getattr(saved, field)
+    assert detail.created_at.isoformat() == "2026-07-21T09:00:00+00:00"
+    assert detail.deep_reviewed_at.isoformat() == "2026-07-21T09:05:00+00:00"
+    assert not hasattr(repository, "create_triage")
+    assert not hasattr(repository, "create_deep_review")
+
+
+def test_v1_history_respects_application_visibility(tmp_path) -> None:
+    factory, application, resume = _ready(tmp_path)
+    saved = seed_v1_history(factory, application.id, resume.id)
+    repository = OpportunityFitReviewsRepository(factory)
+    ApplicationsRepository(factory).delete(application.id)
+    assert repository.list(application.id) == []
+    assert repository.get(application.id, saved.id) is None

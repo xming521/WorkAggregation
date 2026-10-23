@@ -1,7 +1,7 @@
 import { liveText } from '@/i18n/liveText';
 import { useLocalizedValidation } from './applicationUiText';
 import { t, useLocale } from '@/i18n';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -91,11 +91,17 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
   const [form] = Form.useForm<FormValues>();
   useLocalizedValidation(form);
   const qc = useQueryClient();
+  const initialized = useRef(false);
+  const savedProviders = useRef<EditableProvider[]>([]);
+  const testRevision = useRef(0);
+  const nextProviderSequence = useRef(0);
   const [providers, setProviders] = useState<EditableProvider[]>([]);
   const [activeProviderId, setActiveProviderId] = useState('default');
   const [fallbackProviderIds, setFallbackProviderIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState('default');
   const [connectionResult, setConnectionResult] = useState<ProviderConnectionTestResult | null>(null);
+
+  useEffect(() => () => { testRevision.current += 1; }, []);
 
   const settingsQuery = useQuery({
     queryKey: SETTINGS_QUERY_KEY,
@@ -103,14 +109,25 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
     enabled: open,
   });
 
+  const editingProvider = providers.find((item) => item.id === editingId);
   const activeProvider = useMemo(
     () => providers.find((item) => item.id === activeProviderId) ?? providers[0],
     [activeProviderId, providers],
   );
 
   useEffect(() => {
-    if (!open || !settingsQuery.data) return;
+    if (!open) {
+      initialized.current = false;
+      testRevision.current += 1;
+      savedProviders.current = [];
+      setProviders([]);
+      form.resetFields();
+      return;
+    }
+    if (initialized.current || !settingsQuery.data) return;
+    initialized.current = true;
     const nextProviders = toEditableProviders(settingsQuery.data);
+    savedProviders.current = nextProviders;
     const nextActiveId = settingsQuery.data.active_provider_id || nextProviders[0]?.id || 'default';
     setProviders(nextProviders);
     setActiveProviderId(nextActiveId);
@@ -134,6 +151,9 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           ),
         ),
       );
+      if (nextProviders.some((provider) => !provider.label.trim())) {
+        throw new Error(t("请输入显示名称"));
+      }
       const incompleteProvider = nextProviders.find(
         (provider) => providerRequiresValidBudget(provider, nextActiveId, nextFallbackIds)
           && !hasValidProviderBudget(provider),
@@ -173,16 +193,24 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
 
   const testMutation = useMutation({
     mutationFn: async () => {
-      const values = await form.validateFields();
-      const existing = providers.find((item) => item.id === values.id);
-      const provider = formToProvider(values, existing);
-      const payload =
-        existing?.has_api_key && !provider.api_key && providerMatchesSavedFields(provider, existing)
-          ? { provider_id: values.id }
-          : { provider: providerPayload(provider) };
-      return testProviderConnection(payload);
+      const revision = testRevision.current;
+      try {
+        const values = await form.validateFields();
+        if (revision !== testRevision.current) return null;
+        const existing = savedProviders.current.find((item) => item.id === values.id);
+        const provider = formToProvider(values, existing);
+        const payload =
+          existing?.has_api_key && !provider.api_key && providerMatchesSavedFields(provider, existing)
+            ? { provider_id: values.id }
+            : { provider: providerPayload(provider) };
+        return { result: await testProviderConnection(payload), revision };
+      } catch {
+        return { result: { ok: false, error: t("连接失败") }, revision };
+      }
     },
-    onSuccess: (result) => {
+    onSuccess: (response) => {
+      if (!response || response.revision !== testRevision.current) return;
+      const { result } = response;
       setConnectionResult(result);
       if (result.ok) {
         message.success(result.message || t("连接成功"));
@@ -190,17 +218,14 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
         message.error(result.error || t("连接失败"));
       }
     },
-    onError: () => {
-      setConnectionResult({ ok: false, error: "连接失败" });
-      message.error(liveText(() => t("连接失败")));
-    },
   });
 
   const hasKey = Boolean(activeProvider?.has_api_key);
   const hasBudget = Boolean(activeProvider && hasValidProviderBudget(activeProvider));
 
   function startNewProvider() {
-    const id = uniqueProviderId('provider', providers);
+    let id: string;
+    do { id = `provider-${++nextProviderSequence.current}`; } while (providers.some((item) => item.id === id));
     const provider: EditableProvider = {
       id,
       label: t("新供应商"),
@@ -214,23 +239,26 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
       api_key: '',
       has_api_key: false,
     };
-    setEditingId(id);
-    setConnectionResult(null);
-    form.setFieldsValue(providerToForm(provider, settingsQuery.data));
+    setProviders((current) => [...current, provider]);
+    editProvider(provider);
   }
 
   function editProvider(provider: EditableProvider) {
+    const autoApprove = form.getFieldValue('chat_auto_approve_writes');
+    testRevision.current += 1;
     setEditingId(provider.id);
     setConnectionResult(null);
-    form.setFieldsValue(providerToForm(provider, settingsQuery.data));
+    form.setFieldsValue({ ...providerToForm(provider, settingsQuery.data), chat_auto_approve_writes: autoApprove });
   }
 
-  async function applyProviderForm() {
-    const values = await form.validateFields();
-    const nextProvider = formToProvider(values, providers.find((item) => item.id === values.id));
-    setProviders((current) => upsertProvider(current, nextProvider));
-    setEditingId(nextProvider.id);
-    message.success(liveText(() => t("供应商已更新")));
+  function retainProviderDraft(_: Partial<FormValues>, values: FormValues) {
+    testRevision.current += 1;
+    setConnectionResult(null);
+    const { chat_auto_approve_writes: _permission, ...draft } = values;
+    setProviders((current) => upsertProvider(current, {
+      ...draft,
+      has_api_key: savedProviders.current.find((item) => item.id === editingId)?.has_api_key ?? false,
+    }));
   }
 
   function removeProvider(providerId: string) {
@@ -265,6 +293,7 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           type="link"
           icon={<ArrowLeftOutlined />}
           onClick={onClose}
+          disabled={saveMutation.isPending}
           style={{ width: 'fit-content', height: 'auto', padding: 0 }}
         >
           {t("返回设置")}</Button>
@@ -289,11 +318,13 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           }
         />
 
+        <details>
+          <summary>{t("多供应商管理（高级）")}</summary>
         <section data-testid="ai-provider-list" className={workflowStyles.section}>
           <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
             <Typography.Title level={5} style={{ margin: 0 }}>
               {t("Provider 列表")}</Typography.Title>
-            <Button icon={<PlusOutlined />} onClick={startNewProvider}>
+            <Button icon={<PlusOutlined />} onClick={startNewProvider} disabled={saveMutation.isPending}>
               {t("新增供应商")}</Button>
           </Space>
           <List
@@ -304,13 +335,13 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
               <List.Item
                 className={workflowStyles.listRow}
                 actions={[
-                  <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => editProvider(provider)}>
+                  <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => editProvider(provider)} disabled={saveMutation.isPending}>
                     {t("编辑供应商")}</Button>,
                   <Button
                     key="default"
                     size="small"
                     icon={<StarOutlined />}
-                    disabled={provider.id === activeProviderId || !hasValidProviderBudget(provider)}
+                    disabled={saveMutation.isPending || provider.id === activeProviderId || !hasValidProviderBudget(provider)}
                     onClick={() => markDefault(provider)}
                   >
                     {t("设为默认")}</Button>,
@@ -319,10 +350,10 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
                     title={t("删除供应商")}
                     okText={t("删除")}
                     cancelText={t("取消")}
-                    disabled={provider.id === activeProviderId}
+                    disabled={saveMutation.isPending || provider.id === activeProviderId}
                     onConfirm={() => removeProvider(provider.id)}
                   >
-                    <Button size="small" danger icon={<DeleteOutlined />} disabled={provider.id === activeProviderId}>
+                    <Button size="small" danger icon={<DeleteOutlined />} disabled={saveMutation.isPending || provider.id === activeProviderId}>
                       {t("删除供应商")}</Button>
                   </Popconfirm>,
                 ]}
@@ -345,31 +376,26 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
             )}
           />
         </section>
+        </details>
 
         <Divider style={{ margin: 0 }} />
 
         <Form<FormValues>
           form={form}
+          disabled={saveMutation.isPending}
+          onValuesChange={retainProviderDraft}
           layout="vertical"
           initialValues={providerToForm(activeProvider, settingsQuery.data)}
           className={workflowStyles.section}
         >
           <Typography.Title level={5} style={{ marginTop: 0 }}>
-            {t("编辑供应商")}</Typography.Title>
-
-          <Form.Item label={t("配置 ID")} name="id" rules={[{ required: true, message: t("请输入配置 ID") }]}>
-            <Input placeholder="openai" disabled={providers.some((item) => item.id === editingId)} />
-          </Form.Item>
-
-          <Form.Item label={t("显示名称")} name="label" rules={[{ required: true, message: t("请输入显示名称") }]}>
-            <Input placeholder="OpenAI" />
-          </Form.Item>
+            {t("编辑供应商")} · {editingProvider?.label || editingId}</Typography.Title>
 
           <Form.Item label={t("API 密钥")} name="api_key">
             <Input.Password
               prefix={<KeyOutlined />}
               autoComplete="off"
-              placeholder={activeProvider?.has_api_key ? t("留空则保留当前密钥") : 'sk-...'}
+              placeholder={editingProvider?.has_api_key ? t("留空则保留当前密钥") : 'sk-...'}
             />
           </Form.Item>
 
@@ -439,6 +465,16 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
             <InputNumber min={1} precision={0} step={1_024} style={{ width: '100%' }} placeholder={t("例如 8192")} />
           </Form.Item>
 
+          <details>
+            <summary>{t("高级供应商选项")}</summary>
+          <Form.Item label={t("配置 ID")} name="id" rules={[{ required: true, message: t("请输入配置 ID") }]}>
+            <Input placeholder="openai" disabled />
+          </Form.Item>
+
+          <Form.Item label={t("显示名称")} name="label" rules={[{ required: true, message: t("请输入显示名称") }]}>
+            <Input placeholder="OpenAI" />
+          </Form.Item>
+
           <Form.Item label={t("启用")} name="enabled" valuePropName="checked">
             <Switch />
           </Form.Item>
@@ -468,12 +504,15 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
             />
           </Form.Item>
 
+          </details>
+
+          <Divider />
+          <Typography.Title level={5}>{t("权限与安全")}</Typography.Title>
           <Form.Item label={t("写操作自动确认")} name="chat_auto_approve_writes" valuePropName="checked">
             <Switch />
           </Form.Item>
 
           <Space wrap className={workflowStyles.actionGroup}>
-            <Button onClick={applyProviderForm}>{t("应用到 Provider 列表")}</Button>
             <Button icon={<SyncOutlined />} loading={testMutation.isPending} onClick={() => testMutation.mutate()}>
               {t("测试连接")}</Button>
           </Space>
@@ -493,7 +532,9 @@ export default function AISettingsDrawer({ open, onClose }: Props) {
           ) : null}
 
           <Typography.Paragraph type="secondary" style={{ marginTop: 14, marginBottom: 0 }}>
-            {t("设置保存在本地 OfferPilot 配置中；接口只返回密钥是否存在。")}</Typography.Paragraph>
+            {t("测试连接不会保存。点击保存才会保存全部供应商草稿；返回或刷新会放弃未保存修改。密钥留空会保留已保存密钥。")}</Typography.Paragraph>
+          <Typography.Paragraph type="secondary">
+            {t("设置保存在本地 OfferPilot 配置中；接口只返回密钥是否存在。") }</Typography.Paragraph>
 
           <div style={{ marginTop: 14 }}>
             <Tag color="blue">LiteLLM</Tag>
@@ -528,11 +569,11 @@ function toEditableProviders(settings?: Settings): EditableProvider[] {
 function providerToForm(provider?: EditableProvider, settings?: Settings): FormValues {
   return {
     id: provider?.id || 'default',
-    label: provider?.label || 'Default',
-    api_key: '',
+    label: provider?.label ?? 'Default',
+    api_key: provider?.api_key ?? '',
     provider: provider?.provider || 'openai',
-    base_url: provider?.base_url || settings?.base_url || DEFAULT_BASE_URL,
-    model: provider?.model || settings?.model || DEFAULT_MODEL,
+    base_url: provider?.base_url ?? settings?.base_url ?? DEFAULT_BASE_URL,
+    model: provider?.model ?? settings?.model ?? DEFAULT_MODEL,
     context_window: provider?.context_window ?? 0,
     max_output_tokens: provider?.max_output_tokens ?? 0,
     enabled: provider?.enabled ?? true,
@@ -553,7 +594,7 @@ function formToProvider(values: FormValues, existing?: EditableProvider): Editab
     max_output_tokens: values.max_output_tokens,
     enabled: values.enabled,
     supports_json_schema: values.supports_json_schema,
-    has_api_key: Boolean(values.api_key?.trim() || existing?.has_api_key),
+    has_api_key: Boolean(existing?.has_api_key),
   };
 }
 
@@ -566,10 +607,10 @@ function upsertProvider(providers: EditableProvider[], provider: EditableProvide
 function providerPayload(provider: EditableProvider): Omit<AIProviderProfile, 'has_api_key'> & { api_key?: string } {
   const payload: Omit<AIProviderProfile, 'has_api_key'> & { api_key?: string } = {
     id: provider.id,
-    label: provider.label,
+    label: provider.label.trim() || provider.id,
     provider: provider.provider,
-    base_url: provider.base_url,
-    model: provider.model,
+    base_url: provider.base_url.trim() || DEFAULT_BASE_URL,
+    model: provider.model.trim() || DEFAULT_MODEL,
     context_window: provider.context_window,
     max_output_tokens: provider.max_output_tokens,
     enabled: provider.enabled,
@@ -588,7 +629,8 @@ function providerMatchesSavedFields(provider: EditableProvider, saved: EditableP
     provider.model === saved.model &&
     provider.context_window === saved.context_window &&
     provider.max_output_tokens === saved.max_output_tokens &&
-    provider.enabled === saved.enabled
+    provider.enabled === saved.enabled &&
+    provider.supports_json_schema === saved.supports_json_schema
   );
 }
 
@@ -607,14 +649,4 @@ function providerRequiresValidBudget(
   fallbackProviderIds: string[],
 ) {
   return provider.enabled || provider.id === activeProviderId || fallbackProviderIds.includes(provider.id);
-}
-
-function uniqueProviderId(prefix: string, providers: EditableProvider[]) {
-  let index = providers.length + 1;
-  let id = `${prefix}-${index}`;
-  while (providers.some((provider) => provider.id === id)) {
-    index += 1;
-    id = `${prefix}-${index}`;
-  }
-  return id;
 }

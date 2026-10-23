@@ -17,7 +17,7 @@ vi.mock('@tanstack/react-query', () => ({
     isFetching: false,
     error: null,
   }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({ invalidateQueries: vi.fn(), getQueryCache: () => ({ subscribe: () => () => undefined }) }),
 }));
 vi.mock('@dnd-kit/core', () => ({
   DndContext: (props: { children: React.ReactNode }) => <div>{props.children}</div>,
@@ -110,7 +110,6 @@ vi.mock('@/features/dashboard/DashboardView', () => ({
   ),
 }));
 vi.mock('@/features/reminders/RemindersView', () => ({ default: () => <div /> }));
-vi.mock('@/components/MockInterviewDrawer', () => ({ default: () => <div /> }));
 vi.mock('@/components/OfferNegotiationDrawer', () => ({ default: () => <div /> }));
 vi.mock('@/components/InterviewV01View', () => ({ default: () => <div /> }));
 vi.mock('@/components/InterviewStoryLibraryView', () => ({ default: () => <div /> }));

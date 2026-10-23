@@ -1,3 +1,4 @@
+import KnowledgeNoteManager from './KnowledgeNoteManager';
 import { liveText } from '@/i18n/liveText';
 import { t, useLocale, getLocale } from '@/i18n';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -564,6 +565,8 @@ function jobStatusVariant(status: string): PillVariant {
 export default function KnowledgeSourcesView() {
   useLocale();
   const queryClient = useQueryClient();
+  const [section, setSection] = useState('sources');
+  const [notesVisited, setNotesVisited] = useState(false);
   const [includeArchived, setIncludeArchived] = useState(false);
   const sourcesQuery = useQuery({
     queryKey: [...KNOWLEDGE_QUERY_KEY, { includeArchived }],
@@ -711,7 +714,7 @@ export default function KnowledgeSourcesView() {
         <div className="knowledge-page-header-row">
           <span className="knowledge-page-mark" />
           <Title level={3} className="knowledge-page-title">
-            {t("素材库")}</Title>
+            {t("参考知识")}</Title>
           <span className="knowledge-page-count">
             {t("共 ")}<b>{externalSources.length}</b>{t(" 个来源")}</span>
         </div>
@@ -719,6 +722,12 @@ export default function KnowledgeSourcesView() {
           {t("上传 Markdown/Text、上传图文资料，或直接粘贴正文；系统按自然结构生成来源依据，并提供关键词检索。")}</Paragraph>
       </div>
 
+      <Tabs activeKey={section} onChange={(key) => { setSection(key); if (key === 'notes') setNotesVisited(true); }} items={[
+        { key: 'sources', label: t("资料来源") },
+        { key: 'notes', label: t("已确认的知识笔记") },
+      ]} />
+      <div hidden={section !== 'notes'}>{notesVisited ? <KnowledgeNoteManager embedded /> : null}</div>
+      <div hidden={section !== 'sources'}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <div className="knowledge-sources-toolbar">
           <Button
@@ -798,6 +807,7 @@ export default function KnowledgeSourcesView() {
           />
         </div>
       </Space>
+      </div>
 
       <UploadModal
         open={uploadOpen}

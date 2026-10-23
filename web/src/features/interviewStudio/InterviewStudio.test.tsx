@@ -789,4 +789,61 @@ describe('InterviewStudio continuous voice integration', () => {
     expect(serviceSpies.nextQuestion).toHaveBeenCalledTimes(1);
     expect(host!.textContent).toContain('表达复盘数据未通过校验');
   });
+
+  // Safety cases retained from the retired MockInterviewDrawer on the active owner.
+  it('does not render raw provider details or delete an attempt for a pre-attempt 422', async () => {
+    serviceSpies.start.mockRejectedValueOnce({ response: { status: 422, data: { error_code: 'mock_interview_invalid_payload', error: 'secret-provider-detail' } } });
+    await act(async () => {
+      root = createRoot(host = document.createElement('div'));
+      document.body.appendChild(host);
+      root.render(<InterviewStudio context={{ kind: 'application_event', applicationId: 7, eventId: 8, resumeId: 9, jdVersionId: 10, jdText: 'JD' }} onClose={vi.fn()} />);
+      await Promise.resolve();
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(host!.textContent).not.toContain('secret-provider-detail');
+    expect(serviceSpies.discard).not.toHaveBeenCalled();
+    expect(serviceSpies.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a confirmed attempt read-only without exposing destructive retry', async () => {
+    serviceSpies.finish.mockRejectedValueOnce({ response: { status: 409, data: { error_code: 'mock_interview_attempt_confirmed', attempt_id: 41, error: 'secret-provider-detail' } } });
+    await act(async () => {
+      root = createRoot(host = document.createElement('div'));
+      document.body.appendChild(host);
+      root.render(<InterviewStudio context={{ kind: 'application_event', applicationId: 7, eventId: 8, resumeId: 9, jdVersionId: 10, jdText: 'JD' }} onClose={vi.fn()} />);
+      await Promise.resolve();
+    });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { button('结束并生成复盘').click(); await Promise.resolve(); });
+    expect(host!.textContent).toContain('本次练习已有确认结果');
+    expect(host!.textContent).not.toContain('secret-provider-detail');
+    expect(host!.textContent).not.toContain('重新开始练习');
+    expect(host!.textContent).not.toContain('使用原尝试恢复');
+    expect(serviceSpies.discard).not.toHaveBeenCalled();
+  });
+
+  it.each([404, 503])('does not start a replacement before cleanup is resolved (%s)', async (status) => {
+    serviceSpies.finish.mockRejectedValueOnce({ response: { status: 404, data: { error_code: 'mock_interview_attempt_not_found', attempt_id: 41 } } });
+    serviceSpies.discard.mockRejectedValueOnce({ response: { status } });
+    await act(async () => {
+      root = createRoot(host = document.createElement('div'));
+      document.body.appendChild(host);
+      root.render(<InterviewStudio context={{ kind: 'application_event', applicationId: 7, eventId: 8, resumeId: 9, jdVersionId: 10, jdText: 'JD' }} onClose={vi.fn()} />);
+      await Promise.resolve();
+    });
+    await act(async () => { await Promise.resolve(); });
+    const original = serviceSpies.start.mock.calls[0][0];
+    await act(async () => { button('结束并生成复盘').click(); await Promise.resolve(); });
+    await act(async () => { button('重新开始练习').click(); await Promise.resolve(); });
+    expect(serviceSpies.discard.mock.calls[0][0].attemptId).toBe(41);
+    if (status === 503) {
+      expect(serviceSpies.start).toHaveBeenCalledTimes(1);
+      expect(host!.textContent).toContain('旧练习清理结果待确认');
+      await act(async () => { button('重新开始练习').click(); await Promise.resolve(); });
+      expect(serviceSpies.discard.mock.calls[1][0].attemptId).toBe(41);
+    }
+    expect(serviceSpies.start).toHaveBeenCalledTimes(2);
+    expect(serviceSpies.start.mock.calls[1][0].attemptKey).not.toBe(original.attemptKey);
+  });
+
 });
