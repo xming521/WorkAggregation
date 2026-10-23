@@ -477,3 +477,27 @@ def test_upload_strips_metadata_and_rejects_oversized_dimensions():
         assert not image.info
     with pytest.raises(ImageInputError, match="image_dimensions_exceeded"):
         normalize_image(picture((10001, 1)))
+
+
+def test_image_migration_preserves_pre_image_text_history(tmp_path):
+    from offerpilot.models import ChatMessage, Conversation
+    db_path = tmp_path / 'data.db'
+    sessions = init_database(db_path)
+    with sessions() as session:
+        conversation = Conversation(title='Legacy text conversation')
+        session.add(conversation)
+        session.flush()
+        message = ChatMessage(conversation_id=conversation.id, role='user', content='Keep original text')
+        session.add(message)
+        session.commit()
+        message_id = message.id
+        # Reconstruct the previous schema only inside this synthetic test DB.
+        session.execute(text('ALTER TABLE chat_messages DROP COLUMN image_refs_json'))
+        session.execute(text("DELETE FROM schema_migrations WHERE version='0034_chat_image_messages'"))
+        session.commit()
+    upgraded = init_database(db_path)
+    with upgraded() as session:
+        message = session.get(ChatMessage, message_id)
+        assert message.content == 'Keep original text'
+        assert message.image_attachments == []
+        assert session.scalar(text("SELECT count(*) FROM schema_migrations WHERE version='0034_chat_image_messages'")) == 1

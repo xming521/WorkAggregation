@@ -121,10 +121,15 @@ class ChatImageStore:
 
     def resolve_in_session(self, session: Session, ids: tuple[str, ...],
                            conversation: Conversation) -> tuple[ImageReference, ...]:
+        validated_ids = image_ids(ids)
+        # Text-only admission keeps the main runtime's scope validation and
+        # recovery semantics; image-specific checks must not intercept it.
+        if not validated_ids:
+            return ()
         refs = []
         kind, scope_ref = self.require_scope(session, conversation.context_type,
                                              conversation.context_ref, conversation.id)
-        for attachment_id in image_ids(ids):
+        for attachment_id in validated_ids:
             row = session.get(ChatAttachment, attachment_id)
             if row is None or row.state != "ready":
                 raise ImageInputError("image_unavailable")

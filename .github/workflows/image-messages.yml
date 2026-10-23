@@ -33,12 +33,20 @@ jobs:
         run: |
           npm run build --prefix web
           node web/tests/image-messages/fixture-contract.mjs
-      - name: Install test Chromium and CJK fonts
-        working-directory: web
+      - name: Verify preinstalled Chrome and Chinese fonts
+        timeout-minutes: 5
         run: |
-          npx --no-install playwright-core install --with-deps chromium
-          sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          chrome="$(command -v google-chrome || command -v chromium)"
+          test -n "$chrome" && test -x "$chrome"
+          "$chrome" --version
+          echo "CHROMIUM_EXECUTABLE=$chrome" >> "$GITHUB_ENV"
+          if [ -z "$(fc-list :lang=zh family)" ]; then
+            # Avoid a full browser dependency upgrade and the 61 MB Noto CJK package.
+            timeout 90s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 update
+            timeout 180s sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 install -y --no-install-recommends fonts-wqy-zenhei
+          fi
+          test -n "$(fc-list :lang=zh family)"
+          fc-list :lang=zh family
       - name: Run isolated image interactions without backend or model access
         run: node web/tests/image-messages/run.mjs
         env:
