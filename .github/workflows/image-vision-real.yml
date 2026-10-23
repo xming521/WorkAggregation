@@ -69,11 +69,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/image_vision_admission.py
-      - name: Four real requests through the product, no retries or fallback
+      - name: Two targeted history requests, no retries or fallback
         env:
           OFFERPILOT_IMAGE_DEEPSEEK_API_KEY: ${{ secrets.OFFERPILOT_IMAGE_DEEPSEEK_API_KEY }}
         run: >-
-          uv run --frozen python scripts/image_vision_acceptance.py --execute
+          uv run --frozen python scripts/image_vision_acceptance.py --execute --history-only
           --output artifacts/image-vision/report.json
       - name: Retain synthetic results only, never credentials or raw transport
         if: always()

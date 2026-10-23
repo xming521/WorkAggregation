@@ -58,6 +58,17 @@ def test_scorers_reject_negation_loss_hallucination_and_boolean_count() -> None:
     assert not acceptance.grade("geometry", json.dumps(geometry))["passed"]
 
 
+def test_original_live_history_disclaimer_still_fails_strict_grade() -> None:
+    # Preserve the first live failure verbatim. Correct values buried after an
+    # inaccurate capability disclaimer are not a passing JSON-only response.
+    answer = (
+        "我无法重新查看历史原图。仅能依据此前提供的图片读取结果，以下字段来自那张图片：\n\n"
+        '```json\n{\n  "salary": "18–22K ×14",\n  "deadline": "2026-11-15"\n}\n```'
+    )
+    result = acceptance.grade("history", answer)
+    assert result == {"passed": False, "fields": {"salary": False, "deadline": False}}
+
+
 def test_guard_hard_limit_no_retry_and_safe_failure() -> None:
     attempts = []
 
@@ -185,14 +196,26 @@ def test_execute_without_dedicated_key_fails_without_fallback(
     assert report["provider_calls"] == []
 
 
+@pytest.mark.parametrize("history_only", [False, True])
 def test_real_product_path_with_offline_transport_and_no_key_file(
-    tmp_path: Path, monkeypatch: Any,
+    tmp_path: Path, monkeypatch: Any, history_only: bool,
 ) -> None:
     monkeypatch.setenv(acceptance.KEY_ENV, "synthetic-test-private-key")
     calls = []
+    selected_cases = ("job", "history") if history_only else acceptance.CASES
 
     async def offline(invoke: Any, **kwargs: Any) -> Any:
-        case = acceptance.CASES[len(calls)]
+        case = selected_cases[len(calls)]
+        if case == "history":
+            system_text = "\n".join(
+                item["content"] for item in kwargs["messages"]
+                if item["role"] == "system" and isinstance(item.get("content"), str)
+            )
+            assert "包括历史消息中重新携带的原图，均可直接查看和识别" in system_text
+            assert "只有未随本次请求提供的原图，才不得声称已查看" in system_text
+            assert acceptance._image_hashes(kwargs["messages"]) == acceptance._image_hashes(
+                calls[-1]["messages"]
+            )
         calls.append(kwargs)
 
         async def stream() -> Any:
@@ -206,16 +229,30 @@ def test_real_product_path_with_offline_transport_and_no_key_file(
     monkeypatch.setattr(acceptance, "_official_transport", offline)
     from offerpilot import config
     monkeypatch.setattr(config, "save_config", lambda *_: pytest.fail("must not write config"))
-    report = acceptance.run_acceptance(tmp_path, execute=True)
+    report = acceptance.run_acceptance(tmp_path, execute=True, history_only=history_only)
     assert report["status"] == "passed", report
-    assert len(calls) == len(report["provider_calls"]) == 4
+    assert len(calls) == len(report["provider_calls"]) == len(selected_cases)
+    assert report["planned_calls"] == len(selected_cases)
+    assert [item["case"] for item in report["cases"]] == list(selected_cases)
+    assert acceptance.CALL_LIMIT == 4
     assert all(case["passed"] for case in report["cases"])
     assert report["cases"][-1]["original_image_resent"]
     assert report["cases"][-1]["text_memory_excluded"]
     assert report["cost"]["currency"] == "CNY"
-    assert report["cost"]["estimate"] == 0.00048
+    assert report["cost"]["estimate"] == round(0.00012 * len(selected_cases), 8)
     assert report["provider_calls"][-1]["image_sha256"] == report["provider_calls"][-2][
         "image_sha256"
     ]
     assert "synthetic-test-private-key" not in (tmp_path / "report.json").read_text()
     assert "base64" not in (tmp_path / "report.json").read_text()
+
+
+def test_history_only_cli_dry_run_plans_two_without_calls(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.setattr("sys.argv", ["image_vision_acceptance.py", "--history-only",
+                                    "--output", str(tmp_path / "report.json")])
+    assert acceptance.main() == 0
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["scope"] == "history_only"
+    assert report["planned_calls"] == 2
+    assert report["status"] == "dry_run"
+    assert report["provider_calls"] == []

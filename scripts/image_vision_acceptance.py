@@ -2,6 +2,7 @@
 
 Dry run: python scripts/image_vision_acceptance.py --report-dir /tmp/image-check
 Live run: supply OFFERPILOT_IMAGE_DEEPSEEK_API_KEY and add --execute.
+Focused follow-up: add --history-only to run the job image and historical-image follow-up.
 No credential, production data, or provider response payload is written to config.
 """
 from __future__ import annotations
@@ -288,11 +289,14 @@ def _poll(client: Any, turn_id: str) -> dict[str, Any]:
 
 
 def run_acceptance(report_dir: Path, *, execute: bool = False,
-                   font_path: Path | None = None) -> dict[str, Any]:
+                   font_path: Path | None = None, history_only: bool = False) -> dict[str, Any]:
     report_dir.mkdir(parents=True, exist_ok=True)
+    selected_cases = ("job", "history") if history_only else CASES
     report: dict[str, Any] = {
         "status": "dry_run", "model": MODEL, "endpoint": BASE_URL,
-        "synthetic_only": True, "planned_calls": CALL_LIMIT, "provider_calls": [], "cases": [],
+        "synthetic_only": True, "planned_calls": len(selected_cases),
+        "scope": "history_only" if history_only else "all",
+        "provider_calls": [], "cases": [],
         "cost": {"currency": "CNY", "estimate": None,
                  "input_per_million": 2, "output_per_million": 8,
                  "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
@@ -355,7 +359,7 @@ def run_acceptance(report_dir: Path, *, execute: bool = False,
                     raise AcceptanceError("image_capability_unavailable")
                 job_conversation = 0
                 job_ref: dict[str, Any] = {}
-                for case in CASES:
+                for case in selected_cases:
                     before = len(guard.records)
                     payload: dict[str, Any] = {"message": PROMPTS[case], "request_id": str(uuid4())}
                     if case == "history":
@@ -430,14 +434,17 @@ def run_acceptance(report_dir: Path, *, execute: bool = False,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--execute", action="store_true", help="Opt in to exactly four model cases")
+    parser.add_argument("--execute", action="store_true", help="Opt in to the selected model cases")
+    parser.add_argument("--history-only", action="store_true",
+                        help="Run only the job image and historical-image follow-up (two calls)")
     destination = parser.add_mutually_exclusive_group(required=True)
     destination.add_argument("--report-dir", type=Path)
     destination.add_argument("--output", type=Path, help="Report JSON path; fixtures go beside it")
     parser.add_argument("--font", type=Path)
     args = parser.parse_args()
     report_dir = args.output.parent if args.output else args.report_dir
-    report = run_acceptance(report_dir, execute=args.execute, font_path=args.font)
+    report = run_acceptance(report_dir, execute=args.execute, font_path=args.font,
+                            history_only=args.history_only)
     if args.output and args.output.name != "report.json":
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
                                encoding="utf-8")
