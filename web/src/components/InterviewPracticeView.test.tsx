@@ -30,6 +30,15 @@ afterEach(() => {
 });
 
 describe('InterviewPracticeView', () => {
+  it('honors the directly selected home entry without replacing either retained workspace', () => {
+    act(() => root.render(<InterviewPracticeView initialMode="review" />));
+    const owner = host.querySelector('[data-testid="adaptive-practice-owner"]');
+    expect(host.querySelector<HTMLElement>('[data-testid="review-focus-practice"]')?.hidden).toBe(false);
+    act(() => root.render(<InterviewPracticeView initialMode="quick" />));
+    expect(host.querySelector<HTMLElement>('[data-testid="quick-interview-practice"]')?.hidden).toBe(false);
+    expect(host.querySelector('[data-testid="adaptive-practice-owner"]')).toBe(owner);
+  });
+
   it('switches labels without resetting the selected practice surface', () => {
     act(() => root.render(<InterviewPracticeView />));
     act(() => [...host.querySelectorAll<HTMLElement>('.ant-segmented-item')]

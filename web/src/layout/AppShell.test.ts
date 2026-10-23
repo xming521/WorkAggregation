@@ -204,7 +204,8 @@ describe('AppShell source contract', () => {
   });
 
   it('keeps UI and Pilot negotiation drafts separate inside the shared ApplicationDetail owner', () => {
-    expect(source).toContain('offerNegotiationPilotDraftsRef');
+    expect(source).toContain('useOfferNegotiationOwnerDrafts');
+    expect(source).toContain('pilotDrafts: offerNegotiationPilotDrafts');
     expect(source).toContain("offerNegotiationEntryPoint === 'pilot'");
     expect(source).toContain('offerNegotiationDrafts={');
     expect(source).toContain('onOfferNegotiationDraftChange={');
@@ -481,4 +482,15 @@ describe('AppShell source contract', () => {
       'onOpenOfferNegotiationPilot={startOfferNegotiationPilotChat}',
     );
   });
+});
+
+it('routes practice and materials through canonical owners without parallel libraries or implicit targets', () => {
+  expect(source.match(/<ExperienceMaterialsView\b/g)).toHaveLength(1);
+  expect(source).not.toContain('interviewStoryLibraryOpen');
+  expect(source).not.toContain('weeklyTarget: 6');
+  expect(source).toContain('initialMode={interviewPracticeMode}');
+  const practice = source.slice(source.indexOf('  const openFreePractice ='), source.indexOf('  const updateReviewReadinessDraft'));
+  expect(practice.indexOf("result.kind !== 'launched'")).toBeLessThan(practice.indexOf('setInterviewPracticeMode(mode)'));
+  expect(source).toContain("navigateToView('reviews')");
+  expect(source).toContain('REMINDER_CANDIDATES_QUERY_KEY');
 });

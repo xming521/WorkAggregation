@@ -134,7 +134,20 @@ function JobCard({
   );
 }
 
-export default function ProactiveInbox() {
+export function isRepresentedReminder(job: ProactiveJob, candidateIds: readonly string[]): boolean {
+  return job.state === 'succeeded' && job.kind !== 'interview_draft'
+    && Boolean(job.candidate_id && candidateIds.includes(job.candidate_id));
+}
+
+export function partitionProactiveJobs(allJobs: readonly ProactiveJob[], candidateIds: readonly string[]) {
+  const isPublishedReminder = (job: ProactiveJob) => job.state === 'succeeded' && job.kind !== 'interview_draft';
+  return {
+    current: allJobs.filter((job) => !isPublishedReminder(job)),
+    history: allJobs.filter((job) => isPublishedReminder(job) && !isRepresentedReminder(job, candidateIds)),
+  };
+}
+
+export default function ProactiveInbox({ representedCandidateIds = [] }: { representedCandidateIds?: readonly string[] }) {
   useLocale();
   const queryClient = useQueryClient();
   const titleId = useId();
@@ -195,7 +208,8 @@ export default function ProactiveInbox() {
     );
   }
 
-  const jobs = jobsQuery.data ?? [];
+  const allJobs = jobsQuery.data ?? [];
+  const { current: jobs, history } = partitionProactiveJobs(allJobs, representedCandidateIds);
 
   return (
     <section className={styles.panel} aria-labelledby={titleId}>
@@ -222,9 +236,10 @@ export default function ProactiveInbox() {
 
       {jobs.length === 0 ? (
         <div className={styles.empty}>
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("还没有主动任务")} />
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0, textAlign: 'center' }}>
-            {t("在设置中开启主动任务并选择投递后，提醒和准备草稿会出现在这里。")}</Typography.Paragraph>
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={allJobs.length > 0
+            ? t("相关提醒已合并到待办列表") : t("还没有主动任务")} />
+          {allJobs.length === 0 && <Typography.Paragraph type="secondary" style={{ marginBottom: 0, textAlign: 'center' }}>
+            {t("在设置中开启主动任务并选择投递后，提醒和准备草稿会出现在这里。")}</Typography.Paragraph>}
         </div>
       ) : (
         <div className={styles.list} aria-label={t("主动任务列表")}>
@@ -240,6 +255,15 @@ export default function ProactiveInbox() {
           ))}
         </div>
       )}
+      {history.length > 0 && <details>
+        <summary>{t('已发布提醒历史（{count}）', { count: history.length })}</summary>
+        <p>{t('以下是过去发布的内容，不代表当前仍需处理；当前提醒以待办列表为准。')}</p>
+        <div className={styles.list} aria-label={t('历史提醒列表')}>
+          {history.map((job) => <JobCard key={job.id} job={job}
+            application={applicationsById.get(job.application_id)} timezone={settingsQuery.data?.settings.timezone}
+            cancelling={false} onCancel={() => undefined} />)}
+        </div>
+      </details>}
     </section>
   );
 }

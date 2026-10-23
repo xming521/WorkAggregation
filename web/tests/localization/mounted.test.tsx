@@ -107,8 +107,8 @@ describe('real AppShell localization with strict synthetic API fixtures', () => 
   });
   it('keeps the interview practice surface selected while language changes, with no model or write request', async () => {
     await mount('interview'); await switchLocale('en-US');
-    const tab = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((el) => el.textContent === 'Interview practice')!;
-    await act(async () => tab.click()); await flush(); await click('Start interview practice');
+    expect(document.querySelector('[data-testid="free-practice-workspace"]')).not.toBeNull();
+    await click(t('快速模拟'));
     for (let i = 0; i < 4; i++) await flush();
     expect(document.querySelector('[data-testid="interview-practice-surface"]')).not.toBeNull();
     const before = writes().length; await switchLocale('zh-CN');

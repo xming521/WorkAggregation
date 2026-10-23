@@ -94,16 +94,26 @@ def _regression_enabled(job: str, event_name: str, payload: dict) -> bool:
 )
 def test_only_explicit_push_prefix_skips_regression(event_name, payload, package_only):
     assert _package_only(event_name, payload) is package_only
-    for job in ("pytest-manifest", "pytest-shards", "full-regression"):
+    for job in ("pytest-manifest", "pytest-shards", "full-regression",
+                "simplification-helper-safety"):
         assert _regression_enabled(job, event_name, payload) is not package_only
+
+
+@pytest.mark.parametrize("ref", [
+    "refs/heads/master", "refs/heads/feat/20261021-product-simplification", "refs/pull/19/merge",
+])
+def test_package_only_marker_never_bypasses_other_branches(ref):
+    assert not _package_only("push", {"head_commit": {"message": PREFIX + "ignored"}}, ref)
 
 
 def test_default_workflow_and_regression_dependency_contract_remain_full():
     assert "  workflow_dispatch:\n\npermissions:" in WORKFLOW
     assert "      - feat/20261005-windows-desktop-validation\n" in WORKFLOW
     assert "    needs: pytest-manifest\n" in _job("pytest-shards")
-    assert "    needs: [pytest-manifest, pytest-shards]\n" in _job("full-regression")
     full = _job("full-regression")
+    assert "    needs: [pytest-manifest, pytest-shards, simplification-helper-safety]\n" in full
+    assert "HELPER_SAFETY_RESULT: ${{ needs.simplification-helper-safety.result }}" in full
+    assert "if ($env:HELPER_SAFETY_RESULT -ne 'success')" in full
     assert "$env:SHARD_RESULT -ne 'success' -or $env:MANIFEST_RESULT -ne 'success'" in full
     assert "scripts/release-gate.ps1 -Install -PytestEvidence pytest-evidence" in full
     assert 'if ($LASTEXITCODE -ne 0) { throw "Complete repository release gate failed" }' in full
@@ -113,6 +123,7 @@ def test_default_workflow_and_regression_dependency_contract_remain_full():
 def test_shard_timeout_adds_bounded_headroom_without_relaxing_gates():
     expected_timeouts = {
         "validation-package": "60",
+        "simplification-helper-safety": "20",
         "pytest-manifest": "20",
         "pytest-shards": "120",
         "full-regression": "90",

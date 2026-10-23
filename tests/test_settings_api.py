@@ -82,9 +82,10 @@ def test_put_settings_preserves_confirmation_secret_and_backup_redacts_it(tmp_pa
         assert secret not in bundle.read("config.json").decode("utf-8")
 
 
-def test_put_settings_preserves_onboarding_reopen_preference(tmp_path):
+@pytest.mark.parametrize("force_open", [False, True])
+def test_put_settings_preserves_onboarding_preference(tmp_path, force_open):
     client = TestClient(create_app(data_dir=tmp_path))
-    reopened = client.patch("/api/onboarding", json={"force_open": True})
+    reopened = client.patch("/api/onboarding", json={"force_open": force_open})
     assert reopened.status_code == 200
 
     response = client.put(
@@ -93,7 +94,9 @@ def test_put_settings_preserves_onboarding_reopen_preference(tmp_path):
     )
 
     assert response.status_code == 200
-    assert client.get("/api/onboarding").json()["force_open"] is True
+    status = client.get("/api/onboarding").json()
+    assert status["force_open"] is force_open
+    assert status["dismissed"] is not force_open
 
 
 def test_get_settings_exposes_provider_profiles_without_keys(tmp_path):

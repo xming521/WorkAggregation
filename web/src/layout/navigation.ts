@@ -60,7 +60,7 @@ export const MODULE_NAV: ModuleNavItem[] = [
 export const MODULE_TABS: Record<ModuleKey, ModuleTabItem[]> = {
   today: [
     { view: 'dashboard', get label() { return t("概览"); } },
-    { view: 'reminders', get label() { return t("提醒"); } },
+    { view: 'reminders', get label() { return t("今日待办"); } },
     { view: 'calendar', get label() { return t("日历"); } },
   ],
   applications: [
@@ -76,8 +76,8 @@ export const MODULE_TABS: Record<ModuleKey, ModuleTabItem[]> = {
   ],
   resources: [
     { view: 'resumes', get label() { return t("简历"); } },
-    { view: 'reviews', get label() { return t("经历素材"); } },
-    { view: 'knowledge', get label() { return t("参考资料"); } },
+    { view: 'reviews', get label() { return t("我的经历"); } },
+    { view: 'knowledge', get label() { return t("参考知识"); } },
   ],
   pilot: [{ view: 'pilot', get label() { return t("会话中心"); } }],
   settings: [{ view: 'settings', get label() { return t("设置"); } }],

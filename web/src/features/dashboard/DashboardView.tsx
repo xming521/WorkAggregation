@@ -1,6 +1,7 @@
 import { pipelineActionId } from '@/lib/pipelineInsights';
 import { t, useLocale, getLocale } from '@/i18n';
-import JobMailPendingSummary from '@/features/jobMail/JobMailPendingSummary';
+import TodayInboxSummary from './TodayInboxSummary';
+import { useReminderCandidates } from '@/lib/useReminderCandidates';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Collapse, Empty } from 'antd';
@@ -30,6 +31,7 @@ import {
   getOnboarding,
   ONBOARDING_QUERY_KEY,
   setOnboardingForceOpen,
+  shouldShowOnboarding,
 } from '@/services/onboarding';
 import { deriveTodayWorkspace, deriveWeeklyCompletedHighlight } from './todayWorkspace';
 import type { Application } from '@/types/application';
@@ -124,11 +126,12 @@ export default function DashboardView({
   const kpis = useMemo(() => computeKpis(apps, now), [apps, now]);
   const funnel = useMemo(() => computeFunnel(apps), [apps, getLocale()]);
   const momentum = useMemo(() => computeMomentum(apps, 4, now), [apps, now, getLocale()]);
+  const reminderCandidatesQ = useReminderCandidates();
   const insights = useMemo(
-    () => deriveActionHints({ apps, events, offers, practiceStats, weeklyTarget: 6, now }),
-    [apps, events, offers, practiceStats, now, getLocale()],
+    () => deriveActionHints({ apps, events, offers, practiceStats, reminderCandidates: reminderCandidatesQ.isError ? [] : reminderCandidatesQ.data, now }),
+    [apps, events, offers, practiceStats, reminderCandidatesQ.data, reminderCandidatesQ.isError, now, getLocale()],
   );
-  const health = useMemo(() => summarizePipelineHealth(apps, insights, 6, now), [apps, insights, now]);
+  const health = useMemo(() => summarizePipelineHealth(apps, insights, undefined, now), [apps, insights, now]);
   const mission = useMemo(
     () =>
       deriveMissionControl({
@@ -139,7 +142,6 @@ export default function DashboardView({
         practiceStats,
         insights,
         healthLabel: health.label,
-        weeklyTarget: 6,
         now,
       }),
     [apps, events, offers, missionMaterialKits, practiceStats, insights, health.label, now, getLocale()],
@@ -196,13 +198,15 @@ export default function DashboardView({
       action={<Button onClick={() => onboardingQ.refetch()}>{t("重试")}</Button>}
       style={{ marginBottom: 16 }}
     />
-  ) : onboardingQ.data && (!onboardingQ.data.is_complete || onboardingQ.data.force_open) ? (
+  ) : onboardingQ.data && shouldShowOnboarding(onboardingQ.data) ? (
     <div style={{ marginBottom: 16 }}>
       <OnboardingChecklist
         status={onboardingQ.data}
+        collapsing={collapseOnboarding.isPending}
         onCollapse={() => collapseOnboarding.mutate()}
         onAction={onOnboardingAction}
       />
+      {collapseOnboarding.isError && <Alert type="warning" showIcon message={t("未能收起引导，请重试。")} />}
     </div>
   ) : null;
 
@@ -210,6 +214,7 @@ export default function DashboardView({
     return (
       <div className={styles.grid}>
         {onboarding}
+        <TodayInboxSummary onOpen={() => onNavigate('reminders')} />
         <div className={styles.card} style={{ textAlign: 'center', padding: 48 }}>
           <div style={{ color: 'var(--op-ink)', fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
             {t("从第一条投递开始建立求职节奏")}</div>
@@ -236,6 +241,7 @@ export default function DashboardView({
   return (
     <div className={styles.grid}>
       {onboarding}
+      {reminderCandidatesQ.isError && <Alert type="warning" showIcon message={t('提醒暂时无法读取，请重试。')} action={<Button onClick={() => void reminderCandidatesQ.refetch()}>{t('重试')}</Button>} />}
       <section className={styles.todayPrimary} aria-labelledby="today-primary-title">
         <div className={styles.commandEyebrow}>{t("当前最重要的行动")}</div>
         {todayWorkspace.primaryAction ? (
@@ -255,12 +261,13 @@ export default function DashboardView({
               <p className={styles.todayPrimaryReason}>{completedHighlight.detail}</p>
             </div>
           </div>
-        ) : (
+        ) : reminderCandidatesQ.isPending ? <p role="status">{t('正在读取提醒')}</p>
+          : reminderCandidatesQ.isError ? <p>{t('提醒状态待确认')}</p> : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("今天没有需要立即处理的行动。")} />
         )}
       </section>
 
-      <JobMailPendingSummary onOpen={() => onNavigate('reminders')} />
+      <TodayInboxSummary onOpen={() => onNavigate('reminders')} />
       <section className={styles.todaySecondary} aria-labelledby="today-secondary-title">
         <div className={styles.sectionHeaderLine}>
           <h2 id="today-secondary-title" className={styles.sectionHeading}>{t("今日其他待办")}</h2>

@@ -223,6 +223,41 @@ jobs:
           retention-days: 14
           path: desktop/ci-evidence/
 
+  simplification-helper-safety:
+    name: Linux simplification helper safety (required for release)
+    if: "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.12.19'
+      - name: Install frozen dependencies without provider credentials
+        run: uv sync --frozen
+      - name: Run complete Linux-only helper safety gate and platform contracts
+        run: |
+          uv run --frozen python -m scripts.simplification_ai_validation.offline --output artifacts/simplification-offline/results.json
+          uv run --frozen pytest -q tests/test_simplification_ai_platform.py
+          uv run --frozen ruff check scripts/simplification_ai_validation tests/test_simplification_ai_platform.py
+          uv run --frozen mypy scripts/simplification_ai_validation --exclude /tests/ --follow-imports=silent --explicit-package-bases
+      - name: Preserve exact Linux safety node evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: simplification-helper-safety-${{ github.sha }}-${{ github.run_attempt }}
+          path: artifacts/simplification-offline/results.json
+          if-no-files-found: error
+          retention-days: 14
+
   pytest-manifest:
     name: Collect complete pytest manifest
     if: "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
@@ -349,7 +384,7 @@ jobs:
   full-regression:
     name: Full release regression (required for release)
     if: "${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/feat/20261005-windows-desktop-validation' && startsWith(github.event.head_commit.message, 'build: AI [windows-package-only] ')) }}"
-    needs: [pytest-manifest, pytest-shards]
+    needs: [pytest-manifest, pytest-shards, simplification-helper-safety]
     runs-on: windows-2022
     timeout-minutes: 90
     steps:
@@ -396,9 +431,13 @@ jobs:
         env:
           SHARD_RESULT: ${{ needs.pytest-shards.result }}
           MANIFEST_RESULT: ${{ needs.pytest-manifest.result }}
+          HELPER_SAFETY_RESULT: ${{ needs.simplification-helper-safety.result }}
         run: |
           New-Item -ItemType Directory -Force desktop/ci-evidence | Out-Null
           Start-Transcript -Path desktop/ci-evidence/full-release-gate.log
+          if ($env:HELPER_SAFETY_RESULT -ne 'success') {
+            throw "Linux helper safety must succeed; skipped, failed or missing is not success"
+          }
           if ($env:SHARD_RESULT -ne 'success' -or $env:MANIFEST_RESULT -ne 'success') {
             throw "Collection and all shards must succeed; timeout/cancellation/skipped is not success"
           }

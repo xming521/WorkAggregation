@@ -19,6 +19,25 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
 
+@pytest.mark.parametrize("character,units", [("x", 1), ("\U0001f600", 2)],
+                         ids=["ascii", "utf16-surrogate-pair"])
+def test_node_ids_are_bounded_for_windows_environment_without_echoing_data(character, units):
+    prefix = "tests/test_fixture.py::test_case["
+    count = (gate.MAX_NODE_ID_UTF16_UNITS - len(prefix) - 1) // units
+    gate.validate_node_id(prefix + character * count + "]")
+    with pytest.raises(ValueError, match="explicit short parameter ids") as error:
+        gate.validate_node_id(prefix + character * (count + 1) + "]")
+    assert str(error.value).startswith("tests/test_fixture.py::test_case:")
+    assert character * 20 not in str(error.value)
+
+
+def test_manifest_rejects_nonportable_node_ids_before_partitioning(tmp_path):
+    manifest, _ = evidence(tmp_path)
+    manifest["nodes"][0] += "x" * gate.MAX_NODE_ID_UTF16_UNITS
+    with pytest.raises(ValueError, match="portable Windows limit"):
+        gate.validate_manifest(manifest)
+
+
 def test_deterministic_complete_balanced_partitions():
     nodes = [f"tests/test_suite_{i % 284}.py::test_{i}[Unicode 空格 {i}]" for i in range(6384)]
     shards = gate.partition(nodes, 12)
@@ -213,7 +232,7 @@ def test_workflow_keeps_complete_gate_and_bounded_non_cancelling_shards():
     assert "fail-fast: false" in workflow
     assert "cancel-in-progress:" not in workflow
     assert "timeout-minutes: 90" in workflow
-    assert "needs: [pytest-manifest, pytest-shards]" in workflow
+    assert "needs: [pytest-manifest, pytest-shards, simplification-helper-safety]" in workflow
     assert "-Install -PytestEvidence pytest-evidence" in workflow
     assert "  pull_request:\n    branches: [master]" in workflow
     assert "paths-ignore:" not in workflow

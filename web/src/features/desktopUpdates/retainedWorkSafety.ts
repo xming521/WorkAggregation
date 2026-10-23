@@ -40,14 +40,9 @@ const contentHasText = (content: InterviewStoryEditableContent | null) => Boolea
 ));
 
 /** IDs, attempt keys, empty draft containers and settled receipts are not edits. */
-export function retainedWorkSafety(buckets: RetainedWorkBuckets) {
+export function applicationJdRetainedWorkSafety(buckets: Pick<RetainedWorkBuckets, 'applicationJd' | 'applicationJdBaselines'>) {
   let hasDraft = false;
-  let activeRun = Object.keys(buckets.preparationAttempts).length > 0 || Object.keys(buckets.reviewAttempts).length > 0;
-  let pendingApproval = false;
-  for (const draft of Object.values(buckets.adaptivePractice)) {
-    hasDraft ||= Boolean(draft.answer || draft.reflection || draft.assessment || draft.startInput || draft.completionInput);
-    activeRun ||= draft.pendingOperation !== null || draft.resultUnknown;
-  }
+  let activeRun = false;
   for (const [applicationId, draft] of Object.entries(buckets.applicationJd)) {
     const baseline = buckets.applicationJdBaselines?.get(Number(applicationId));
     hasDraft ||= baseline
@@ -55,9 +50,28 @@ export function retainedWorkSafety(buckets: RetainedWorkBuckets) {
       : Boolean(draft.jdText || draft.sourceUrl);
     activeRun ||= draft.pendingOperation !== null || draft.resultUnknown;
   }
+  return { hasDraft, activeRun, pendingApproval: false };
+}
+
+export function offerNegotiationRetainedWorkSafety(buckets: Pick<RetainedWorkBuckets, 'offerNegotiation' | 'offerNegotiationPilot'>) {
+  let hasDraft = false;
+  let activeRun = false;
   for (const draft of [...Object.values(buckets.offerNegotiation), ...Object.values(buckets.offerNegotiationPilot)]) {
     hasDraft ||= Boolean(draft.goal || draft.concerns || draft.scenario || draft.selectedBlocks.length
       || Object.keys(draft.edits).length || draft.previewInputKey || draft.previewSnapshot);
+    activeRun ||= draft.pendingOperation !== null || draft.resultUnknown;
+  }
+  return { hasDraft, activeRun, pendingApproval: false };
+}
+
+export function interviewRetainedWorkSafety(buckets: Pick<RetainedWorkBuckets,
+  'adaptivePractice' | 'reviewReadiness' | 'knowledgeCapture' | 'interviewPreparation'
+  | 'interviewStory' | 'preparationAttempts' | 'reviewAttempts'>) {
+  let hasDraft = false;
+  let activeRun = Object.keys(buckets.preparationAttempts).length > 0 || Object.keys(buckets.reviewAttempts).length > 0;
+  let pendingApproval = false;
+  for (const draft of Object.values(buckets.adaptivePractice)) {
+    hasDraft ||= Boolean(draft.answer || draft.reflection || draft.assessment || draft.startInput || draft.completionInput);
     activeRun ||= draft.pendingOperation !== null || draft.resultUnknown;
   }
   for (const draft of Object.values(buckets.reviewReadiness)) {
@@ -90,6 +104,17 @@ export function retainedWorkSafety(buckets: RetainedWorkBuckets) {
       || contentHasText(draft.manualContent) || contentHasText(draft.editedContent));
   }
   return { hasDraft, activeRun, pendingApproval };
+}
+
+
+/** Compatibility projection for existing consumers and golden fixtures. */
+export function retainedWorkSafety(buckets: RetainedWorkBuckets) {
+  const projections = [applicationJdRetainedWorkSafety(buckets), offerNegotiationRetainedWorkSafety(buckets), interviewRetainedWorkSafety(buckets)];
+  return {
+    hasDraft: projections.some((item) => item.hasDraft),
+    activeRun: projections.some((item) => item.activeRun),
+    pendingApproval: projections.some((item) => item.pendingApproval),
+  };
 }
 
 /** These navigation guards count even unchanged mount-time draft buckets. */
