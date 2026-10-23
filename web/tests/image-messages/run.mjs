@@ -22,6 +22,20 @@ async function eventually(predicate, label, timeout = 12000) {
   assert.fail(label);
 }
 async function shot(page, record, name) {
+  // A visible portal can still be at opacity 0 during its first animation frame.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    const paint = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const deadline = performance.now() + 5000;
+    let stableFrames = 0;
+    while (stableFrames < 2) {
+      await paint();
+      const moving = document.getAnimations().some(animation => animation.effect?.getTiming().iterations !== Infinity
+        && (animation.playState === 'running' || animation.pending));
+      stableFrames = moving ? 0 : stableFrames + 1;
+      if (performance.now() > deadline) throw new Error('Screenshot UI animations did not settle');
+    }
+  });
   const filename = `${record.name}-${name}.png`;
   await page.screenshot({ path: path.join(output, filename), fullPage: true });
   record.screenshots.push({ file: filename, sha256: hash(await readFile(path.join(output, filename))) });
@@ -82,7 +96,9 @@ async function openPilot(page) {
 async function upload(scope) {
   await eventually(async () => await scope.getByRole('button', { name: '添加图片', exact: true }).isEnabled(), 'Image capability ready before file selection');
   await scope.locator('input[type=file][accept="image/png,image/jpeg,image/webp"]').setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: png });
-  await scope.locator('img[alt="图片 1，点击放大"]').waitFor();
+  const thumbnail = scope.locator('img[alt="图片 1，点击放大"]');
+  await thumbnail.waitFor();
+  await eventually(() => thumbnail.evaluate(node => node.complete && node.naturalWidth === 160 && node.naturalHeight === 96), 'Synthetic thumbnail decoded');
 }
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -135,6 +151,7 @@ try {
     await upload(haru);
     await haru.locator('img[alt="图片 1，点击放大"]').click();
     await page.locator('.ant-image-preview-wrap').waitFor({ state: 'visible' });
+    await eventually(() => page.locator('.ant-image-preview-img').evaluate(node => node.complete && node.naturalWidth === 160 && node.naturalHeight === 96), 'Portal image decoded');
     await shot(page, result, 'preview-open');
     // Real keyboard targets the preview portal, not the underlying Haru section.
     await page.keyboard.press('Escape');

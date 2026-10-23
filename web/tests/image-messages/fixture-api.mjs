@@ -1,8 +1,9 @@
 /** Synthetic only: no server, provider, credentials or external requests. */
 import { createHash } from 'node:crypto';
 import { createSimplificationFixture } from '../simplification/fixture-api.mjs';
-export const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
-export const image = { id: 'img_0123456789abcdef0123456789abcdef', sha256: createHash('sha256').update(png).digest('hex'), mime_type: 'image/png', size_bytes: png.length, width: 1, height: 1, normalization_version: 'image-normalize-v1' };
+// Opaque 160×96 four-color synthetic card, generated with PNG/zlib; no real user data.
+export const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAIAAAAVRe7OAAABF0lEQVR4nO3RsQnCUAAA0UwigmvoCraZwCa7pbLKOA5hndQWvwzC4+ANcHDT5XYPbPp7QU7VYFyDcT+DX/OXd32vvAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMK7BuAbjGoxrMG44eN8evM9z4TUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3ENxjUY12Bcg3HDwfE0GNdgXINxB8c57QYoBt9sAAAAAElFTkSuQmCC', 'base64');
+export const image = { id: 'img_0123456789abcdef0123456789abcdef', sha256: createHash('sha256').update(png).digest('hex'), mime_type: 'image/png', size_bytes: png.length, width: 160, height: 96, normalization_version: 'image-normalize-v1' };
 const answer = (data, status = 200) => ({ data, status });
 export function createImageFixture({ vision = true } = {}) {
   const base = createSimplificationFixture();
