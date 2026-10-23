@@ -18,7 +18,7 @@ import secrets
 import tempfile
 from threading import Lock
 import time
-from typing import Any
+from typing import Any, cast
 import unicodedata
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -282,7 +282,7 @@ def _poll(client: Any, turn_id: str) -> dict[str, Any]:
             raise AcceptanceError("status_read_failed")
         status = response.json()
         if status.get("worker_done") and status.get("state") not in {"running", "queued", "accepted"}:
-            return status
+            return cast(dict[str, Any], status)
         time.sleep(0.05)
     raise AcceptanceError("runtime_poll_timeout")
 
@@ -339,7 +339,7 @@ def run_acceptance(report_dir: Path, *, execute: bool = False,
             )
             for module in (api, config, composition):
                 stack.enter_context(patch.object(module, "load_config", lambda _: in_memory))
-            original_acompletion = model_client.acompletion
+            original_acompletion = getattr(model_client, "acompletion")
             guard = GuardedTransport(
                 key, lambda **kwargs: _official_transport(original_acompletion, **kwargs)
             )
