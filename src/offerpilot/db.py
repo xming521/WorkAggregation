@@ -75,6 +75,25 @@ def init_database(db_path: Path) -> SessionFactory:
     mock_interview_migration_needed = _prepare_event_bound_mock_interview_migration(engine)
     _reset_knowledge_legacy_tables(engine, db_path.parent)
     Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        # Serialize check-and-add across simultaneous application starts.
+        # A deferred transaction allows both connections to observe no column.
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        image_columns = connection.exec_driver_sql(
+            "PRAGMA table_info(chat_messages)"
+        ).fetchall()
+        if not any(row[1] == "image_refs_json" for row in image_columns):
+            connection.exec_driver_sql(
+                "ALTER TABLE chat_messages ADD COLUMN "
+                "image_refs_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        connection.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS chat_attachment_immutable
+            BEFORE UPDATE OF id, sha256, mime_type, size_bytes, width, height,
+                             normalization_version, context_type, context_ref ON chat_attachments
+            BEGIN SELECT RAISE(ABORT, 'immutable image resource'); END
+        """))
+    _record_migration(engine, "0034_chat_image_messages", "Add immutable image resources and message references")
     _record_migration(engine, "0033_job_mail_review", "Add isolated mail evidence, proposals, previews and atomic receipts")
     runtime_columns_changed = [
         _ensure_column(engine, "pilot_executions", "protocol", "TEXT NOT NULL DEFAULT 'legacy'"),
@@ -2968,6 +2987,7 @@ def _rebuild_chat_messages_for_write_operation_integrity(engine) -> None:  # typ
                 tool_calls VARCHAR NOT NULL DEFAULT '',
                 tool_call_id VARCHAR NOT NULL DEFAULT '',
                 provider_blocks VARCHAR NOT NULL DEFAULT '',
+                image_refs_json TEXT NOT NULL DEFAULT '[]',
                 operation_id VARCHAR(36),
                 delivery_kind VARCHAR,
                 delivery_ordinal INTEGER,
@@ -2994,11 +3014,13 @@ def _rebuild_chat_messages_for_write_operation_integrity(engine) -> None:  # typ
             """
             INSERT INTO chat_messages_0026 (
                 id, conversation_id, role, content, tool_calls, tool_call_id,
-                provider_blocks, operation_id, delivery_kind, delivery_ordinal, created_at
+                provider_blocks, image_refs_json, operation_id, delivery_kind,
+                delivery_ordinal, created_at
             )
             SELECT id, conversation_id, role, coalesce(content, ''),
                    coalesce(tool_calls, ''), coalesce(tool_call_id, ''),
-                   coalesce(provider_blocks, ''), operation_id, delivery_kind,
+                   coalesce(provider_blocks, ''), coalesce(image_refs_json, '[]'),
+                   operation_id, delivery_kind,
                    delivery_ordinal, coalesce(created_at, CURRENT_TIMESTAMP)
             FROM chat_messages
             """

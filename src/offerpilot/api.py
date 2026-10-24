@@ -74,6 +74,9 @@ from offerpilot.ai.workflows import (
     truncate_for_prompt as _truncate_for_prompt,
 )
 from offerpilot.ai.client import ConfiguredAIClient
+from offerpilot.chat_images import ChatImageCollector, ChatImageStore
+from offerpilot.chat_image_routes import image_router, image_capability, image_error, require_image_capability
+from offerpilot.image_contracts import ImageInputError, ImageReference, image_ids, image_references
 from offerpilot.job_mail.api import job_mail_origin_guard_response, register_job_mail_routes
 from offerpilot.job_mail.transport import MailTransport
 from offerpilot.job_mail.model_adapter import Extractor
@@ -1102,6 +1105,8 @@ def create_app(
     resolved_data_dir = data_dir or resolve_data_dir()
     resolved_static_dir = static_dir or _find_static_dir()
     session_factory = session_factory_for_data_dir(resolved_data_dir)
+    chat_images = ChatImageStore(session_factory, resolved_data_dir)
+    image_collector = ChatImageCollector(chat_images)
     app_config = load_config(resolved_data_dir)
     applications = ApplicationsRepository(session_factory)
     application_creation = ApplicationCreationService(session_factory)
@@ -1283,6 +1288,8 @@ def create_app(
         brief_worker,
     )
     app = FastAPI(title="OfferPilot")
+    app.include_router(image_router(chat_images, lambda: load_config(resolved_data_dir),
+                                    _provider_for_connection_test))
     knowledge_runtime = KnowledgeWorkerRuntime(
         knowledge_runner,
         knowledge_repository,
@@ -1490,6 +1497,7 @@ def create_app(
 
     app.state.pilot_runtime = build_pilot_runtime(
         data_dir=resolved_data_dir,
+        image_reader=chat_images.read_for_model,
         chat=chat,
         applications=applications,
         application_jd_versions=application_jd_versions,
@@ -1531,6 +1539,7 @@ def create_app(
 
     @app.on_event("startup")
     def _start_knowledge_worker() -> None:
+        image_collector.start()
         knowledge_runtime.start()
         proactive_runtime.start()
         job_mail_runtime.start()
@@ -1549,6 +1558,7 @@ def create_app(
 
         attempt_cleanup(job_mail_runtime.stop)
         attempt_cleanup(proactive_runtime.stop)
+        attempt_cleanup(image_collector.stop)
         attempt_cleanup(runtime_manager.close)
         attempt_cleanup(turn_control_registry.close)
         attempt_cleanup(lambda: knowledge_runtime.stop(timeout=5))
@@ -4936,6 +4946,7 @@ def create_app(
     ) -> tuple[StartTurnRequest, PilotRuntime, TurnAdmission, str, DurableRuntimeInvocationControl] | JSONResponse:
         request_id = payload.get("request_id", str(uuid4()))
         frozen_source: list[_FrozenChatSourceMessages] = []
+        frozen_images: list[tuple[ImageReference, ...]] = []
         admission: TurnAdmission | None = None
         leases: list[ExecutionLease] = []
         control: DurableRuntimeInvocationControl | None = None
@@ -4946,6 +4957,7 @@ def create_app(
             "page_context": json.loads(json.dumps(request.page_context, default=dict)),
             "attachments": [{"kind": ref.kind, "id": ref.ref} for ref in request.attachments],
             "pilot_action": json.loads(request.pilot_action.value) if request.pilot_action is not None else None,
+            **({"image_attachment_ids": list(request.image_attachment_ids)} if request.image_attachment_ids else {}),
         }
 
         def failure(response: JSONResponse) -> JSONResponse:
@@ -4959,6 +4971,9 @@ def create_app(
 
         def freeze(session: Session, conversation: Any) -> Mapping[str, str]:
             cast(PilotRuntime, app.state.pilot_runtime).validate_start_admission(request)
+            if request.image_attachment_ids:
+                require_image_capability(load_config(resolved_data_dir))
+            frozen_images.append(chat_images.resolve_in_session(session, request.image_attachment_ids, conversation))
             loader = _TransactionChatSourceLoader(session)
             source = _load_chat_source_messages(
                 cast(Any, loader), conversation,
@@ -4980,6 +4995,8 @@ def create_app(
 
         try:
             def claim(session: Session, turn: Any) -> None:
+                if frozen_images[0]:
+                    chat_images.bind_in_session(session, frozen_images[0], turn.conversation_id, turn.user_message_id)
                 leases.append(pilot_controls.claim_start_in_session(session, turn.id))
 
             admission = pilot_timeline.admit(request_id, canonical, freeze_sources=freeze, on_admitted=claim)
@@ -4996,7 +5013,9 @@ def create_app(
                 )),
                 source_loader=cast(Any, _AdmittedChatSourceLoader(frozen_source[0])),
             )
-            return replace(request, conversation_id=admission.conversation_id), runtime, admission, request_id, control
+            return replace(request, conversation_id=admission.conversation_id, images=frozen_images[0]), runtime, admission, request_id, control
+        except ImageInputError as exc:
+            return failure(image_error(exc))
         except TurnControlConflict:
             return error_response(409, "当前对话已有执行中任务或待确认操作，请先处理原任务。", code="turn_execution_active")
         except AdmissionGone:
@@ -5122,6 +5141,7 @@ def create_app(
                 {"kind": item.kind, "id": item.ref} for item in request.attachments
             ],
             "pilot_action": pilot_action,
+            **({"image_attachment_ids": list(request.image_attachment_ids)} if request.image_attachment_ids else {}),
         }
 
     def _runtime_finish_control(
@@ -5497,6 +5517,7 @@ def create_app(
         bool,
     ]:
         frozen_source: list[_FrozenChatSourceMessages] = []
+        frozen_images: list[tuple[ImageReference, ...]] = []
         frozen_readiness: list[ReadinessContextBinding | None] = []
         leases: list[ExecutionLease] = []
         refs = _runtime_source_refs(request)
@@ -5510,6 +5531,9 @@ def create_app(
 
         def freeze(session: Session, conversation: Any) -> Mapping[str, str]:
             cast(PilotRuntime, app.state.pilot_runtime).validate_start_admission(request)
+            if request.image_attachment_ids:
+                require_image_capability(load_config(resolved_data_dir))
+            frozen_images.append(chat_images.resolve_in_session(session, request.image_attachment_ids, conversation))
             source = _load_chat_source_messages(
                 cast(Any, _TransactionChatSourceLoader(session)),
                 conversation,
@@ -5547,6 +5571,8 @@ def create_app(
             }
 
         def claim(session: Session, turn: Any) -> None:
+            if frozen_images[0]:
+                chat_images.bind_in_session(session, frozen_images[0], turn.conversation_id, turn.user_message_id)
             leases.append(
                 pilot_controls.claim_start_in_session(
                     session,
@@ -5598,7 +5624,7 @@ def create_app(
                 pilot_controls.finish(leases[0], "failed")
             raise
         return (
-            replace(request, conversation_id=admission.conversation_id),
+            replace(request, conversation_id=admission.conversation_id, images=frozen_images[0]),
             bound_runtime,
             admission,
             control,
@@ -5640,6 +5666,8 @@ def create_app(
                 typed,
                 request_id,
             )
+        except ImageInputError as exc:
+            return image_error(exc)
         except TurnControlConflict:
             return error_response(409, "当前对话已有执行中任务或待确认操作，请先处理原任务。", code="turn_execution_active")
         except AdmissionGone:
@@ -6677,6 +6705,7 @@ def create_app(
     @app.delete("/api/chat/conversations/{conversation_id}")
     def delete_conversation(conversation_id: int) -> dict[str, str]:
         chat.delete_conversation(conversation_id)
+        chat_images.collect()
         return {"status": "deleted"}
 
     @app.post("/api/interview-practice-cases")
@@ -8690,6 +8719,7 @@ def _normalize_runtime_start_request(
     payload: dict[str, Any],
 ) -> StartTurnRequest | JSONResponse:
     try:
+        raw_image_ids = image_ids(payload.get("image_attachment_ids", []))
         page_context = _normalize_chat_page_context(payload.get("page_context"))
         raw_attachments = (
             _normalize_chat_attachments(payload["attachments"]) if "attachments" in payload else []
@@ -8697,7 +8727,7 @@ def _normalize_runtime_start_request(
     except ValueError as exc:
         return error_response(422, str(exc))
     message = str(payload.get("message") or "")
-    if not message:
+    if not message and not raw_image_ids:
         return error_response(400, "message is required")
     raw_conversation_id = payload.get("conversation_id", 0)
     if raw_conversation_id is None:
@@ -8774,6 +8804,7 @@ def _normalize_runtime_start_request(
             page_context=immutable_page,
             attachments=attachments,
             pilot_action=descriptor,
+            image_attachment_ids=raw_image_ids,
         )
     except (TypeError, ValueError, KeyError) as exc:
         return error_response(422, str(exc))
@@ -9219,6 +9250,7 @@ def _stored_messages_to_ai(messages: list[Any], pending_tool_call_id: str = "") 
             tool_calls=_load_tool_calls(message.tool_calls),
             tool_call_id=message.tool_call_id,
             provider_blocks=_load_provider_blocks(message.provider_blocks),
+            images=image_references(json.loads(getattr(message, "image_refs_json", "[]") or "[]")),
             surface_contributor="conversation_history",
         )
         for message in messages
@@ -9268,6 +9300,7 @@ class _FrozenStoredMessage:
     tool_calls: str
     tool_call_id: str
     provider_blocks: str
+    image_refs_json: str = "[]"
 
 
 @dataclass(frozen=True)
@@ -9456,7 +9489,7 @@ def _load_chat_source_messages(
         history_rows = fetch_rows(
             connection.execute(
                 """
-                SELECT id, role, content, tool_calls, tool_call_id, provider_blocks
+                SELECT id, role, content, tool_calls, tool_call_id, provider_blocks, image_refs_json
                 FROM chat_messages WHERE conversation_id = ? ORDER BY id ASC
                 """,
                 (scope.conversation_id,),
@@ -9531,6 +9564,7 @@ def _load_chat_source_messages(
                 tool_calls=str(row[3] or ""),
                 tool_call_id=str(row[4] or ""),
                 provider_blocks=str(row[5] or ""),
+                image_refs_json=str(row[6] or "[]"),
             )
             for row in history_rows
         ]
@@ -9990,6 +10024,7 @@ def _settings_payload(cfg: Config, data_dir: Path | None = None) -> dict[str, An
         "data_dir": str((data_dir or resolve_data_dir()).resolve()),
         "chat_auto_approve_writes": cfg.chat_auto_approve_writes,
         "active_provider_id": active.id,
+        "image_capability": image_capability(cfg),
         "fallback_provider_ids": cfg.fallback_provider_ids,
         "providers": [_provider_payload(profile) for profile in cfg.provider_profiles()],
         "base_url": active.base_url,
@@ -10055,6 +10090,10 @@ def _provider_from_payload(
 ) -> AIProviderProfile:
     api_key = payload.get("api_key")
     preserved_key = current.api_key if current is not None else ""
+    same_vision_target = current is not None and all(
+        str(payload.get(field) or getattr(current, field)) == getattr(current, field)
+        for field in ("provider", "base_url", "model")
+    )
     return AIProviderProfile(
         id=str(payload.get("id") or (current.id if current is not None else "default")),
         label=str(payload.get("label") or (current.label if current is not None else "Default")),
@@ -10074,6 +10113,7 @@ def _provider_from_payload(
             )
             is True
         ),
+        supports_vision=(payload.get("supports_vision", current.supports_vision if same_vision_target and current is not None else False) is True),
     )
 
 
@@ -10214,6 +10254,7 @@ def _provider_payload(profile: AIProviderProfile) -> dict[str, Any]:
         "model": profile.model,
         "enabled": profile.enabled,
         "supports_json_schema": profile.supports_json_schema,
+        "supports_vision": profile.supports_vision,
         "context_window": profile.context_window,
         "max_output_tokens": profile.max_output_tokens,
         "has_api_key": bool(profile.api_key),
