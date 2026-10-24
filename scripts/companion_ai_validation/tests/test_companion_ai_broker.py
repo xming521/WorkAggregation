@@ -67,18 +67,18 @@ def test_reservation_is_fsynced_before_actual_http_and_only_numbers_are_journale
         records = [json.loads(line) for line in path.read_text().splitlines()]
         created, record = records
         assert created["event"] == "created"
-        assert created["settled_micro_cny"] == 103154
-        assert created["lifetime_liability_micro_cny"] == 103154
+        assert created["settled_micro_cny"] == 208516
+        assert created["lifetime_liability_micro_cny"] == 208516
         assert created["batch_settled_micro_cny"] == 0
-        assert created["prior_request_count"] == 12
+        assert created["prior_request_count"] == 24
         assert created["batch_request_count"] == 0
-        assert created["lifetime_request_count"] == 12
+        assert created["lifetime_request_count"] == 24
         assert record["event"] == "reserved"
         assert record["reserved_micro_cny"] == gate.RESERVATION
         assert record["request_count"] == 1
-        assert record["lifetime_liability_micro_cny"] == 3103154
+        assert record["lifetime_liability_micro_cny"] == 3208516
         assert record["batch_request_count"] == 1
-        assert record["lifetime_request_count"] == 13
+        assert record["lifetime_request_count"] == 25
         assert all(record[key] == value for key, value in continuation.lineage_fields().items())
         return 200, gate.encode(response())
 
@@ -155,7 +155,7 @@ def test_unknown_or_conflicting_usage_preserves_liability_and_stops(tmp_path, ch
     assert len(fake.calls) == 1
     assert broker.summary()["reserved_micro_cny"] == gate.RESERVATION
     assert broker.summary()["settled_micro_cny"] == continuation.PRIOR_SETTLED
-    assert broker.summary()["lifetime_liability_micro_cny"] == 3103154
+    assert broker.summary()["lifetime_liability_micro_cny"] == 3208516
     assert broker.summary()["batch_settled_micro_cny"] == 0
     with pytest.raises(gate.GateError):
         broker.request(token, gate.encode(payload()))
@@ -194,19 +194,20 @@ def test_timeout_unknown_retains_three_yuan(tmp_path):
 
 
 def test_budget_stops_before_total_could_exceed_twenty_yuan(tmp_path):
-    # Nine known maximum-context responses cannot authorize a tenth reservation.
+    # With both historical batches inherited, eight maximum-context responses
+    # cannot authorize a ninth reservation. The earlier one-batch seed allowed nine.
     cost = (gate.CONTEXT_TOKENS - gate.OUTPUT_TOKENS) * 2 + gate.OUTPUT_TOKENS * 8
     broker, fake = make(tmp_path, Fake(response(
         prompt=gate.CONTEXT_TOKENS - gate.OUTPUT_TOKENS, completion=gate.OUTPUT_TOKENS)))
-    for operation in gate.OPERATIONS[:9]:
+    for operation in gate.OPERATIONS[:8]:
         token = broker.begin_stage(operation)
         broker.request(token, gate.encode(payload(operation)))
         broker.close_stage()
-    token = broker.begin_stage(gate.OPERATIONS[9])
+    token = broker.begin_stage(gate.OPERATIONS[8])
     with pytest.raises(gate.GateError, match="budget_exhausted"):
         broker.request(token, gate.encode(payload()))
-    assert len(fake.calls) == 9
-    assert broker.summary()["settled_micro_cny"] == continuation.PRIOR_SETTLED + 9 * cost
+    assert len(fake.calls) == 8
+    assert broker.summary()["settled_micro_cny"] == continuation.PRIOR_SETTLED + 8 * cost
     broker.close()
 
 
@@ -247,9 +248,9 @@ def test_twelve_stages_exactly_twelve_http_requests(tmp_path):
         broker.close_stage()
     assert len(fake.calls) == 12
     assert broker.summary()["stages_complete"] == 12
-    assert broker.summary()["prior_request_count"] == 12
+    assert broker.summary()["prior_request_count"] == 24
     assert broker.summary()["batch_request_count"] == 12
-    assert broker.summary()["lifetime_request_count"] == 24
+    assert broker.summary()["lifetime_request_count"] == 36
     assert all(body["thinking"] == {"type": "disabled"} for body in fake.calls)
     with pytest.raises(gate.GateError):
         broker.begin_stage(gate.OPERATIONS[0])
@@ -268,17 +269,19 @@ def test_no_public_opening_balance_override(tmp_path, monkeypatch, seed):
                     initial_settled_micro_cny=seed)
     assert not (tmp_path / "never-created.jsonl").exists()
     broker, fake = make(tmp_path)
-    assert broker.summary()["settled_micro_cny"] == 103154
+    assert broker.summary()["settled_micro_cny"] == 208516
     assert not fake.calls
     broker.close()
 
 
 @pytest.mark.parametrize("damage", ["missing", "changed"])
-def test_unverified_predecessor_cannot_create_journal_or_send(tmp_path, monkeypatch, damage):
+@pytest.mark.parametrize("evidence_attr", ["EVIDENCE_PATH", "ORIGINAL_EVIDENCE_PATH"])
+def test_unverified_predecessor_cannot_create_journal_or_send(
+        tmp_path, monkeypatch, damage, evidence_attr):
     evidence = tmp_path / "original.zip"
     if damage == "changed":
-        evidence.write_bytes(continuation.EVIDENCE_PATH.read_bytes() + b"changed")
-    monkeypatch.setattr(continuation, "EVIDENCE_PATH", evidence)
+        evidence.write_bytes(getattr(continuation, evidence_attr).read_bytes() + b"changed")
+    monkeypatch.setattr(continuation, evidence_attr, evidence)
     fake = Fake()
     with pytest.raises(gate.GateError, match="predecessor_evidence_invalid"):
         make(tmp_path, fake)
@@ -291,7 +294,7 @@ def test_real_settlements_use_lifetime_budget_not_a_new_twenty_yuan(tmp_path, ex
     # All prior costs are genuinely settled through fake HTTP, never injected.
     # Fixed integer pricing permits costs in multiples of two micro-CNY.
     target = gate.BUDGET - gate.RESERVATION + excess
-    costs = [2_000_000] * 8 + [target - 103154 - 16_000_000]
+    costs = [2_000_000] * 8 + [target - 208516 - 16_000_000]
     calls = []
 
     def send(raw):
@@ -350,8 +353,8 @@ def test_every_journal_event_preserves_consistent_prior_batch_and_lifetime(tmp_p
         assert record["schema"] == 2
         assert all(record[key] == value for key, value in continuation.lineage_fields().items())
         assert record["batch_request_count"] == record["request_count"]
-        assert record["lifetime_request_count"] == 12 + record["batch_request_count"]
-        assert record["lifetime_settled_micro_cny"] == 103154 + record["batch_settled_micro_cny"]
+        assert record["lifetime_request_count"] == 24 + record["batch_request_count"]
+        assert record["lifetime_settled_micro_cny"] == 208516 + record["batch_settled_micro_cny"]
         assert record["settled_micro_cny"] == record["lifetime_settled_micro_cny"]
         assert record["reserved_micro_cny"] == record["batch_reserved_micro_cny"]
         assert record["lifetime_reserved_micro_cny"] == record["reserved_micro_cny"]

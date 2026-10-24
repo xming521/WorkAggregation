@@ -74,7 +74,10 @@ def test_every_lineage_field_is_mandatory_and_exact(admission, key, damage):
     ("checked_at_monotonic_ns", 1.0), ("quote_deadline_monotonic_ns", True),
     ("quote_deadline_monotonic_ns", -1), ("quote_deadline_monotonic_ns", 1.0),
     ("prior_settled_micro_cny", 0), ("prior_settled_micro_cny", False),
-    ("prior_settled_micro_cny", -1), ("prior_settled_micro_cny", 103154.0),
+    ("prior_settled_micro_cny", -1), ("prior_settled_micro_cny", 208516.0),
+    ("prior_settled_micro_cny", 103154), ("prior_settled_micro_cny", 105362),
+    ("prior_settled_micro_cny", 311670), ("prior_request_count", 12),
+    ("correction_ordinal", 1), ("correction_ordinal", 3),
     ("prior_reserved_micro_cny", 1), ("prior_request_count", 0),
     ("source_sha", continuation.PREDECESSOR_SOURCE_SHA),
     ("helper_sha", continuation.PREDECESSOR_HELPER_SHA),
@@ -84,6 +87,28 @@ def test_old_or_coerced_admission_values_cannot_reset_continuation(admission, ke
     record[key] = value
     with pytest.raises(gate.GateError):
         run.check_admission(record, metadata, now)
+
+
+@pytest.mark.parametrize("field", ["source_sha", "helper_sha"])
+@pytest.mark.parametrize("historic_sha", [
+    "3f139ada435b2398e52b65162208a8cbb818b8ef",
+    "6329657d841b1bc4d8e3a3cdb7618df92c5a140a",
+    "64bcd7ab737650415b1d987b1e56681aca6f9fcf",
+    "e6cbb73e02863d79332855fadfe75f0e699312ae",
+])
+def test_neither_historical_helper_nor_request_can_be_reused(admission, field, historic_sha):
+    record, metadata, now = admission
+    record[field] = historic_sha
+    if field == "source_sha":
+        metadata["GITHUB_SHA"] = metadata["GITHUB_WORKFLOW_SHA"] = historic_sha
+    with pytest.raises(gate.GateError, match="admission_identity"):
+        run.check_admission(record, metadata, now)
+
+
+def test_new_fixed_window_agrees_without_rewriting_historical_quote():
+    from datetime import datetime, timezone
+    assert gate.PRICE_VALID_UNTIL == continuation.PRICE_VALID_UNTIL
+    assert gate.PRICE_VALID_UNTIL == datetime(2026, 10, 26, tzinfo=timezone.utc).timestamp()
 
 
 def test_admission_rejects_extra_fields(admission):
@@ -165,12 +190,12 @@ def test_run_matrix_has_exact_one_completion_per_stage(tmp_path, monkeypatch):
     assert report["budget"]["request_count"] == 12
     assert report["budget"]["settled_micro_cny"] == continuation.PRIOR_SETTLED + 12 * 360
     assert report["schema"] == 2
-    assert report["budget"]["prior_settled_micro_cny"] == 103154
+    assert report["budget"]["prior_settled_micro_cny"] == 208516
     assert report["budget"]["batch_settled_micro_cny"] == 12 * 360
-    assert report["budget"]["lifetime_settled_micro_cny"] == 103154 + 12 * 360
-    assert report["budget"]["prior_request_count"] == 12
+    assert report["budget"]["lifetime_settled_micro_cny"] == 208516 + 12 * 360
+    assert report["budget"]["prior_request_count"] == 24
     assert report["budget"]["batch_request_count"] == 12
-    assert report["budget"]["lifetime_request_count"] == 24
+    assert report["budget"]["lifetime_request_count"] == 36
     assert report["budget"]["accounting_basis"] == "conservative_usage_not_provider_invoice"
     assert report["budget"]["reserved_micro_cny"] == 0
     assert report["budget"]["stages_complete"] == 12
@@ -480,12 +505,12 @@ def test_every_failure_slot_preserves_known_cost_unknown_reservation_and_samples
     assert report["matrix"]["passed"] is False and len(calls) == failure_slot + 1
     budget = report["budget"]
     assert budget["halted"] is True
-    assert budget["prior_settled_micro_cny"] == 103154
+    assert budget["prior_settled_micro_cny"] == 208516
     assert budget["batch_settled_micro_cny"] == failure_slot * 360
     assert budget["batch_reserved_micro_cny"] == 3_000_000
-    assert budget["lifetime_liability_micro_cny"] == 3_103_154 + failure_slot * 360
+    assert budget["lifetime_liability_micro_cny"] == 3_208_516 + failure_slot * 360
     assert budget["batch_request_count"] == failure_slot + 1
-    assert budget["lifetime_request_count"] == 13 + failure_slot
+    assert budget["lifetime_request_count"] == 25 + failure_slot
     assert budget["stages_complete"] == failure_slot
     samples = (tmp_path / "evidence/responses.jsonl").read_text().splitlines()
     assert [json.loads(sample) for sample in samples] == [

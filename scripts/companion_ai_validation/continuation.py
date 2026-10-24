@@ -1,7 +1,7 @@
-"""One fixed corrective batch, linked to immutable synthetic predecessor evidence.
+"""One fixed third batch, linked to two immutable synthetic predecessor archives.
 
 Standard library only. No network, credential, caller-selected balance, URL or
-predecessor. Every public verification re-reads the fixed, hash-pinned archive.
+predecessor. Every public verification re-reads both fixed, hash-pinned archives.
 """
 from __future__ import annotations
 
@@ -19,27 +19,49 @@ import zipfile
 
 ADMISSION_SCHEMA = 2
 CAMPAIGN_ID = "one-shot-20261021"
-CORRECTION_ORDINAL = 1
-PREDECESSOR_RUN_ID = 39736858377
-PREDECESSOR_HELPER_RUN_ID = 39699222167
-PREDECESSOR_ARTIFACT_ID = 12408325852
-PREDECESSOR_SOURCE_SHA = "6329657d841b1bc4d8e3a3cdb7618df92c5a140a"
-PREDECESSOR_HELPER_SHA = "3f139ada435b2398e52b65162208a8cbb818b8ef"
-PREDECESSOR_TREE_SHA = "5ba642bbdd2a8d714764a43a448752cd92b2b689"
-ARCHIVE_SHA256 = "86bbef7eee6db958f70f59695f99e15179c458a4f0def363b1742b7bfb246cf7"
-LEDGER_SHA256 = "8cc6ff556286f3b158925d007e5c44f24c58a04d8a85702911cd39a83e405074"
-ARCHIVE_SIZE = 17499
-MEMBERS = {
-    "budget.jsonl": (10791, LEDGER_SHA256),
+CORRECTION_ORDINAL = 2
+# Original schema-1 evidence is immutable; these identities remain explicit for
+# preflight's two-run history check, not caller-selected continuation inputs.
+ORIGINAL_RUN_ID = 39736858377
+ORIGINAL_HELPER_RUN_ID = 39699222167
+ORIGINAL_ARTIFACT_ID = 12408325852
+ORIGINAL_SOURCE_SHA = "6329657d841b1bc4d8e3a3cdb7618df92c5a140a"
+ORIGINAL_HELPER_SHA = "3f139ada435b2398e52b65162208a8cbb818b8ef"
+ORIGINAL_TREE_SHA = "5ba642bbdd2a8d714764a43a448752cd92b2b689"
+ORIGINAL_ARCHIVE_SHA256 = "86bbef7eee6db958f70f59695f99e15179c458a4f0def363b1742b7bfb246cf7"
+ORIGINAL_LEDGER_SHA256 = "8cc6ff556286f3b158925d007e5c44f24c58a04d8a85702911cd39a83e405074"
+ORIGINAL_ARCHIVE_SIZE = 17499
+ORIGINAL_MEMBERS = {
+    "budget.jsonl": (10791, ORIGINAL_LEDGER_SHA256),
     "summary.json": (51043, "3efaaff13bb040c4337acf7a4dac4b80025062c6ecf50aaf3669b206810c6995"),
     "responses.jsonl": (41048, "2c8b58af851fde4eac35503e52d65960039d2a15d21e081cc9f1346c9ea10d93"),
 }
-EVIDENCE_PATH = Path(__file__).with_name("evidence") / "predecessor-39736858377.zip"
+ORIGINAL_EVIDENCE_PATH = Path(__file__).with_name("evidence") / "predecessor-39736858377.zip"
+ORIGINAL_SETTLED = 103_154
+ORIGINAL_REQUESTS = 12
+PREDECESSOR_RUN_ID = 39746585328
+PREDECESSOR_HELPER_RUN_ID = 39744681282
+PREDECESSOR_ARTIFACT_ID = 12412545645
+PREDECESSOR_SOURCE_SHA = "e6cbb73e02863d79332855fadfe75f0e699312ae"
+PREDECESSOR_HELPER_SHA = "64bcd7ab737650415b1d987b1e56681aca6f9fcf"
+PREDECESSOR_TREE_SHA = "e595f61eafc7c3cdd4011c19016892f3a93db15e"
+ARCHIVE_SHA256 = "483e889eb6788f827857fde681ca4e42f627328af537b5113ecbce109ed53dab"
+LEDGER_SHA256 = "f005b4dc89bc2ac46d752a310399bd39c7104da757992ab3a8e0ab1357f8756c"
+ARCHIVE_SIZE = 18554
+MEMBERS = {
+    "budget.jsonl": (45917, LEDGER_SHA256),
+    "summary.json": (52171, "ca01395f3fbdfda1a7d7e4b52cc85f34d549c3f9193aba45cddf7271bef300f5"),
+    "responses.jsonl": (41194, "0ca8a036d4706514ea3c1f95e04e00dff3831ed41a76024883baabba2cb42c88"),
+}
+EVIDENCE_PATH = Path(__file__).with_name("evidence") / "predecessor-39746585328.zip"
 BUDGET = 20_000_000
 RESERVATION = 3_000_000
-PRIOR_SETTLED = 103_154
-PRIOR_REQUESTS = 12
-PRICE_VALID_UNTIL = int(datetime(2026, 10, 24, tzinfo=timezone.utc).timestamp())
+PRIOR_SETTLED = 208_516
+PRIOR_REQUESTS = 24
+# Historical evidence keeps its original deadline; a new candidate deadline is
+# not retroactive authorization and cannot rewrite the accepted historical run.
+HISTORICAL_PRICE_VALID_UNTIL = int(datetime(2026, 10, 24, tzinfo=timezone.utc).timestamp())
+PRICE_VALID_UNTIL = int(datetime(2026, 10, 26, tzinfo=timezone.utc).timestamp())
 OPERATIONS = (
     "independent_play", "shared_wait_after_absence", "actual_color_choice",
     "unpressured_leisure", "paused_gap", "serious_mixed_work",
@@ -48,6 +70,16 @@ OPERATIONS = (
 )
 OPERATIONS_SHA256 = hashlib.sha256(json.dumps(
     OPERATIONS, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+).encode()).hexdigest()
+# Historical plans stay fixed even if the current candidate changes its matrix.
+HISTORICAL_OPERATIONS = (
+    "independent_play", "shared_wait_after_absence", "actual_color_choice",
+    "unpressured_leisure", "paused_gap", "serious_mixed_work",
+    "work_finish_continuation", "boat_specific_memory", "cloud_specific_memory",
+    "same_type_ambiguity", "deleted_source_memory", "withdrawal_and_boundaries",
+)
+HISTORICAL_OPERATIONS_SHA256 = hashlib.sha256(json.dumps(
+    HISTORICAL_OPERATIONS, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
 ).encode()).hexdigest()
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _STATE_KEYS = frozenset(("schema", "source_sha", "request_count", "settled_micro_cny",
@@ -104,7 +136,7 @@ def _exact(value: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
 
 
 def _state(count: int, settled: int, reserved: int, *, closed: bool = False) -> dict[str, Any]:
-    return {"schema": 1, "source_sha": PREDECESSOR_SOURCE_SHA, "request_count": count,
+    return {"schema": 1, "source_sha": ORIGINAL_SOURCE_SHA, "request_count": count,
             "settled_micro_cny": settled, "reserved_micro_cny": reserved,
             "budget_micro_cny": BUDGET, "halted": closed}
 
@@ -112,11 +144,11 @@ def _state(count: int, settled: int, reserved: int, *, closed: bool = False) -> 
 def _replay_ledger(raw: bytes) -> dict[str, Any]:
     """Replay a fixed complete predecessor; no unknowns can become free money."""
     rows = _lines(raw)
-    _demand(len(rows) == 2 + 3 * PRIOR_REQUESTS)
+    _demand(len(rows) == 2 + 3 * ORIGINAL_REQUESTS)
     _demand(set(rows[0]) == _STATE_KEYS | {"event"}
             and _exact(rows[0], {**_state(0, 0, 0), "event": "created"}))
     settled = 0
-    for index, operation in enumerate(OPERATIONS):
+    for index, operation in enumerate(HISTORICAL_OPERATIONS):
         reserve, settlement, complete = rows[1 + index * 3:4 + index * 3]
         _demand(set(reserve) == _STATE_KEYS | {"event", "operation", "body_sha256"}
                 and _exact(reserve, {**_state(index + 1, settled, RESERVATION),
@@ -140,54 +172,149 @@ def _replay_ledger(raw: bytes) -> dict[str, Any]:
         _demand(set(complete) == _STATE_KEYS | {"event", "operation", "calls"}
                 and _exact(complete, {**_state(index + 1, settled, 0),
                                       "event": "stage_complete", "operation": operation, "calls": 1}))
-    _demand(settled == PRIOR_SETTLED)
+    _demand(settled == ORIGINAL_SETTLED)
     # Broker.close intentionally marks closed.halted=true; a halted event or an
     # unclosed/uncertain reservation is never accepted by the exact replay above.
     _demand(set(rows[-1]) == _STATE_KEYS | {"event"}
-            and _exact(rows[-1], {**_state(PRIOR_REQUESTS, settled, 0, closed=True), "event": "closed"}))
-    return _state(PRIOR_REQUESTS, settled, 0)
+            and _exact(rows[-1], {**_state(ORIGINAL_REQUESTS, settled, 0, closed=True), "event": "closed"}))
+    return _state(ORIGINAL_REQUESTS, settled, 0)
 
 
-def _verify_archive(raw: bytes) -> None:
-    _demand(len(raw) == ARCHIVE_SIZE and hashlib.sha256(raw).hexdigest() == ARCHIVE_SHA256,
+def _historical_lineage() -> dict[str, Any]:
+    """Exactly ordinal 1's recorded lineage, never today's candidate lineage."""
+    return {
+        "campaign_id": CAMPAIGN_ID, "correction_ordinal": 1,
+        "predecessor_run_id": ORIGINAL_RUN_ID, "predecessor_artifact_id": ORIGINAL_ARTIFACT_ID,
+        "predecessor_source_sha": ORIGINAL_SOURCE_SHA, "predecessor_helper_sha": ORIGINAL_HELPER_SHA,
+        "predecessor_archive_sha256": ORIGINAL_ARCHIVE_SHA256,
+        "predecessor_ledger_sha256": ORIGINAL_LEDGER_SHA256,
+        "prior_settled_micro_cny": ORIGINAL_SETTLED, "prior_reserved_micro_cny": 0,
+        "prior_request_count": ORIGINAL_REQUESTS, "budget_micro_cny": BUDGET,
+        "operations_sha256": HISTORICAL_OPERATIONS_SHA256, "price_valid_until": HISTORICAL_PRICE_VALID_UNTIL,
+    }
+
+
+def _correction_state(count: int, settled: int, reserved: int, *,
+                      closed: bool = False) -> dict[str, Any]:
+    return {
+        **_historical_lineage(), "schema": 2, "source_sha": PREDECESSOR_SOURCE_SHA,
+        "request_count": count, "settled_micro_cny": settled,
+        "reserved_micro_cny": reserved, "halted": closed,
+        "batch_request_count": count, "lifetime_request_count": ORIGINAL_REQUESTS + count,
+        "batch_settled_micro_cny": settled - ORIGINAL_SETTLED,
+        "batch_reserved_micro_cny": reserved, "lifetime_settled_micro_cny": settled,
+        "lifetime_reserved_micro_cny": reserved, "lifetime_liability_micro_cny": settled + reserved,
+        "lifetime_remaining_micro_cny": BUDGET - settled - reserved,
+    }
+
+
+def _replay_correction_ledger(raw: bytes) -> dict[str, Any]:
+    """Replay exactly ordinal 1 from its cumulative opening, not from zero.
+
+    The 105362 micro-CNY batch delta is not the 208516 lifetime liability;
+    original spending is inherited once, never refunded or added twice.
+    """
+    rows = _lines(raw)
+    state_keys = set(_correction_state(0, ORIGINAL_SETTLED, 0))
+    _demand(len(rows) == 2 + 3 * len(HISTORICAL_OPERATIONS))
+    _demand(set(rows[0]) == state_keys | {"event"}
+            and _exact(rows[0], {**_correction_state(0, ORIGINAL_SETTLED, 0), "event": "created"}))
+    settled = ORIGINAL_SETTLED
+    for index, operation in enumerate(HISTORICAL_OPERATIONS):
+        reserve, settlement, complete = rows[1 + index * 3:4 + index * 3]
+        _demand(set(reserve) == state_keys | {"event", "operation", "body_sha256"}
+                and _exact(reserve, {**_correction_state(index + 1, settled, RESERVATION),
+                                    "event": "reserved", "operation": operation})
+                and isinstance(reserve["body_sha256"], str)
+                and bool(_HASH.fullmatch(reserve["body_sha256"]))
+                and settled + RESERVATION <= BUDGET)
+        _demand(set(settlement) == state_keys | {
+            "event", "operation", "cost_micro_cny", "prompt_tokens", "completion_tokens"})
+        prompt, completion, cost = (settlement.get(key) for key in
+                                    ("prompt_tokens", "completion_tokens", "cost_micro_cny"))
+        _demand(type(prompt) is int and 0 <= prompt <= 1_048_576
+                and type(completion) is int and 0 <= completion <= 512
+                and prompt + completion <= 1_048_576
+                and type(cost) is int and cost == prompt * 2 + completion * 8
+                and 0 <= cost <= RESERVATION)
+        assert isinstance(cost, int)
+        settled += cost
+        _demand(_exact(settlement, {**_correction_state(index + 1, settled, 0),
+                                    "event": "settled", "operation": operation}))
+        _demand(set(complete) == state_keys | {"event", "operation", "calls"}
+                and _exact(complete, {**_correction_state(index + 1, settled, 0),
+                                      "event": "stage_complete", "operation": operation, "calls": 1}))
+    _demand(settled == PRIOR_SETTLED and ORIGINAL_REQUESTS + len(HISTORICAL_OPERATIONS) == PRIOR_REQUESTS)
+    # Only the final, normally closed row may set halted=true. Unknown usage,
+    # extra attempts, incomplete stages and outstanding reservations all block.
+    _demand(set(rows[-1]) == state_keys | {"event"}
+            and _exact(rows[-1], {**_correction_state(len(HISTORICAL_OPERATIONS), settled, 0, closed=True),
+                                  "event": "closed"}))
+    return _correction_state(len(HISTORICAL_OPERATIONS), settled, 0)
+
+
+def _archive_members(raw: bytes, *, size: int, digest: str,
+                     expected: Mapping[str, tuple[int, str]]) -> dict[str, bytes]:
+    _demand(len(raw) == size and hashlib.sha256(raw).hexdigest() == digest,
             "PREDECESSOR_ARCHIVE_MISMATCH")
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             infos = archive.infolist()
-            _demand(len(infos) == len(MEMBERS) and {i.filename for i in infos} == set(MEMBERS))
+            _demand(len(infos) == len(expected) and {i.filename for i in infos} == set(expected))
             members: dict[str, bytes] = {}
             for info in infos:
-                size, digest = MEMBERS[info.filename]
+                member_size, member_digest = expected[info.filename]
                 mode = info.external_attr >> 16
                 _demand(not info.is_dir() and stat.S_ISREG(mode)
                         and not info.flag_bits & 1 and info.compress_type == zipfile.ZIP_DEFLATED
-                        and info.file_size == size and 0 < info.compress_size <= ARCHIVE_SIZE)
+                        and info.file_size == member_size and 0 < info.compress_size <= size)
                 with archive.open(info) as stream:
-                    data = stream.read(size + 1)
-                _demand(len(data) == size and hashlib.sha256(data).hexdigest() == digest,
+                    data = stream.read(member_size + 1)
+                _demand(len(data) == member_size and hashlib.sha256(data).hexdigest() == member_digest,
                         "PREDECESSOR_MEMBER_MISMATCH")
                 members[info.filename] = data
     except (OSError, ValueError, EOFError, RuntimeError, zipfile.BadZipFile) as exc:
         if isinstance(exc, ContinuationError):
             raise
         raise ContinuationError("PREDECESSOR_EVIDENCE_INVALID") from None
-    state = _replay_ledger(members["budget.jsonl"])
+    return members
+
+
+def _verify_dialogue(members: Mapping[str, bytes], state: Mapping[str, Any], *, schema: int) -> None:
     summary, responses = _json(members["summary.json"]), _lines(members["responses.jsonl"])
     _demand(set(summary) == {"schema", "matrix", "budget"}
-            and type(summary["schema"]) is int and summary["schema"] == 1)
+            and type(summary["schema"]) is int and summary["schema"] == schema)
     budget, matrix = summary["budget"], summary["matrix"]
-    _demand(isinstance(budget, dict) and set(budget) == _STATE_KEYS | {"stages_complete"}
-            and _exact(budget, {**state, "stages_complete": PRIOR_REQUESTS})
+    expected_budget = {**state, "stages_complete": len(HISTORICAL_OPERATIONS)}
+    if schema == 2:
+        expected_budget["accounting_basis"] = "conservative_usage_not_provider_invoice"
+    _demand(isinstance(budget, dict) and set(budget) == set(expected_budget)
+            and _exact(budget, expected_budget)
             and isinstance(matrix, dict)
             and _exact(matrix, {"passed": True, "pass_scope": "mechanism_only", "schema_version": 1,
-                                "synthetic_only": True, "ordinary_count": PRIOR_REQUESTS,
+                                "synthetic_only": True, "ordinary_count": len(HISTORICAL_OPERATIONS),
                                 "tone_review_required": True, "transport": "uvicorn:/api/chat"})
-            and len(responses) == PRIOR_REQUESTS and matrix.get("responses") == responses)
-    for operation, response in zip(OPERATIONS, responses, strict=True):
+            and len(responses) == len(HISTORICAL_OPERATIONS) and matrix.get("responses") == responses)
+    for operation, response in zip(HISTORICAL_OPERATIONS, responses, strict=True):
         _demand(_exact(response, {"operation": operation, "ordinary_turn_read_only": True,
                                   "source_verified": True})
                 and isinstance(response.get("assistant_text"), str)
                 and 0 < len(response["assistant_text"].encode()) <= 8192)
+
+
+def _verify_original_archive(raw: bytes) -> dict[str, Any]:
+    members = _archive_members(raw, size=ORIGINAL_ARCHIVE_SIZE, digest=ORIGINAL_ARCHIVE_SHA256,
+                               expected=ORIGINAL_MEMBERS)
+    state = _replay_ledger(members["budget.jsonl"])
+    _verify_dialogue(members, state, schema=1)
+    return state
+
+
+def _verify_archive(raw: bytes) -> dict[str, Any]:
+    members = _archive_members(raw, size=ARCHIVE_SIZE, digest=ARCHIVE_SHA256, expected=MEMBERS)
+    state = _replay_correction_ledger(members["budget.jsonl"])
+    _verify_dialogue(members, state, schema=2)
+    return state
 
 
 @dataclass(frozen=True)
@@ -203,17 +330,27 @@ class Predecessor:
     ledger_sha256: str = LEDGER_SHA256
 
 
-def verified_predecessor() -> Predecessor:
-    """No caller path/balance; unavailable, altered or uncertain evidence blocks."""
+def _read_evidence(path: Path, size: int) -> bytes:
     try:
-        _demand(EVIDENCE_PATH.is_file() and not EVIDENCE_PATH.is_symlink(),
-                "PREDECESSOR_EVIDENCE_UNAVAILABLE")
-        with EVIDENCE_PATH.open("rb") as stream:
-            raw = stream.read(ARCHIVE_SIZE + 1)
+        _demand(path.is_file() and not path.is_symlink(), "PREDECESSOR_EVIDENCE_UNAVAILABLE")
+        with path.open("rb") as stream:
+            return stream.read(size + 1)
     except OSError:
         raise ContinuationError("PREDECESSOR_EVIDENCE_UNAVAILABLE") from None
-    _verify_archive(raw)
-    return Predecessor()
+
+
+def verified_predecessor() -> Predecessor:
+    """No caller path/balance/ordinal; verify both pinned archives on every call."""
+    original = _verify_original_archive(_read_evidence(ORIGINAL_EVIDENCE_PATH, ORIGINAL_ARCHIVE_SIZE))
+    correction = _verify_archive(_read_evidence(EVIDENCE_PATH, ARCHIVE_SIZE))
+    _demand(_exact(correction, {
+        "prior_settled_micro_cny": original["settled_micro_cny"],
+        "prior_reserved_micro_cny": original["reserved_micro_cny"],
+        "prior_request_count": original["request_count"],
+    }))
+    return Predecessor(settled_micro_cny=correction["lifetime_settled_micro_cny"],
+                       reserved_micro_cny=correction["lifetime_reserved_micro_cny"],
+                       request_count=correction["lifetime_request_count"])
 
 
 def lineage_fields() -> dict[str, Any]:

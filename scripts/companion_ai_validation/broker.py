@@ -37,12 +37,12 @@ MAX_REQUESTS = 12
 MAX_BYTES = 128 * 1024
 REQUEST_SECONDS = 90
 SESSION_SECONDS = 20 * 60
-# Official public sources rechecked 2026-10-22 00:01 UTC, never account /models:
+# Official public sources rechecked 2026-10-24 03:39 UTC, never account /models:
 # https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
 # https://api-docs.deepseek.com/zh-cn/api/list-models/
 # Peak cache-miss input 2 / output 8 CNY per million; context_window 1048576.
 # This reviewed quote expires, and is never silently extended on a rerun.
-PRICE_VALID_UNTIL = datetime(2026, 10, 24, tzinfo=timezone.utc).timestamp()
+PRICE_VALID_UNTIL = datetime(2026, 10, 26, tzinfo=timezone.utc).timestamp()
 OPERATIONS = continuation.OPERATIONS
 
 

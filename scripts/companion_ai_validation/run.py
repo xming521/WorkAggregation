@@ -57,8 +57,10 @@ def check_admission(record: Any, metadata: dict[str, str], now: float) -> str:
             any(c not in "0123456789abcdef" for c in sha) or
             not isinstance(helper, str) or len(helper) != 40 or
             any(c not in "0123456789abcdef" for c in helper) or sha == helper
-            or sha in {record["predecessor_source_sha"], record["predecessor_helper_sha"]}
-            or helper in {record["predecessor_source_sha"], record["predecessor_helper_sha"]}
+            or sha in {continuation.ORIGINAL_SOURCE_SHA, continuation.ORIGINAL_HELPER_SHA,
+                          record["predecessor_source_sha"], record["predecessor_helper_sha"]}
+            or helper in {continuation.ORIGINAL_SOURCE_SHA, continuation.ORIGINAL_HELPER_SHA,
+                             record["predecessor_source_sha"], record["predecessor_helper_sha"]}
             or not isinstance(run_id, str) or not run_id or run_id[0] == "0"
             or any(c not in "0123456789" for c in run_id)
             or record["run_attempt"] != "1"):

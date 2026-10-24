@@ -1,4 +1,4 @@
-"""Read-only, fail-closed gate for exactly one cumulative corrective batch.
+"""Read-only, fail-closed gate for the pinned second cumulative correction.
 
 Only GitHub runner metadata, the push event and explicitly injected Actions vars
 are inputs. No product settings, local credentials, historical desktop helpers,
@@ -68,7 +68,7 @@ def marker(helper_sha: str) -> str:
     return (
         "test: request OfferPilot companion real AI validation\n\n"
         f"OfferPilot-Companion-AI-Helper: {helper_sha}\n"
-        "OfferPilot-Companion-AI-Request: one-shot-20261021-correction-1\n"
+        "OfferPilot-Companion-AI-Request: one-shot-20261021-correction-2\n"
         f"OfferPilot-Companion-AI-Predecessor: {lineage.PREDECESSOR_RUN_ID}\n"
         f"OfferPilot-Companion-AI-Ledger: {lineage.LEDGER_SHA256}"
     )
@@ -90,9 +90,10 @@ class Context:
 def validate_context(env: Mapping[str, str]) -> Context:
     demand(env.get("GITHUB_RUN_ATTEMPT") == "1", "RERUN_FORBIDDEN")
     helper, request = env.get(HELPER_VAR, ""), env.get(REQUEST_VAR, "")
+    old_shas = (lineage.ORIGINAL_HELPER_SHA, lineage.ORIGINAL_SOURCE_SHA,
+                lineage.PREDECESSOR_HELPER_SHA, lineage.PREDECESSOR_SOURCE_SHA)
     demand(bool(SHA.fullmatch(helper) and SHA.fullmatch(request)) and helper != request
-           and helper not in (lineage.PREDECESSOR_HELPER_SHA, lineage.PREDECESSOR_SOURCE_SHA)
-           and request not in (lineage.PREDECESSOR_HELPER_SHA, lineage.PREDECESSOR_SOURCE_SHA),
+           and helper not in old_shas and request not in old_shas,
            "EXACT_SHA_APPROVAL_MISSING")
     demand(
         env.get("GITHUB_EVENT_NAME") == "push"
@@ -251,7 +252,11 @@ def validate_history(ctx: Context, runs: list[dict[str, Any]],
            "CURRENT_RUN_UNVERIFIED")
     demand(set(jobs_by_run) == {run["id"] for run in runs}, "JOB_HISTORY_INCOMPLETE")
     helper_runs = []
-    predecessor_runs, predecessor_helpers = [], []
+    pinned = historical_batches()
+    paid_batches = {batch.run_id: batch for batch in pinned}
+    helper_batches = {batch.helper_run_id: batch for batch in pinned}
+    predecessor_runs: dict[int, dict[str, Any]] = {}
+    predecessor_helpers: dict[int, dict[str, Any]] = {}
     for run in runs:
         jobs = validate_jobs(run, jobs_by_run[run["id"]])
         if run["id"] == ctx.run_id:
@@ -272,28 +277,34 @@ def validate_history(ctx: Context, runs: list[dict[str, Any]],
         demand(run.get("status") == "completed", "PRIOR_RUN_UNRESOLVED")
         demand(set(jobs) == JOBS and all(job.get("status") == "completed" for job in jobs.values()),
                "JOB_HISTORY_INCOMPLETE")
-        if run["id"] == lineage.PREDECESSOR_RUN_ID:
-            demand(run["head_sha"] == lineage.PREDECESSOR_SOURCE_SHA
+        if run["id"] in paid_batches:
+            batch = paid_batches[run["id"]]
+            demand(run["head_sha"] == batch.source_sha
                    and run.get("conclusion") == "success"
                    and all(completed(job, "success") for job in jobs.values()),
                    "PREDECESSOR_RUN_MISMATCH")
-            predecessor_runs.append(run)
+            predecessor_runs[run["id"]] = run
         else:
             demand(completed(jobs[PAID_JOB], "skipped"), "PAID_BUDGET_ALREADY_CONSUMED")
-        if run["id"] == lineage.PREDECESSOR_HELPER_RUN_ID:
-            demand(run["head_sha"] == lineage.PREDECESSOR_HELPER_SHA
+        if run["id"] in helper_batches:
+            batch = helper_batches[run["id"]]
+            demand(run["head_sha"] == batch.helper_sha
                    and run.get("conclusion") == "success"
                    and completed(jobs[OFFLINE_JOB], "success")
                    and completed(jobs[PREFLIGHT_JOB], "skipped"), "PREDECESSOR_HELPER_MISMATCH")
-            predecessor_helpers.append(run)
+            predecessor_helpers[run["id"]] = run
         if run["head_sha"] == ctx.helper_sha:
             demand(run.get("conclusion") == "success" and completed(jobs[OFFLINE_JOB], "success"),
                    "HELPER_OFFLINE_SUCCESS_REQUIRED")
             helper_runs.append(run)
     demand(len(helper_runs) == 1, "HELPER_OFFLINE_SUCCESS_REQUIRED")
-    demand(len(predecessor_runs) == len(predecessor_helpers) == 1, "PREDECESSOR_HISTORY_REQUIRED")
-    demand(predecessor_helpers[0]["run_number"] < predecessor_runs[0]["run_number"]
-           < helper_runs[0]["run_number"] < current["run_number"], "PREDECESSOR_HISTORY_ORDER")
+    demand(set(predecessor_runs) == set(paid_batches)
+           and set(predecessor_helpers) == set(helper_batches), "PREDECESSOR_HISTORY_REQUIRED")
+    chain = [number for batch in pinned for number in (
+        predecessor_helpers[batch.helper_run_id]["run_number"],
+        predecessor_runs[batch.run_id]["run_number"])]
+    chain.extend((helper_runs[0]["run_number"], current["run_number"]))
+    demand(all(left < right for left, right in zip(chain, chain[1:])), "PREDECESSOR_HISTORY_ORDER")
 
 
 @dataclass(frozen=True)
@@ -395,6 +406,7 @@ class GitHubReader:
             re.escape(f"actions/workflows/{WORKFLOW.rsplit('/', 1)[-1]}/runs")
             + r"\?per_page=100&page=[1-9][0-9]*",
             r"actions/runs/[1-9][0-9]*(?:/approvals)?",
+            re.escape(f"actions/artifacts/{lineage.ORIGINAL_ARTIFACT_ID}"),
             re.escape(f"actions/artifacts/{lineage.PREDECESSOR_ARTIFACT_ID}"),
             r"actions/runs/[1-9][0-9]*/jobs\?filter=all&per_page=100&page=[1-9][0-9]*",
         )
@@ -425,39 +437,73 @@ def verified_lineage() -> dict[str, Any]:
         raise Blocked(str(error)) from None
 
 
-def validate_predecessor_metadata(ctx: Context, read: Reader, environment_id: int) -> None:
-    """Original approval/accounting is provenance, never current-run approval."""
-    original = obj(single(read, f"git/commits/{lineage.PREDECESSOR_SOURCE_SHA}"))
-    helper = obj(single(read, f"git/commits/{lineage.PREDECESSOR_HELPER_SHA}"))
+@dataclass(frozen=True)
+class HistoricalBatch:
+    run_id: int
+    helper_run_id: int
+    source_sha: str
+    helper_sha: str
+    tree_sha: str
+    artifact_id: int
+    archive_size: int
+    archive_sha256: str
+    request_marker: str
+
+
+def historical_batches() -> tuple[HistoricalBatch, HistoricalBatch]:
+    """Only these two paid successes are admissible, never arbitrary history."""
     original_marker = (
         "test: request OfferPilot companion real AI validation\n\n"
-        f"OfferPilot-Companion-AI-Helper: {lineage.PREDECESSOR_HELPER_SHA}\n"
+        f"OfferPilot-Companion-AI-Helper: {lineage.ORIGINAL_HELPER_SHA}\n"
         "OfferPilot-Companion-AI-Request: one-shot-20261021"
     )
-    parents = original.get("parents")
-    demand(original.get("sha") == lineage.PREDECESSOR_SOURCE_SHA
-           and helper.get("sha") == lineage.PREDECESSOR_HELPER_SHA
-           and obj(original.get("tree")).get("sha") == lineage.PREDECESSOR_TREE_SHA
-           and obj(helper.get("tree")).get("sha") == lineage.PREDECESSOR_TREE_SHA
-           and isinstance(parents, list) and len(parents) == 1
-           and obj(parents[0]).get("sha") == lineage.PREDECESSOR_HELPER_SHA
-           and original.get("message") in (original_marker, original_marker + "\n"),
-           "PREDECESSOR_SOURCE_MISMATCH")
-    validate_review(single(read, f"actions/runs/{lineage.PREDECESSOR_RUN_ID}/approvals"), environment_id)
-    artifact = obj(single(read, f"actions/artifacts/{lineage.PREDECESSOR_ARTIFACT_ID}"))
-    owner = obj(artifact.get("workflow_run"))
-    demand(positive(artifact.get("id")) and artifact.get("id") == lineage.PREDECESSOR_ARTIFACT_ID
-           and artifact.get("name") == f"companion-ai-{lineage.PREDECESSOR_SOURCE_SHA}"
-           and positive(artifact.get("size_in_bytes")) and artifact.get("size_in_bytes") == lineage.ARCHIVE_SIZE
-           and artifact.get("digest") == f"sha256:{lineage.ARCHIVE_SHA256}"
-           and artifact.get("expired") is False
-           and artifact.get("url") == API + f"actions/artifacts/{lineage.PREDECESSOR_ARTIFACT_ID}"
-           and positive(owner.get("id")) and owner.get("id") == lineage.PREDECESSOR_RUN_ID
-           and positive(owner.get("repository_id")) and owner.get("repository_id") == ctx.repository_id
-           and positive(owner.get("head_repository_id")) and owner.get("head_repository_id") == ctx.repository_id
-           and owner.get("head_branch") == BRANCH
-           and owner.get("head_sha") == lineage.PREDECESSOR_SOURCE_SHA,
-           "PREDECESSOR_ARTIFACT_MISMATCH")
+    predecessor_marker = (
+        "test: request OfferPilot companion real AI validation\n\n"
+        f"OfferPilot-Companion-AI-Helper: {lineage.PREDECESSOR_HELPER_SHA}\n"
+        "OfferPilot-Companion-AI-Request: one-shot-20261021-correction-1\n"
+        f"OfferPilot-Companion-AI-Predecessor: {lineage.ORIGINAL_RUN_ID}\n"
+        f"OfferPilot-Companion-AI-Ledger: {lineage.ORIGINAL_LEDGER_SHA256}"
+    )
+    return (
+        HistoricalBatch(lineage.ORIGINAL_RUN_ID, lineage.ORIGINAL_HELPER_RUN_ID,
+                        lineage.ORIGINAL_SOURCE_SHA, lineage.ORIGINAL_HELPER_SHA,
+                        lineage.ORIGINAL_TREE_SHA, lineage.ORIGINAL_ARTIFACT_ID,
+                        lineage.ORIGINAL_ARCHIVE_SIZE, lineage.ORIGINAL_ARCHIVE_SHA256,
+                        original_marker),
+        HistoricalBatch(lineage.PREDECESSOR_RUN_ID, lineage.PREDECESSOR_HELPER_RUN_ID,
+                        lineage.PREDECESSOR_SOURCE_SHA, lineage.PREDECESSOR_HELPER_SHA,
+                        lineage.PREDECESSOR_TREE_SHA, lineage.PREDECESSOR_ARTIFACT_ID,
+                        lineage.ARCHIVE_SIZE, lineage.ARCHIVE_SHA256, predecessor_marker),
+    )
+
+
+def validate_predecessor_metadata(ctx: Context, read: Reader, environment_id: int) -> None:
+    """Both historical approvals are provenance, never current-run approval."""
+    for batch in historical_batches():
+        request = obj(single(read, f"git/commits/{batch.source_sha}"))
+        helper = obj(single(read, f"git/commits/{batch.helper_sha}"))
+        parents = request.get("parents")
+        demand(request.get("sha") == batch.source_sha and helper.get("sha") == batch.helper_sha
+               and obj(request.get("tree")).get("sha") == batch.tree_sha
+               and obj(helper.get("tree")).get("sha") == batch.tree_sha
+               and isinstance(parents, list) and len(parents) == 1
+               and obj(parents[0]).get("sha") == batch.helper_sha
+               and request.get("message") in (batch.request_marker, batch.request_marker + "\n"),
+               "PREDECESSOR_SOURCE_MISMATCH")
+        validate_review(single(read, f"actions/runs/{batch.run_id}/approvals"), environment_id)
+        artifact = obj(single(read, f"actions/artifacts/{batch.artifact_id}"))
+        owner = obj(artifact.get("workflow_run"))
+        demand(positive(artifact.get("id")) and artifact.get("id") == batch.artifact_id
+               and artifact.get("name") == f"companion-ai-{batch.source_sha}"
+               and positive(artifact.get("size_in_bytes")) and artifact.get("size_in_bytes") == batch.archive_size
+               and artifact.get("digest") == f"sha256:{batch.archive_sha256}"
+               and artifact.get("expired") is False
+               and artifact.get("url") == API + f"actions/artifacts/{batch.artifact_id}"
+               and positive(owner.get("id")) and owner.get("id") == batch.run_id
+               and positive(owner.get("repository_id")) and owner.get("repository_id") == ctx.repository_id
+               and positive(owner.get("head_repository_id")) and owner.get("head_repository_id") == ctx.repository_id
+               and owner.get("head_branch") == BRANCH and owner.get("head_sha") == batch.source_sha,
+               "PREDECESSOR_ARTIFACT_MISMATCH")
 
 
 def start_quote_window() -> float:

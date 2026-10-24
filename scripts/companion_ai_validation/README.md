@@ -30,25 +30,25 @@ fixed errors, never provider error bodies or credentials. All retained dialogue
 and state are synthetic. Production request messages and 26 tool schemas remain
 intact; no tools are executed by this harness.
 
-## Fixed paid boundary
+## Fixed third-batch paid boundary
 
 - Independent environment: `offerpilot-companion-ai-20261021`.
 - Dedicated environment secret: `OFFERPILOT_COMPANION_DEEPSEEK_20261021`.
 - Environment variable: `OFFERPILOT_COMPANION_AI_MODEL=deepseek-flash`.
 - Fixed official TLS host `api.deepseek.com`, path `/chat/completions`.
 - Separate task-total cap: RMB20, including failed and unknown attempts.
-- One corrective batch: exactly twelve ordered slots, at most one actual HTTP
+- One second corrective batch (third batch overall): exactly twelve ordered slots, at most one actual HTTP
   request per slot, no retries, SDK retries, format repair, fallback or automatic
-  extra batch. The original twelve replies are retained evidence, not replayed as
+  extra batch. The prior twenty-four replies are retained evidence, not replayed as
   fresh results. Budget or safety failure can stop the batch before all slots finish.
 - Explicit thinking disabled and 512 output-token cap. The production client uses
   streaming; the broker makes one non-streaming upstream request and exposes local
   SSE only after complete model/content/usage/tool validation and durable settlement.
   A tool-bearing response is rejected before any text reaches product execution.
 - Integer micro-CNY accounting: peak cache-miss input RMB2/million, output
-  RMB8/million, reverified on 2026-10-22 against the [official price page](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/).
+  RMB8/million, reverified on 2026-10-24 against the [official price page](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/).
   [Thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/) defaults on,
-  so disabling it is explicit. The reviewed quote expires at 2026-10-24 00:00 UTC;
+  so disabling it is explicit. The reviewed quote expires at 2026-10-26 00:00 UTC;
   code must not silently extend it. This is the same activity and cumulative
   RMB20 budget, not another allocation.
 - Before each actual HTTP request, fsync a RMB3 reservation. The documented
@@ -58,54 +58,69 @@ intact; no tools are executed by this harness.
   halt. Monotonic request/session deadlines and wall/monotonic price windows are
   checked after fsync and TLS connection, immediately before sending HTTP. No proxy,
   redirect or custom TLS.
-- Journals cannot reopen/reset. Only the exact verified original paid run below
-  is a historical exception. Any other non-skipped paid job, rerun, missing history
+- Journals cannot reopen/reset. Only the two exact verified prior paid runs below
+  are historical exceptions. Any other non-skipped paid job, rerun, missing history
   or recreated pinned workflow/environment/policy blocks. Once this corrective paid
   job starts, success, failure or cancellation consumes this one continuation.
 
-## Original evidence and cumulative continuation
+## Two historical batches and cumulative continuation
 
 The original [run 39736858377](https://github.com/offercontext/offerPilot/actions/runs/39736858377)
-completed twelve requests and all structural checks, but independent review of the
-actual replies **failed** the experience: work-report formatting leaked into daily
-chat, progress gained an extra step, and ambiguous history was incorrectly denied.
-V1.4 changes the real source-fact projection and shared response policy; free tests
-do not prove the corrected model's tone or factual compliance.
+completed twelve requests and structural checks, but failed independent tone and
+fact review. V1.4 corrected work-report formatting in daily chat, progress indexes
+and ambiguous history handling. The first corrective
+[run 39746585328](https://github.com/offercontext/offerPilot/actions/runs/39746585328)
+also completed twelve requests. Ten replies passed review; case 10 still invented
+joint folding from virtual activity candidates, and case 12 explained boundaries
+mechanically. V1.5 separates activity facts from proven user participation and
+asks for brief honest capability answers. It has not passed a fresh real-model
+review. Free assertions and browser scenarios are not proof of natural model tone.
 
-The original conservative settled cost is **103,154 micro-CNY (RMB0.103154)**,
-with no outstanding or unknown reservation. The corrective broker inherits this
-amount before its first durable reservation. The task cap stays **20,000,000
-micro-CNY**, not another RMB20 allocation. Before any new request the initial
-remaining allowance is 19,896,846 micro-CNY; the first RMB3 reservation makes total
-liability 3,103,154 micro-CNY. Known new usage accumulates on top of the original
-cost; an unknown result retains the full reservation and halts. These are
-conservative validated-usage amounts, not a provider invoice.
+The two conservative validated-usage totals are **103,154 + 105,362 = 208,516
+micro-CNY (RMB0.208516)** across **24 actual requests**, with no outstanding or
+unknown reservation. The new broker inherits **208,516**, not the second batch's
+105,362 alone, and does not add the original 103,154 twice. The same task cap is
+**20,000,000 micro-CNY**. Initial remaining allowance is **19,791,484**; the first
+RMB3 reservation makes total liability **3,208,516**. New known usage accumulates
+on that total; unknown results retain the whole reservation and halt. These are
+conservative validated-usage amounts, not a provider invoice. Twelve new requests
+would make 36 lifetime requests, not create another budget.
 
-The helper pins the original H/R, run, artifact identity and SHA-256 digests. Its
-bundled original artifact contains only synthetic dialogue, state and a numeric
-ledger. A strict replay verifies all twelve reserve/settle/complete transitions,
-source identity, usage arithmetic, response/summary agreement and normal closure.
-The terminal `closed.halted=true` is normal closure only when every earlier record
-is unhalted and fully settled. Any actual halt, unknown liability, hash mismatch,
-missing source or unavailable remote provenance fails closed, never refunds it.
+Both fixed synthetic artifacts are bundled and hash-pinned. Every verification
+re-reads both archives and strictly replays the original schema-1 ledger and the
+correction schema-2 ledger, including its original ordinal-1 lineage and old
+2026-10-24 quote expiry. The first close must match the second opening. Every
+reserve/settle/complete transition, source identity, usage calculation, response
+and summary must agree. A terminal `closed.halted=true` is normal closure only
+when every preceding record is fully settled and unhalted. Missing or changed
+bytes, incorrect lineage, an actual halt or uncertain liability fail closed.
+Historical quotes and operation identities are not rewritten to match this run.
 
-Admission schema 2 links the new exact H/R and run to that immutable predecessor.
-Both preflight phases verify complete workflow history. Only the paid phase,
-after the environment review, requires fresh owner approval for the new run;
-the secret-free before phase does not pretend that approval already exists.
-The old approval cannot authorize the new run. There is no
-command-line or environment override for initial liability, predecessor, budget,
-operation list or correction ordinal. The same workflow, environment, key,
-concurrency identity and fixed 2026-10-24 00:00 UTC quote expiry remain in place.
-No third paid batch is enabled, even if money remains.
+Current admission schema 2 has fixed correction ordinal **2** and links the new
+exact H/R to the immediate preceding correction. Both preflight phases validate
+the complete history, both historical H/R same-tree/parent identities, their
+helper runs, artifacts and owner reviews. The new paid phase additionally needs
+fresh owner approval; prior approval never authorizes another run. All four old
+H/R SHAs are rejected as a new helper or request. Only the two pinned historical
+paid successes are allowed; every other non-skipped paid run blocks, including
+failure or cancellation. There is no override for balance, predecessor, ordinal,
+operation list or budget, and no general continuation framework or fourth batch.
 
-Publication of the helper alone is free. Before pushing its same-tree request,
-obtain approval of this exact once-corrective scope and configure the new exact
-repository H/R bindings. Do not push while that scope approval or configuration
-is pending. The push creates a run that must then wait for the owner's new
-protected-environment review before paid execution; never approve for the owner.
-Review all twelve new replies and the cumulative journal independently before
-claiming corrected experience success.
+The twelve existing prompts and operation IDs remain unchanged for comparison,
+particularly failed cases 10 and 12. The driver still uses actual production chat
+and bounded state commands, not canned replies. No new persona settings or
+product behavior are introduced by this safety delta.
+
+The workflow, environment, key, concurrency identity and reviewer protections are
+unchanged. The refreshed fixed candidate deadline is **2026-10-26 00:00 UTC**;
+its publication alone cannot authorize calls. Before pushing the same-tree request,
+obtain explicit approval for this one third batch and configure the new exact
+repository H/R variables. Until both are confirmed, publish only the ordinary
+helper commit and do not push the request. A subsequent push must still wait for
+the owner's new protected-environment review. Never approve for the owner or
+rerun the paid job. Independently review all actual replies and cumulative ledger
+before claiming the experience passed. Expiry requires a new reviewed price and
+fixed deadline, never a rolling extension.
 
 The earlier 48k input-token figure was a planning estimate, not the budget gate.
 Actual production schemas/history are not silently trimmed to meet that guess.
